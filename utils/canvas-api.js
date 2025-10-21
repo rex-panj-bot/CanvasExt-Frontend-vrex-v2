@@ -1,0 +1,354 @@
+/**
+ * Canvas LMS API Wrapper
+ * Handles all Canvas API interactions with pagination, rate limiting, and error handling
+ */
+
+class CanvasAPI {
+  constructor(baseUrl, apiToken, authMode = 'token') {
+    this.baseUrl = baseUrl.replace(/\/$/, ''); // Remove trailing slash
+    this.apiToken = apiToken;
+    this.authMode = authMode; // 'token', 'oauth', or 'session'
+    this.requestDelay = 100; // ms between requests to avoid rate limiting
+    this.lastRequestTime = 0;
+  }
+
+  /**
+   * Delay to respect rate limits
+   */
+  async rateLimit() {
+    const now = Date.now();
+    const timeSinceLastRequest = now - this.lastRequestTime;
+    if (timeSinceLastRequest < this.requestDelay) {
+      await new Promise(resolve => setTimeout(resolve, this.requestDelay - timeSinceLastRequest));
+    }
+    this.lastRequestTime = Date.now();
+  }
+
+  /**
+   * Get authentication headers based on auth mode
+   */
+  getAuthHeaders() {
+    const headers = {
+      'Accept': 'application/json'
+    };
+
+    if (this.authMode === 'token' || this.authMode === 'oauth') {
+      headers['Authorization'] = `Bearer ${this.apiToken}`;
+    }
+    // For session mode, credentials are handled via cookies
+
+    return headers;
+  }
+
+  /**
+   * Make a Canvas API request with pagination support
+   */
+  async makeRequest(endpoint, options = {}) {
+    await this.rateLimit();
+
+    const url = `${this.baseUrl}${endpoint}`;
+    const headers = {
+      ...this.getAuthHeaders(),
+      ...options.headers
+    };
+
+    const fetchOptions = {
+      ...options,
+      headers
+    };
+
+    // Include credentials for session-based auth
+    if (this.authMode === 'session') {
+      fetchOptions.credentials = 'include';
+    }
+
+    console.log(`Canvas API Request (${this.authMode}): ${url}`);
+
+    try {
+      const response = await fetch(url, fetchOptions);
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error('Invalid API token. Please check your Canvas API token.');
+        } else if (response.status === 403) {
+          throw new Error('Access forbidden. Check your Canvas permissions.');
+        } else if (response.status === 404) {
+          throw new Error('Resource not found.');
+        } else {
+          throw new Error(`Canvas API error: ${response.status} ${response.statusText}`);
+        }
+      }
+
+      const data = await response.json();
+
+      // Handle pagination - Canvas uses Link header
+      let allData = Array.isArray(data) ? data : [data];
+
+      const linkHeader = response.headers.get('Link');
+      if (linkHeader) {
+        const nextLink = this.parseLinkHeader(linkHeader).next;
+        if (nextLink) {
+          const nextData = await this.makeRequestFromUrl(nextLink);
+          allData = allData.concat(nextData);
+        }
+      }
+
+      return allData;
+    } catch (error) {
+      console.error('Canvas API Error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Make request from full URL (for pagination)
+   */
+  async makeRequestFromUrl(url) {
+    await this.rateLimit();
+
+    const headers = this.getAuthHeaders();
+
+    const fetchOptions = { headers };
+
+    // Include credentials for session-based auth
+    if (this.authMode === 'session') {
+      fetchOptions.credentials = 'include';
+    }
+
+    console.log(`Canvas API Pagination Request (${this.authMode}): ${url}`);
+
+    try {
+      const response = await fetch(url, fetchOptions);
+
+      if (!response.ok) {
+        throw new Error(`Canvas API error: ${response.status} ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      let allData = Array.isArray(data) ? data : [data];
+
+      const linkHeader = response.headers.get('Link');
+      if (linkHeader) {
+        const nextLink = this.parseLinkHeader(linkHeader).next;
+        if (nextLink) {
+          const nextData = await this.makeRequestFromUrl(nextLink);
+          allData = allData.concat(nextData);
+        }
+      }
+
+      return allData;
+    } catch (error) {
+      console.error('Canvas API Error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Parse Link header for pagination
+   */
+  parseLinkHeader(header) {
+    const links = {};
+    const parts = header.split(',');
+
+    parts.forEach(part => {
+      const section = part.split(';');
+      if (section.length === 2) {
+        const url = section[0].replace(/<(.*)>/, '$1').trim();
+        const rel = section[1].replace(/rel="(.*)"/, '$1').trim();
+        links[rel] = url;
+      }
+    });
+
+    return links;
+  }
+
+  /**
+   * Get all courses for the current user
+   */
+  async getCourses() {
+    try {
+      const courses = await this.makeRequest('/api/v1/courses?enrollment_state=active&per_page=100');
+      console.log(`Found ${courses.length} courses`);
+      return courses;
+    } catch (error) {
+      console.error('Error fetching courses:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get modules for a specific course
+   */
+  async getModules(courseId) {
+    try {
+      const modules = await this.makeRequest(`/api/v1/courses/${courseId}/modules?include[]=items&per_page=100`);
+      console.log(`Found ${modules.length} modules for course ${courseId}`);
+      return modules;
+    } catch (error) {
+      console.error(`Error fetching modules for course ${courseId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get files for a specific course
+   */
+  async getFiles(courseId) {
+    try {
+      const files = await this.makeRequest(`/api/v1/courses/${courseId}/files?per_page=100`);
+      console.log(`Found ${files.length} files for course ${courseId}`);
+      return files;
+    } catch (error) {
+      console.error(`Error fetching files for course ${courseId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get pages for a specific course
+   */
+  async getPages(courseId) {
+    try {
+      const pages = await this.makeRequest(`/api/v1/courses/${courseId}/pages?per_page=100`);
+      console.log(`Found ${pages.length} pages for course ${courseId}`);
+      return pages;
+    } catch (error) {
+      console.error(`Error fetching pages for course ${courseId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get a specific page with full content
+   */
+  async getPage(courseId, pageUrl) {
+    try {
+      const page = await this.makeRequest(`/api/v1/courses/${courseId}/pages/${pageUrl}`);
+      return page[0] || page;
+    } catch (error) {
+      console.error(`Error fetching page ${pageUrl} for course ${courseId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get assignments for a specific course
+   */
+  async getAssignments(courseId) {
+    try {
+      const assignments = await this.makeRequest(`/api/v1/courses/${courseId}/assignments?per_page=100`);
+      console.log(`Found ${assignments.length} assignments for course ${courseId}`);
+      return assignments;
+    } catch (error) {
+      console.error(`Error fetching assignments for course ${courseId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all materials for a course (modules, files, pages, assignments)
+   */
+  async getAllCourseMaterials(courseId, progressCallback) {
+    const materials = {
+      modules: [],
+      files: [],
+      pages: [],
+      assignments: [],
+      errors: [] // Track errors for each resource type
+    };
+
+    // Fetch modules with error handling
+    try {
+      if (progressCallback) progressCallback('Fetching modules...');
+      materials.modules = await this.getModules(courseId);
+    } catch (error) {
+      console.warn('Error fetching modules:', error);
+      materials.errors.push({ type: 'modules', error: error.message });
+    }
+
+    // Fetch files with error handling
+    try {
+      if (progressCallback) progressCallback('Fetching files...');
+      materials.files = await this.getFiles(courseId);
+    } catch (error) {
+      console.warn('Error fetching files:', error);
+      materials.errors.push({ type: 'files', error: error.message });
+    }
+
+    // Fetch pages with error handling
+    try {
+      if (progressCallback) progressCallback('Fetching pages...');
+      materials.pages = await this.getPages(courseId);
+    } catch (error) {
+      console.warn('Error fetching pages:', error);
+      materials.errors.push({ type: 'pages', error: error.message });
+    }
+
+    // Fetch assignments with error handling
+    try {
+      if (progressCallback) progressCallback('Fetching assignments...');
+      materials.assignments = await this.getAssignments(courseId);
+    } catch (error) {
+      console.warn('Error fetching assignments:', error);
+      materials.errors.push({ type: 'assignments', error: error.message });
+    }
+
+    console.log('All materials fetched:', materials);
+
+    // Show warning if some resources failed
+    if (materials.errors.length > 0) {
+      console.warn('Some resources could not be fetched:', materials.errors);
+      if (progressCallback) {
+        progressCallback(`Warning: ${materials.errors.length} resource type(s) unavailable`);
+      }
+    }
+
+    return materials;
+  }
+
+  /**
+   * Download file content
+   */
+  async downloadFile(fileUrl) {
+    await this.rateLimit();
+
+    const headers = this.getAuthHeaders();
+    const fetchOptions = { headers };
+
+    // Include credentials for session-based auth
+    if (this.authMode === 'session') {
+      fetchOptions.credentials = 'include';
+    }
+
+    try {
+      const response = await fetch(fileUrl, fetchOptions);
+
+      if (!response.ok) {
+        throw new Error(`Failed to download file: ${response.status} ${response.statusText}`);
+      }
+
+      return await response.blob();
+    } catch (error) {
+      console.error('Error downloading file:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Test API connection
+   */
+  async testConnection() {
+    try {
+      await this.makeRequest('/api/v1/users/self');
+      return true;
+    } catch (error) {
+      console.error('Connection test failed:', error);
+      return false;
+    }
+  }
+}
+
+// Export for use in other scripts
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = CanvasAPI;
+}

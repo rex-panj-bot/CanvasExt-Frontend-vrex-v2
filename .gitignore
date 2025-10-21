@@ -1,0 +1,22 @@
+# Build artifacts
+*.zip
+*.crx
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.bak
+
+# Environment files
+.env
+.env.local

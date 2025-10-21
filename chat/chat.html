@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Study Assistant</title>
+  <link rel="stylesheet" href="chat.css">
+  <!-- Marked.js for Markdown rendering -->
+  <script src="../lib/marked.min.js"></script>
+</head>
+<body>
+  <div class="container">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="course-icon">📚</div>
+        <h2 id="course-name">Loading...</h2>
+      </div>
+
+      <div class="sidebar-content">
+        <div class="materials-section">
+          <h3>Course Materials</h3>
+          <div id="materials-list" class="materials-list">
+            <div class="loading-skeleton">
+              <div class="skeleton-item"></div>
+              <div class="skeleton-item"></div>
+              <div class="skeleton-item"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="sidebar-actions">
+          <button id="new-chat-btn" class="btn btn-secondary">
+            <span class="icon">✨</span> New Chat
+          </button>
+          <button id="settings-btn" class="btn btn-icon" title="Settings">
+            ⚙️
+          </button>
+        </div>
+      </div>
+
+      <div class="sidebar-footer">
+        <div class="api-status">
+          <span class="status-indicator" id="api-status-indicator"></span>
+          <span id="api-status-text">Checking API...</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Chat Area -->
+    <main class="chat-main">
+      <!-- Chat Header -->
+      <header class="chat-header">
+        <h1>AI Study Assistant</h1>
+        <div class="header-actions">
+          <button id="export-chat-btn" class="btn btn-ghost" title="Export Chat">
+            📥 Export
+          </button>
+          <button id="clear-chat-btn" class="btn btn-ghost" title="Clear Chat">
+            🗑️ Clear
+          </button>
+        </div>
+      </header>
+
+      <!-- Messages Container -->
+      <div class="messages-container" id="messages-container">
+        <!-- Welcome Message -->
+        <div class="message assistant-message welcome-message">
+          <div class="message-avatar">🤖</div>
+          <div class="message-content">
+            <div class="message-header">
+              <span class="message-role">AI Assistant</span>
+            </div>
+            <div class="message-text">
+              <h3>Hi! I'm your AI study assistant for <span id="welcome-course-name">this course</span>.</h3>
+              <p>I have access to all your course materials. Ask me anything!</p>
+
+              <div class="starter-questions">
+                <h4>Try asking me:</h4>
+                <button class="starter-question">"Summarize the key concepts from this course"</button>
+                <button class="starter-question">"Quiz me on the main topics"</button>
+                <button class="starter-question">"Explain [concept] in simple terms"</button>
+                <button class="starter-question">"What should I focus on for the exam?"</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Input Area -->
+      <div class="input-container">
+        <div class="input-wrapper">
+          <textarea
+            id="message-input"
+            placeholder="Ask a question about your course materials..."
+            rows="1"></textarea>
+          <button id="send-btn" class="btn btn-primary" disabled>
+            <span class="send-icon">📤</span>
+          </button>
+        </div>
+        <div class="input-footer">
+          <span id="token-info" class="token-info"></span>
+          <span class="powered-by">Powered by Claude AI</span>
+        </div>
+      </div>
+    </main>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal hidden">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>Settings</h2>
+          <button class="modal-close" id="close-settings">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="setting-group">
+            <label for="api-key-input">Anthropic API Key</label>
+            <input
+              type="password"
+              id="api-key-input"
+              placeholder="sk-ant-..."
+              class="input-field">
+            <small class="help-text">
+              Get your API key from <a href="https://console.anthropic.com/settings/keys" target="_blank">Anthropic Console</a>
+            </small>
+            <div id="api-key-status" class="status-message"></div>
+          </div>
+
+          <div class="setting-group">
+            <label>Current Usage</label>
+            <div class="usage-stats">
+              <div class="stat">
+                <span class="stat-label">Materials Loaded:</span>
+                <span class="stat-value" id="materials-count">0</span>
+              </div>
+              <div class="stat">
+                <span class="stat-label">Estimated Tokens:</span>
+                <span class="stat-value" id="token-estimate">0</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="test-api-btn" class="btn btn-secondary">Test API Key</button>
+          <button id="save-settings-btn" class="btn btn-primary">Save Settings</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="../utils/storage.js"></script>
+  <script src="websocket-client.js"></script>
+  <script src="chat.js"></script>
+</body>
+</html>

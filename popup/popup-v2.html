@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Canvas Material Extractor</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <h1>Canvas Material Extractor</h1>
+    </header>
+
+    <!-- Auth Method Selection Screen -->
+    <div id="auth-method-screen" class="screen">
+      <div class="setup-content">
+        <h2>Choose Authentication Method</h2>
+        <p class="help-text">Select how you want to connect to Canvas</p>
+
+        <div class="auth-method-cards">
+          <div class="auth-card" id="select-session-auth">
+            <div class="auth-card-icon">🔒</div>
+            <h3>Session Login</h3>
+            <p>Use your existing Canvas login</p>
+            <ul class="auth-features">
+              <li>✓ No admin approval needed</li>
+              <li>✓ Quick setup</li>
+              <li>✓ Must stay logged in</li>
+            </ul>
+            <button class="btn btn-primary">Use Session Login</button>
+          </div>
+
+          <div class="auth-card" id="select-oauth-auth">
+            <div class="auth-card-icon">🔐</div>
+            <h3>OAuth 2.0</h3>
+            <p>Official OAuth authentication</p>
+            <ul class="auth-features">
+              <li>✓ More secure</li>
+              <li>✓ Token auto-refresh</li>
+              <li>⚠ Requires admin setup</li>
+            </ul>
+            <button class="btn btn-primary">Use OAuth 2.0</button>
+          </div>
+
+          <div class="auth-card" id="select-token-auth">
+            <div class="auth-card-icon">🔑</div>
+            <h3>API Token</h3>
+            <p>Manual API token (legacy)</p>
+            <ul class="auth-features">
+              <li>✓ Simple setup</li>
+              <li>⚠ May be disabled</li>
+              <li>⚠ Manual management</li>
+            </ul>
+            <button class="btn btn-primary">Use API Token</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Session Auth Setup -->
+    <div id="session-setup-screen" class="screen hidden">
+      <div class="setup-content">
+        <button id="back-to-auth-method" class="btn-back">← Back</button>
+        <h2>Session Login Setup</h2>
+        <p class="help-text">Log in to Canvas using your existing account</p>
+
+        <div class="form-group">
+          <label for="session-canvas-url">Canvas Instance URL</label>
+          <input
+            type="text"
+            id="session-canvas-url"
+            placeholder="canvas.instructure.com or yourschool.instructure.com"
+            class="input-field"
+          >
+          <small class="help-text">Enter your school's Canvas URL (without https://)</small>
+        </div>
+
+        <div class="info-box">
+          <p><strong>How it works:</strong></p>
+          <ol>
+            <li>Enter your Canvas URL above</li>
+            <li>Click "Log in to Canvas"</li>
+            <li>Log in to Canvas in the opened tab</li>
+            <li>Return here when logged in</li>
+          </ol>
+        </div>
+
+        <div class="error-message" id="session-error"></div>
+
+        <button id="session-login-btn" class="btn btn-primary">
+          Log in to Canvas
+        </button>
+
+        <button id="session-continue-btn" class="btn btn-secondary hidden">
+          I'm Logged In - Continue
+        </button>
+      </div>
+    </div>
+
+    <!-- OAuth Setup -->
+    <div id="oauth-setup-screen" class="screen hidden">
+      <div class="setup-content">
+        <button id="oauth-back-btn" class="btn-back">← Back</button>
+        <h2>OAuth 2.0 Setup</h2>
+        <p class="help-text">Configure OAuth authentication with Canvas</p>
+
+        <div class="info-box">
+          <p><strong>First time setup:</strong></p>
+          <ol>
+            <li>Install this extension and find your Extension ID</li>
+            <li>Ask your Canvas admin to create a Developer Key</li>
+            <li>Provide redirect URI: <code id="redirect-uri-display"></code></li>
+            <li>Get Client ID and Secret from admin</li>
+            <li>Enter them below</li>
+          </ol>
+          <p><small>Extension ID: <strong id="extension-id-display"></strong> <button id="copy-ext-id" class="btn-copy">Copy</button></small></p>
+        </div>
+
+        <div class="form-group">
+          <label for="oauth-canvas-url">Canvas Instance URL</label>
+          <input
+            type="text"
+            id="oauth-canvas-url"
+            placeholder="canvas.instructure.com"
+            class="input-field"
+          >
+        </div>
+
+        <div class="form-group">
+          <label for="oauth-client-id">Client ID</label>
+          <input
+            type="text"
+            id="oauth-client-id"
+            placeholder="Enter Client ID from Canvas admin"
+            class="input-field"
+          >
+        </div>
+
+        <div class="form-group">
+          <label for="oauth-client-secret">Client Secret</label>
+          <input
+            type="password"
+            id="oauth-client-secret"
+            placeholder="Enter Client Secret from Canvas admin"
+            class="input-field"
+          >
+        </div>
+
+        <div class="error-message" id="oauth-error"></div>
+
+        <button id="save-oauth-btn" class="btn btn-primary">
+          Save & Authorize with Canvas
+        </button>
+
+        <div class="help-link">
+          <a href="#" id="show-oauth-help">How to get OAuth credentials?</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Token Setup (Legacy) -->
+    <div id="token-setup-screen" class="screen hidden">
+      <div class="setup-content">
+        <button id="token-back-btn" class="btn-back">← Back</button>
+        <h2>API Token Setup</h2>
+        <p class="help-text">Enter your Canvas API token</p>
+
+        <div class="warning-box">
+          <p><strong>⚠ Note:</strong> Some institutions have disabled API token generation. If you can't create a token, use Session Login or OAuth 2.0 instead.</p>
+        </div>
+
+        <div class="form-group">
+          <label for="token-canvas-url">Canvas Instance URL</label>
+          <input
+            type="text"
+            id="token-canvas-url"
+            placeholder="canvas.instructure.com"
+            class="input-field"
+          >
+        </div>
+
+        <div class="form-group">
+          <label for="api-token">Canvas API Token</label>
+          <input
+            type="password"
+            id="api-token"
+            placeholder="Enter your Canvas API token"
+            class="input-field"
+          >
+          <small class="help-text">
+            Get your token from: Account → Settings → New Access Token
+          </small>
+        </div>
+
+        <div class="error-message" id="token-error"></div>
+
+        <button id="save-token-btn" class="btn btn-primary">
+          Save & Continue
+        </button>
+
+        <div class="help-link">
+          <a href="#" id="show-token-help">How to get API token?</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Screen (unchanged) -->
+    <div id="main-screen" class="screen hidden">
+      <div class="settings-bar">
+        <span id="auth-method-badge" class="auth-badge"></span>
+        <button id="settings-btn" class="btn-icon" title="Settings">⚙️</button>
+      </div>
+
+      <div id="course-selection" class="section">
+        <h2>Select Course</h2>
+        <div id="course-loading" class="loading hidden">
+          <div class="spinner"></div>
+          <p>Loading courses...</p>
+        </div>
+        <select id="course-select" class="select-field hidden">
+          <option value="">-- Select a course --</option>
+        </select>
+        <div class="error-message" id="course-error"></div>
+      </div>
+
+      <div id="material-section" class="section hidden">
+        <h2 id="course-name">Course Materials</h2>
+
+        <div id="scan-loading" class="loading hidden">
+          <div class="spinner"></div>
+          <p id="scan-status">Scanning materials...</p>
+        </div>
+
+        <div id="material-summary" class="hidden">
+          <div class="summary-card">
+            <h3>Materials Found</h3>
+            <div class="summary-stats">
+              <div class="stat-item">
+                <span class="stat-label">Total Items:</span>
+                <span class="stat-value" id="total-count">0</span>
+              </div>
+              <div class="stat-item">
+                <span class="stat-label">Total Size:</span>
+                <span class="stat-value" id="total-size">0 MB</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="view-toggle">
+            <button id="toggle-detailed-view" class="btn btn-secondary btn-small">
+              📋 Show Detailed File List
+            </button>
+          </div>
+
+          <div id="simple-view" class="category-list">
+            <div class="category-item">
+              <input type="checkbox" id="include-syllabus" checked>
+              <label for="include-syllabus">
+                Syllabus (<span id="syllabus-count">0</span>)
+              </label>
+            </div>
+            <div class="category-item">
+              <input type="checkbox" id="include-lectures" checked>
+              <label for="include-lectures">
+                Lectures (<span id="lectures-count">0</span>)
+              </label>
+            </div>
+            <div class="category-item">
+              <input type="checkbox" id="include-readings" checked>
+              <label for="include-readings">
+                Readings (<span id="readings-count">0</span>)
+              </label>
+            </div>
+            <div class="category-item">
+              <input type="checkbox" id="include-assignments" checked>
+              <label for="include-assignments">
+                Assignments (<span id="assignments-count">0</span>)
+              </label>
+            </div>
+            <div class="category-item">
+              <input type="checkbox" id="include-pages" checked>
+              <label for="include-pages">
+                Pages (<span id="pages-count">0</span>)
+              </label>
+            </div>
+          </div>
+
+          <div id="detailed-view" class="detailed-file-list hidden">
+            <!-- Detailed file list will be populated dynamically -->
+          </div>
+
+          <div id="download-section">
+            <button id="download-btn" class="btn btn-primary btn-large">
+              📥 Download Materials as ZIP
+            </button>
+
+            <button id="study-bot-btn" class="btn btn-ai btn-large">
+              🤖 Create Study Bot
+            </button>
+
+            <div id="download-progress" class="progress-container hidden">
+              <div class="progress-bar">
+                <div id="progress-fill" class="progress-fill"></div>
+              </div>
+              <p id="progress-text" class="progress-text">Preparing download...</p>
+            </div>
+
+            <div id="study-bot-progress" class="progress-container hidden">
+              <div class="progress-bar">
+                <div id="study-bot-progress-fill" class="progress-fill"></div>
+              </div>
+              <p id="study-bot-progress-text" class="progress-text">Processing materials for AI...</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="error-message" id="material-error"></div>
+      </div>
+    </div>
+
+    <!-- Settings Screen -->
+    <div id="settings-screen" class="screen hidden">
+      <div class="settings-content">
+        <button id="settings-back-btn" class="btn-back">← Back</button>
+        <h2>Settings</h2>
+
+        <div class="info-box">
+          <p><strong>Current Auth Method:</strong> <span id="current-auth-method">None</span></p>
+          <p><strong>Canvas URL:</strong> <span id="current-canvas-url">Not set</span></p>
+        </div>
+
+        <button id="change-auth-btn" class="btn btn-secondary">
+          Change Authentication Method
+        </button>
+
+        <button id="clear-data-btn" class="btn btn-danger">
+          Clear All Data
+        </button>
+
+        <div class="error-message" id="settings-error"></div>
+        <div class="success-message hidden" id="settings-success">
+          Settings updated successfully!
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="../lib/jszip.min.js"></script>
+  <!-- PDF.js for text extraction -->
+  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+  <!-- Mammoth.js for DOCX extraction -->
+  <script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js"></script>
+  <script>
+    // Set PDF.js worker
+    if (typeof pdfjsLib !== 'undefined') {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+    }
+  </script>
+  <script src="../utils/storage.js"></script>
+  <script src="../utils/indexed-db-storage.js"></script>
+  <script src="../utils/canvas-api.js"></script>
+  <script src="../utils/oauth.js"></script>
+  <script src="../utils/session-auth.js"></script>
+  <script src="../utils/file-processor.js"></script>
+  <script src="../utils/text-extractor.js"></script>
+  <script src="../chat/websocket-client.js"></script>
+  <script src="popup-v2.js"></script>
+</body>
+</html>

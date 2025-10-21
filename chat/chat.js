@@ -1,0 +1,767 @@
+/**
+ * Chat Interface - AI Study Assistant
+ */
+
+// Global variables
+let wsClient = null; // WebSocket client for Python backend
+let backendClient = null; // HTTP client for backend
+let courseName = '';
+let courseId = '';
+let conversationHistory = [];
+let processedMaterials = null; // Course materials for sidebar display
+
+// DOM Elements
+const elements = {
+  courseName: document.getElementById('course-name'),
+  welcomeCourseName: document.getElementById('welcome-course-name'),
+  materialsList: document.getElementById('materials-list'),
+  messagesContainer: document.getElementById('messages-container'),
+  messageInput: document.getElementById('message-input'),
+  sendBtn: document.getElementById('send-btn'),
+  newChatBtn: document.getElementById('new-chat-btn'),
+  settingsBtn: document.getElementById('settings-btn'),
+  exportChatBtn: document.getElementById('export-chat-btn'),
+  clearChatBtn: document.getElementById('clear-chat-btn'),
+  apiStatusIndicator: document.getElementById('api-status-indicator'),
+  apiStatusText: document.getElementById('api-status-text'),
+  tokenInfo: document.getElementById('token-info'),
+
+  // Settings modal
+  settingsModal: document.getElementById('settings-modal'),
+  closeSettings: document.getElementById('close-settings')
+};
+
+// Initialize
+document.addEventListener('DOMContentLoaded', init);
+
+async function init() {
+  console.log('Chat interface initializing...');
+
+  // Get course ID from URL parameters
+  const urlParams = new URLSearchParams(window.location.search);
+  courseId = urlParams.get('courseId');
+
+  if (!courseId) {
+    showError('No course selected. Please go back and select a course.');
+    return;
+  }
+
+  // Load materials from storage
+  await loadMaterials();
+
+  // Load API key and initialize Claude
+  await loadAPIKey();
+
+  // Setup event listeners
+  setupEventListeners();
+
+  // Auto-resize textarea
+  setupTextareaResize();
+}
+
+async function loadMaterials() {
+  try {
+    // Load course materials from chrome.storage
+    const key = `course_materials_${courseId}`;
+    const stored = await new Promise((resolve) => {
+      chrome.storage.local.get([key], (result) => {
+        resolve(result[key]);
+      });
+    });
+
+    if (!stored) {
+      showError('No materials found for this course. Please go back and scan materials first.');
+      return;
+    }
+
+    courseName = stored.courseName;
+    processedMaterials = stored.materials;
+
+    console.log('Loaded materials:', processedMaterials);
+
+    // Update UI
+    elements.courseName.textContent = courseName;
+    elements.welcomeCourseName.textContent = courseName;
+    document.title = `Study Assistant - ${courseName}`;
+
+    // Display materials in sidebar
+    displayMaterials();
+
+    console.log('Materials loaded:', { courseName, materialCount: Object.keys(processedMaterials).length });
+  } catch (error) {
+    console.error('Error loading materials:', error);
+    showError('Failed to load course materials: ' + error.message);
+  }
+}
+
+/**
+ * Display materials with checkboxes in sidebar
+ */
+function displayMaterials() {
+  const materialsList = elements.materialsList;
+
+  if (!materialsList) {
+    console.error('materials-list element not found!');
+    return;
+  }
+
+  if (!processedMaterials) {
+    console.error('processedMaterials is null or undefined');
+    return;
+  }
+
+  materialsList.innerHTML = '';
+
+  const categories = {
+    syllabus: { name: 'Syllabus', icon: '📋' },
+    lectures: { name: 'Lectures', icon: '📝' },
+    readings: { name: 'Readings', icon: '📖' },
+    assignments: { name: 'Assignments', icon: '✏️' },
+    pages: { name: 'Pages', icon: '📄' },
+    files: { name: 'Files', icon: '📄' },
+    modules: { name: 'Modules', icon: '📚' },
+    other: { name: 'Other', icon: '📦' }
+  };
+
+  // Add select all/deselect all controls
+  const controlsDiv = document.createElement('div');
+  controlsDiv.className = 'materials-controls';
+  controlsDiv.innerHTML = `
+    <button id="select-all-materials" class="btn-text">Select All</button>
+    <button id="deselect-all-materials" class="btn-text">Deselect All</button>
+  `;
+  materialsList.appendChild(controlsDiv);
+
+  let displayedCategories = 0;
+
+  Object.entries(processedMaterials).forEach(([key, items]) => {
+    if (!Array.isArray(items) || items.length === 0) return;
+
+    const category = categories[key];
+    if (!category) return;
+
+    displayedCategories++;
+
+    const categoryDiv = document.createElement('div');
+    categoryDiv.className = 'material-category';
+    categoryDiv.innerHTML = `
+      <div class="category-header" data-category="${key}">
+        <input type="checkbox" class="category-checkbox" id="category-${key}" checked>
+        <span class="category-icon">${category.icon}</span>
+        <span class="category-name">${category.name}</span>
+        <span class="category-count">${items.length}</span>
+      </div>
+      <div class="category-items" data-category-items="${key}">
+        ${items.map((item, index) => `
+          <div class="material-item">
+            <input type="checkbox" class="material-checkbox" id="material-${key}-${index}" data-category="${key}" data-index="${index}" checked>
+            <label for="material-${key}-${index}" title="${item.name || item.display_name}">
+              ${item.name || item.display_name}
+            </label>
+          </div>
+        `).join('')}
+      </div>
+    `;
+
+    materialsList.appendChild(categoryDiv);
+
+    // Toggle category visibility
+    const header = categoryDiv.querySelector('.category-header');
+    const itemsDiv = categoryDiv.querySelector('.category-items');
+    const categoryCheckbox = categoryDiv.querySelector('.category-checkbox');
+
+    header.addEventListener('click', (e) => {
+      if (e.target !== categoryCheckbox) {
+        itemsDiv.classList.toggle('collapsed');
+      }
+    });
+
+    // Category checkbox selects/deselects all items
+    categoryCheckbox.addEventListener('change', (e) => {
+      e.stopPropagation();
+      const checkboxes = itemsDiv.querySelectorAll('.material-checkbox');
+      checkboxes.forEach(cb => cb.checked = categoryCheckbox.checked);
+    });
+
+    // Update category checkbox when individual items change
+    const itemCheckboxes = itemsDiv.querySelectorAll('.material-checkbox');
+    itemCheckboxes.forEach(cb => {
+      cb.addEventListener('change', () => {
+        const allChecked = Array.from(itemCheckboxes).every(icb => icb.checked);
+        const noneChecked = Array.from(itemCheckboxes).every(icb => !icb.checked);
+        categoryCheckbox.checked = allChecked;
+        categoryCheckbox.indeterminate = !allChecked && !noneChecked;
+      });
+    });
+  });
+
+  // Setup select all/deselect all buttons
+  document.getElementById('select-all-materials')?.addEventListener('click', () => {
+    document.querySelectorAll('.material-checkbox, .category-checkbox').forEach(cb => cb.checked = true);
+  });
+
+  document.getElementById('deselect-all-materials')?.addEventListener('click', () => {
+    document.querySelectorAll('.material-checkbox, .category-checkbox').forEach(cb => cb.checked = false);
+  });
+
+  console.log(`displayMaterials complete - displayed ${displayedCategories} categories`);
+}
+
+
+/**
+ * Get currently selected materials from checkboxes
+ */
+function getSelectedMaterials() {
+  const selected = {};
+  const checkedBoxes = document.querySelectorAll('.material-checkbox:checked');
+
+  checkedBoxes.forEach(checkbox => {
+    const category = checkbox.dataset.category;
+    const index = parseInt(checkbox.dataset.index);
+
+    if (processedMaterials && processedMaterials[category] && processedMaterials[category][index]) {
+      if (!selected[category]) {
+        selected[category] = [];
+      }
+      selected[category].push(processedMaterials[category][index]);
+    }
+  });
+
+  return selected;
+}
+
+/**
+ * Convert selected materials to backend document IDs
+ */
+function getSelectedDocIds() {
+  const selected = getSelectedMaterials();
+  const docIds = [];
+
+  Object.values(selected).forEach(categoryItems => {
+    if (Array.isArray(categoryItems)) {
+      categoryItems.forEach(item => {
+        if (item && (item.name || item.display_name)) {
+          let materialName = item.name || item.display_name;
+
+          // Remove .pdf extension if present
+          if (materialName.endsWith('.pdf')) {
+            materialName = materialName.slice(0, -4);
+          }
+
+          const docId = `${courseId}_${materialName}`;
+          docIds.push(docId);
+        }
+      });
+    }
+  });
+
+  return docIds;
+}
+
+/**
+ * Get syllabus ID if available
+ */
+function getSyllabusId() {
+  const selected = getSelectedMaterials();
+
+  for (const category in selected) {
+    if (Array.isArray(selected[category])) {
+      for (const item of selected[category]) {
+        const name = (item.name || item.display_name || '').toLowerCase();
+        if (name.includes('syllabus')) {
+          let materialName = item.name || item.display_name;
+          if (materialName.endsWith('.pdf')) {
+            materialName = materialName.slice(0, -4);
+          }
+          return `${courseId}_${materialName}`;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Initialize connection to Python backend
+ */
+async function loadAPIKey() {
+  try {
+    // Initialize Python backend clients
+    backendClient = new BackendClient('http://localhost:8000');
+    wsClient = new WebSocketClient('ws://localhost:8000');
+
+    // Test backend connection
+    const isBackendReady = await backendClient.healthCheck();
+
+    if (!isBackendReady) {
+      setAPIStatus('error', 'Backend Offline');
+      showError('Python backend is not running. Please start the backend server.');
+      return;
+    }
+
+    // Connect WebSocket
+    try {
+      await wsClient.connect(courseId);
+      setAPIStatus('connected', 'Backend Connected');
+      elements.sendBtn.disabled = false;
+      console.log('✅ Connected to Python backend');
+    } catch (error) {
+      console.error('WebSocket connection failed:', error);
+      setAPIStatus('error', 'Backend Connection Failed');
+      showError('Failed to connect to backend: ' + error.message);
+    }
+  } catch (error) {
+    console.error('Error connecting to backend:', error);
+    setAPIStatus('error', 'Backend Error');
+    showError('Failed to initialize backend connection: ' + error.message);
+  }
+}
+
+function setAPIStatus(status, text) {
+  elements.apiStatusIndicator.className = `status-indicator ${status}`;
+  elements.apiStatusText.textContent = text;
+}
+
+function setupEventListeners() {
+  // Send message
+  elements.sendBtn.addEventListener('click', sendMessage);
+  elements.messageInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+
+  // Starter questions
+  document.querySelectorAll('.starter-question').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const question = btn.textContent;
+      elements.messageInput.value = question;
+      sendMessage();
+    });
+  });
+
+  // New chat
+  elements.newChatBtn.addEventListener('click', () => {
+    if (confirm('Start a new chat? Current conversation will be saved.')) {
+      conversationHistory = [];
+      elements.messagesContainer.innerHTML = '';
+      elements.messagesContainer.appendChild(createWelcomeMessage());
+    }
+  });
+
+  // Settings
+  elements.settingsBtn.addEventListener('click', showSettingsModal);
+  elements.closeSettings.addEventListener('click', hideSettingsModal);
+
+  // Export chat
+  elements.exportChatBtn.addEventListener('click', exportChat);
+
+  // Clear chat
+  elements.clearChatBtn.addEventListener('click', () => {
+    if (confirm('Clear all messages?')) {
+      conversationHistory = [];
+      elements.messagesContainer.innerHTML = '';
+      elements.messagesContainer.appendChild(createWelcomeMessage());
+    }
+  });
+
+  // Enable send button when input has text
+  elements.messageInput.addEventListener('input', () => {
+    elements.sendBtn.disabled = !elements.messageInput.value.trim();
+  });
+}
+
+function setupTextareaResize() {
+  elements.messageInput.addEventListener('input', function() {
+    this.style.height = 'auto';
+    this.style.height = Math.min(this.scrollHeight, 150) + 'px';
+  });
+}
+
+/**
+ * Send a message to the AI assistant via Python backend
+ */
+async function sendMessage() {
+  const message = elements.messageInput.value.trim();
+
+  if (!message) return;
+  if (!wsClient || !wsClient.isReady()) {
+    showError('Not connected to backend. Please check that the server is running.');
+    return;
+  }
+
+  // Clear input
+  elements.messageInput.value = '';
+  elements.messageInput.style.height = 'auto';
+  elements.sendBtn.disabled = true;
+
+  // Add user message
+  addMessage('user', message);
+
+  // Add typing indicator
+  const typingId = addTypingIndicator();
+
+  try {
+    let assistantMessage = '';
+
+    console.log('📤 Sending message to Python backend');
+
+    // Get selected documents from checkboxes
+    const selectedDocIds = getSelectedDocIds();
+    const syllabusId = getSyllabusId();
+
+    console.log(`Selected ${selectedDocIds.length} documents`);
+
+    await wsClient.sendQuery(
+      message,
+      conversationHistory,
+      selectedDocIds,
+      syllabusId,
+      // onChunk callback for streaming text
+      (chunk) => {
+        assistantMessage += chunk;
+        updateTypingIndicator(typingId, assistantMessage);
+      },
+      // onComplete callback
+      () => {
+        console.log('✅ Response complete, length:', assistantMessage.length);
+      },
+      // onError callback
+      (error) => {
+        console.error('❌ Backend error:', error);
+        throw error;
+      }
+    );
+
+    // Remove typing indicator and add final message
+    removeTypingIndicator(typingId);
+    addMessage('assistant', assistantMessage);
+
+    // Add to conversation history
+    conversationHistory.push({ role: 'user', content: message });
+    conversationHistory.push({ role: 'assistant', content: assistantMessage });
+
+    // Save conversation
+    await saveConversation();
+
+    // Show usage info
+    elements.tokenInfo.textContent = `Mode: Python Backend`;
+
+  } catch (error) {
+    console.error('Error sending message:', error);
+    removeTypingIndicator(typingId);
+    addMessage('assistant', `Sorry, I encountered an error: ${error.message}`);
+  } finally {
+    elements.sendBtn.disabled = false;
+  }
+}
+
+/**
+ * Parse citations in AI response and convert to clickable links
+ * Format: [Source: DocumentName, Page X]
+ */
+function parseCitations(content) {
+  // Regex to match: [Source: DocumentName, Page X]
+  const citationRegex = /\[Source:\s*([^,]+),\s*Page\s*(\d+)\]/gi;
+
+  return content.replace(citationRegex, (match, docName, pageNum) => {
+    // Clean up document name (trim whitespace)
+    const cleanDocName = docName.trim();
+
+    // Create clickable citation link
+    const pdfUrl = `http://localhost:8000/pdfs/${courseId}/${encodeURIComponent(cleanDocName)}#page=${pageNum}`;
+
+    return `<a href="${pdfUrl}" class="citation-link" target="_blank" title="Open ${cleanDocName} at page ${pageNum}">📄 ${cleanDocName}, p.${pageNum}</a>`;
+  });
+}
+
+function addMessage(role, content) {
+  const messageDiv = document.createElement('div');
+  messageDiv.className = `message ${role}-message`;
+
+  const avatar = role === 'assistant' ? '🤖' : '👤';
+  const roleName = role === 'assistant' ? 'AI Assistant' : 'You';
+
+  // For assistant messages: parse citations first, then render markdown
+  let processedContent = content;
+  if (role === 'assistant') {
+    processedContent = parseCitations(content);
+  }
+
+  // Render markdown
+  const renderedContent = role === 'assistant' ? marked.parse(processedContent) : content;
+
+  messageDiv.innerHTML = `
+    <div class="message-avatar">${avatar}</div>
+    <div class="message-content">
+      <div class="message-header">
+        <span class="message-role">${roleName}</span>
+        <span class="message-time">${new Date().toLocaleTimeString()}</span>
+      </div>
+      <div class="message-text">${renderedContent}</div>
+      ${role === 'assistant' ? `
+        <div class="message-actions">
+          <button class="copy-message-btn" data-content="${content.replace(/"/g, '&quot;')}">📋 Copy</button>
+        </div>
+      ` : ''}
+    </div>
+  `;
+
+  elements.messagesContainer.appendChild(messageDiv);
+  elements.messagesContainer.scrollTop = elements.messagesContainer.scrollHeight;
+
+  // Add copy functionality
+  if (role === 'assistant') {
+    const copyBtn = messageDiv.querySelector('.copy-message-btn');
+    copyBtn.addEventListener('click', () => {
+      navigator.clipboard.writeText(content);
+      copyBtn.textContent = '✅ Copied!';
+      setTimeout(() => {
+        copyBtn.textContent = '📋 Copy';
+      }, 2000);
+    });
+  }
+}
+
+function addTypingIndicator() {
+  const id = `typing-${Date.now()}`;
+  const messageDiv = document.createElement('div');
+  messageDiv.id = id;
+  messageDiv.className = 'message assistant-message';
+  messageDiv.innerHTML = `
+    <div class="message-avatar">🤖</div>
+    <div class="message-content">
+      <div class="message-header">
+        <span class="message-role">AI Assistant</span>
+      </div>
+      <div class="message-text">
+        <div class="typing-indicator">
+          <div class="typing-dot"></div>
+          <div class="typing-dot"></div>
+          <div class="typing-dot"></div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  elements.messagesContainer.appendChild(messageDiv);
+  elements.messagesContainer.scrollTop = elements.messagesContainer.scrollHeight;
+
+  return id;
+}
+
+function updateTypingIndicator(id, content) {
+  const messageDiv = document.getElementById(id);
+  if (messageDiv) {
+    const textDiv = messageDiv.querySelector('.message-text');
+    // Parse citations in streaming content too
+    const processedContent = parseCitations(content);
+    textDiv.innerHTML = marked.parse(processedContent);
+    elements.messagesContainer.scrollTop = elements.messagesContainer.scrollHeight;
+  }
+}
+
+function removeTypingIndicator(id) {
+  const messageDiv = document.getElementById(id);
+  if (messageDiv) {
+    messageDiv.remove();
+  }
+}
+
+function createWelcomeMessage() {
+  const welcomeDiv = document.createElement('div');
+  welcomeDiv.className = 'message assistant-message welcome-message';
+  welcomeDiv.innerHTML = `
+    <div class="message-avatar">🤖</div>
+    <div class="message-content">
+      <div class="message-header">
+        <span class="message-role">AI Assistant</span>
+      </div>
+      <div class="message-text">
+        <h3>Hi! I'm your AI study assistant for ${courseName}.</h3>
+        <p>I have access to all your course materials. Ask me anything!</p>
+        <div class="starter-questions">
+          <h4>Try asking me:</h4>
+          <button class="starter-question">"Summarize the key concepts from this course"</button>
+          <button class="starter-question">"Quiz me on the main topics"</button>
+          <button class="starter-question">"Explain key concepts in simple terms"</button>
+          <button class="starter-question">"What should I focus on for the exam?"</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Add click handlers to starter questions
+  welcomeDiv.querySelectorAll('.starter-question').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const question = btn.textContent.replace(/"/g, '');
+      elements.messageInput.value = question;
+      sendMessage();
+    });
+  });
+
+  return welcomeDiv;
+}
+
+async function saveConversation() {
+  try {
+    const key = `chat_history_${courseId}`;
+    await new Promise((resolve) => {
+      chrome.storage.local.set({
+        [key]: {
+          courseId,
+          courseName,
+          history: conversationHistory,
+          lastUpdated: Date.now()
+        }
+      }, resolve);
+    });
+    console.log('Conversation saved');
+  } catch (error) {
+    console.error('Error saving conversation:', error);
+  }
+}
+
+function showSettingsModal() {
+  elements.settingsModal.classList.remove('hidden');
+}
+
+function hideSettingsModal() {
+  elements.settingsModal.classList.add('hidden');
+}
+
+
+function showStatusMessage(element, message, type) {
+  element.textContent = message;
+  element.className = `status-message show ${type}`;
+
+  setTimeout(() => {
+    element.classList.remove('show');
+  }, 3000);
+}
+
+function exportChat() {
+  const chatText = conversationHistory.map(msg => {
+    const role = msg.role === 'user' ? 'You' : 'AI Assistant';
+    return `${role}:\n${msg.content}\n\n`;
+  }).join('---\n\n');
+
+  const blob = new Blob([`Chat History - ${courseName}\n\n${chatText}`], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+
+  chrome.downloads.download({
+    url: url,
+    filename: `${courseName.replace(/[^a-z0-9]/gi, '_')}_chat_history.txt`,
+    saveAs: true
+  }, () => {
+    URL.revokeObjectURL(url);
+  });
+}
+
+function showError(message) {
+  elements.messagesContainer.innerHTML = `
+    <div class="message assistant-message">
+      <div class="message-avatar">⚠️</div>
+      <div class="message-content">
+        <div class="message-text">
+          <h3>Error</h3>
+          <p>${message}</p>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ========== AGENTIC UI FUNCTIONS ==========
+
+/**
+ * Add a thinking/planning step indicator
+ */
+function addThinkingStep(message) {
+  const stepDiv = document.createElement('div');
+  stepDiv.className = 'agent-step thinking-step';
+  stepDiv.innerHTML = `
+    <div class="step-icon">🤔</div>
+    <div class="step-content">
+      <div class="step-message">${message}</div>
+    </div>
+  `;
+
+  elements.messagesContainer.appendChild(stepDiv);
+  elements.messagesContainer.scrollTop = elements.messagesContainer.scrollHeight;
+
+  return stepDiv.id = `step-${Date.now()}`;
+}
+
+/**
+ * Add an agent step (tool execution)
+ */
+function addAgentStep(toolName, message) {
+  const stepId = `step-${Date.now()}`;
+  const stepDiv = document.createElement('div');
+  stepDiv.id = stepId;
+  stepDiv.className = 'agent-step tool-step';
+  stepDiv.innerHTML = `
+    <div class="step-icon">🔧</div>
+    <div class="step-content">
+      <div class="step-title">${toolName}</div>
+      <div class="step-message">${message}</div>
+      <div class="step-result hidden"></div>
+    </div>
+  `;
+
+  elements.messagesContainer.appendChild(stepDiv);
+  elements.messagesContainer.scrollTop = elements.messagesContainer.scrollHeight;
+
+  return stepId;
+}
+
+/**
+ * Update an agent step with results
+ */
+function updateAgentStep(stepId, message, result) {
+  const stepDiv = document.getElementById(stepId);
+  if (!stepDiv) return;
+
+  const messageEl = stepDiv.querySelector('.step-message');
+  const resultEl = stepDiv.querySelector('.step-result');
+
+  if (messageEl) {
+    messageEl.textContent = message;
+  }
+
+  if (resultEl && result) {
+    resultEl.classList.remove('hidden');
+
+    // Format result based on type
+    let resultHTML = '';
+    if (result.results_count !== undefined) {
+      resultHTML = `<strong>Found ${result.results_count} results</strong>`;
+    } else if (result.relevant_materials_count !== undefined) {
+      resultHTML = `<strong>Found ${result.relevant_materials_count} relevant materials</strong>`;
+    } else if (result.total_materials !== undefined) {
+      resultHTML = `<strong>Total: ${result.total_materials} materials</strong>`;
+    } else {
+      resultHTML = '<strong>✓ Completed</strong>';
+    }
+
+    resultEl.innerHTML = resultHTML;
+  }
+
+  // Add checkmark to step icon
+  stepDiv.classList.add('completed');
+  const icon = stepDiv.querySelector('.step-icon');
+  if (icon) {
+    icon.textContent = '✅';
+  }
+}
+
+function clearMaterials() {
+  if (confirm('This will clear all cached materials. You will need to re-import from Canvas. Continue?')) {
+    localStorage.removeItem('canvasMaterials');
+    localStorage.removeItem('canvasCourseName');
+    location.reload();
+  }
+}
