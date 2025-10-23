@@ -27,6 +27,8 @@ const elements = {
   apiStatusIndicator: document.getElementById('api-status-indicator'),
   apiStatusText: document.getElementById('api-status-text'),
   tokenInfo: document.getElementById('token-info'),
+  loadingBanner: document.getElementById('loading-banner'),
+  loadingBannerText: document.getElementById('loading-banner-text'),
 
   // Settings modal
   settingsModal: document.getElementById('settings-modal'),
@@ -586,6 +588,61 @@ function setupTextareaResize() {
 }
 
 /**
+ * Show loading banner with message
+ */
+function showLoadingBanner(message) {
+  if (elements.loadingBanner && elements.loadingBannerText) {
+    elements.loadingBannerText.textContent = message;
+    elements.loadingBanner.classList.remove('hidden');
+  }
+}
+
+/**
+ * Hide loading banner
+ */
+function hideLoadingBanner() {
+  if (elements.loadingBanner) {
+    elements.loadingBanner.classList.add('hidden');
+  }
+}
+
+/**
+ * Add thinking indicator to typing message
+ */
+function addThinkingIndicator(typingId) {
+  const messageDiv = document.getElementById(typingId);
+  if (messageDiv) {
+    const textDiv = messageDiv.querySelector('.message-text');
+    if (textDiv && !textDiv.querySelector('.thinking-indicator')) {
+      const thinkingDiv = document.createElement('div');
+      thinkingDiv.className = 'thinking-indicator';
+      thinkingDiv.innerHTML = `
+        🤔 Thinking
+        <div class="thinking-dots">
+          <div class="thinking-dot"></div>
+          <div class="thinking-dot"></div>
+          <div class="thinking-dot"></div>
+        </div>
+      `;
+      textDiv.insertBefore(thinkingDiv, textDiv.firstChild);
+    }
+  }
+}
+
+/**
+ * Remove thinking indicator from typing message
+ */
+function removeThinkingIndicator(typingId) {
+  const messageDiv = document.getElementById(typingId);
+  if (messageDiv) {
+    const thinkingIndicator = messageDiv.querySelector('.thinking-indicator');
+    if (thinkingIndicator) {
+      thinkingIndicator.remove();
+    }
+  }
+}
+
+/**
  * Send a message to the AI assistant via Python backend
  */
 async function sendMessage() {
@@ -610,6 +667,8 @@ async function sendMessage() {
 
   try {
     let assistantMessage = '';
+    let hasReceivedChunks = false;
+    let thinkingTimeout = null;
 
     console.log('📤 Sending message to Python backend');
 
@@ -619,6 +678,13 @@ async function sendMessage() {
 
     console.log(`Selected ${selectedDocIds.length} documents`);
 
+    // Show thinking indicator after 2 seconds if no response
+    thinkingTimeout = setTimeout(() => {
+      if (!hasReceivedChunks) {
+        addThinkingIndicator(typingId);
+      }
+    }, 2000);
+
     await wsClient.sendQuery(
       message,
       conversationHistory,
@@ -627,22 +693,43 @@ async function sendMessage() {
       currentSessionId,  // Session ID for chat history
       // onChunk callback for streaming text
       (chunk) => {
+        // Check if this is a loading message (starts with 📤)
+        if (chunk.startsWith('📤')) {
+          showLoadingBanner(chunk);
+          return; // Don't add to assistant message
+        }
+
+        // First actual content chunk received
+        if (!hasReceivedChunks) {
+          hasReceivedChunks = true;
+          clearTimeout(thinkingTimeout);
+          removeThinkingIndicator(typingId);
+          hideLoadingBanner();
+        }
+
         assistantMessage += chunk;
         updateTypingIndicator(typingId, assistantMessage);
       },
       // onComplete callback
       () => {
         console.log('✅ Response complete, length:', assistantMessage.length);
+        clearTimeout(thinkingTimeout);
+        removeThinkingIndicator(typingId);
+        hideLoadingBanner();
       },
       // onError callback
       (error) => {
         console.error('❌ Backend error:', error);
+        clearTimeout(thinkingTimeout);
+        removeThinkingIndicator(typingId);
+        hideLoadingBanner();
         throw error;
       }
     );
 
     // Remove typing indicator and add final message
     removeTypingIndicator(typingId);
+    hideLoadingBanner();
     addMessage('assistant', assistantMessage);
 
     // Add to conversation history
@@ -788,13 +875,6 @@ function createWelcomeMessage() {
       <div class="message-text">
         <h3>Hi! I'm your AI study assistant for ${courseName}.</h3>
         <p>I have access to all your course materials. Ask me anything!</p>
-        <div class="starter-questions">
-          <h4>Try asking me:</h4>
-          <button class="starter-question">"Summarize the key concepts from this course"</button>
-          <button class="starter-question">"Quiz me on the main topics"</button>
-          <button class="starter-question">"Explain key concepts in simple terms"</button>
-          <button class="starter-question">"What should I focus on for the exam?"</button>
-        </div>
       </div>
     </div>
   `;
