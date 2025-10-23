@@ -10,6 +10,11 @@ class WebSocketClient {
     this.courseId = null;
     this.messageQueue = [];
     this.isConnected = false;
+    this.reconnectAttempts = 0;
+    this.maxReconnectAttempts = 5;
+    this.reconnectDelay = 1000; // Start with 1 second
+    this.reconnectTimeout = null;
+    this.pendingMessages = new Map(); // Track pending requests
   }
 
   /**
@@ -22,11 +27,16 @@ class WebSocketClient {
 
       console.log(`🔌 Connecting to WebSocket: ${wsUrl}`);
 
-      this.ws = new WebSocket(wsUrl);
+      // Use wss:// for secure connection
+      const secureWsUrl = wsUrl.replace(/^http:/, 'ws:').replace(/^https:/, 'wss:');
+
+      this.ws = new WebSocket(secureWsUrl);
 
       this.ws.onopen = () => {
         console.log('✅ WebSocket connected');
         this.isConnected = true;
+        this.reconnectAttempts = 0; // Reset reconnect counter
+        this.reconnectDelay = 1000; // Reset delay
         resolve();
       };
 
@@ -36,11 +46,40 @@ class WebSocketClient {
         reject(error);
       };
 
-      this.ws.onclose = () => {
-        console.log('🔌 WebSocket disconnected');
+      this.ws.onclose = (event) => {
+        console.log(`🔌 WebSocket disconnected (code: ${event.code}, reason: ${event.reason || 'unknown'})`);
         this.isConnected = false;
+
+        // Attempt to reconnect if not manually closed
+        if (event.code !== 1000 && this.reconnectAttempts < this.maxReconnectAttempts) {
+          this.attemptReconnect();
+        } else if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+          console.error('❌ Max reconnection attempts reached');
+        }
       };
     });
+  }
+
+  /**
+   * Attempt to reconnect with exponential backoff
+   */
+  attemptReconnect() {
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+    }
+
+    this.reconnectAttempts++;
+    const delay = Math.min(this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1), 30000);
+
+    console.log(`🔄 Attempting reconnect ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay}ms...`);
+
+    this.reconnectTimeout = setTimeout(() => {
+      if (this.courseId) {
+        this.connect(this.courseId).catch(error => {
+          console.error('Reconnection failed:', error);
+        });
+      }
+    }, delay);
   }
 
   /**

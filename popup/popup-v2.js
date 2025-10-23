@@ -490,6 +490,63 @@ async function scanCourseMaterials(courseId, courseName) {
 
     scannedMaterials = materials;
 
+    // Debug: Log detailed material structure
+    console.log('📊 SCANNED MATERIALS DETAIL:');
+    console.log('  Total categories:', Object.keys(materials).length);
+
+    // Log modules in detail
+    if (materials.modules && materials.modules.length > 0) {
+      console.log('\n📦 MODULES:', materials.modules.length);
+      materials.modules.forEach((module, idx) => {
+        console.log(`\n  Module ${idx + 1}: "${module.name}"`);
+        if (module.items && module.items.length > 0) {
+          console.log(`    Items: ${module.items.length}`);
+          module.items.forEach((item, itemIdx) => {
+            console.log(`      ${itemIdx + 1}. [${item.type}] ${item.title}`);
+            if (item.type === 'File') {
+              console.log(`         - content_id: ${item.content_id}`);
+              console.log(`         - url: ${item.url ? item.url.substring(0, 50) + '...' : 'none'}`);
+            } else if (item.type === 'ExternalUrl') {
+              console.log(`         - external_url: ${item.external_url}`);
+            } else if (item.type === 'Page') {
+              console.log(`         - page_url: ${item.page_url}`);
+            }
+          });
+        }
+      });
+    }
+
+    // Log files
+    if (materials.files && materials.files.length > 0) {
+      console.log('\n📄 FILES:', materials.files.length);
+      const filesByType = {};
+      materials.files.forEach(file => {
+        const ext = file.display_name ? file.display_name.split('.').pop().toLowerCase() : 'unknown';
+        filesByType[ext] = (filesByType[ext] || 0) + 1;
+      });
+      console.log('  By type:', filesByType);
+      // Show first few files
+      materials.files.slice(0, 5).forEach((file, idx) => {
+        console.log(`    ${idx + 1}. ${file.display_name} (${(file.size / 1024).toFixed(1)}KB)`);
+      });
+    }
+
+    // Log pages
+    if (materials.pages && materials.pages.length > 0) {
+      console.log('\n📝 PAGES:', materials.pages.length);
+      materials.pages.slice(0, 5).forEach((page, idx) => {
+        console.log(`    ${idx + 1}. ${page.title}`);
+      });
+    }
+
+    // Log assignments
+    if (materials.assignments && materials.assignments.length > 0) {
+      console.log('\n📋 ASSIGNMENTS:', materials.assignments.length);
+      materials.assignments.slice(0, 5).forEach((assignment, idx) => {
+        console.log(`    ${idx + 1}. ${assignment.name}`);
+      });
+    }
+
     const preferences = getPreferencesFromUI();
     fileProcessor.processMaterials(materials, preferences);
 
@@ -682,81 +739,102 @@ async function createStudyBot() {
     const status = await statusResponse.json();
     const uploadedFileIds = new Set(status.files || []);
 
-    updateProgress('Collecting PDFs...', PROGRESS_PERCENT.COLLECTING);
+    updateProgress('Collecting files...', PROGRESS_PERCENT.COLLECTING);
 
-    // Get PDF URLs that need to be uploaded
-    const pdfFiles = [];
+    // Supported file extensions for Gemini AI
+    const supportedExtensions = [
+      'pdf', 'txt', 'doc', 'docx',  // Documents
+      'xlsx', 'xls', 'csv',          // Spreadsheets
+      'pptx', 'ppt',                 // Presentations
+      'md', 'rtf',                   // Text formats
+      'png', 'jpg', 'jpeg', 'gif'    // Images (for vision)
+    ];
+
+    // Get file URLs that need to be uploaded
+    const filesToUpload = [];
     for (const [category, items] of Object.entries(materialsToProcess)) {
       if (!Array.isArray(items)) continue;
 
       for (const item of items) {
-        // Only process PDFs
         const itemName = item.display_name || item.filename || item.name;
-        if (!itemName || !itemName.toLowerCase().endsWith('.pdf')) continue;
-        if (!item.url) continue;
+        if (!itemName || !item.url) continue;
 
-        // Check if already uploaded (backend format: courseId_filename without .pdf)
-        const fileId = `${currentCourse.id}_${itemName.replace('.pdf', '')}`;
+        // Check if file extension is supported
+        const ext = itemName.split('.').pop().toLowerCase();
+        if (!supportedExtensions.includes(ext)) {
+          console.log(`⏭️  Skipping ${itemName} (unsupported type: ${ext})`);
+          continue;
+        }
+
+        // Check if already uploaded (backend format: courseId_filename without extension)
+        const fileNameWithoutExt = itemName.substring(0, itemName.lastIndexOf('.')) || itemName;
+        const fileId = `${currentCourse.id}_${fileNameWithoutExt}`;
         if (uploadedFileIds.has(fileId)) {
           console.log(`⏭️  Skipping ${itemName} (already uploaded)`);
           continue;
         }
 
-        pdfFiles.push({
+        filesToUpload.push({
           url: item.url,
-          name: itemName
+          name: itemName,
+          type: ext
         });
       }
     }
 
-    if (pdfFiles.length === 0) {
+    console.log(`📊 File type breakdown:`, filesToUpload.reduce((acc, f) => {
+      acc[f.type] = (acc[f.type] || 0) + 1;
+      return acc;
+    }, {}));
+
+    if (filesToUpload.length === 0) {
       updateProgress('All files already uploaded!', 90);
       console.log('✅ All files already on backend, opening chat...');
     } else {
-      updateProgress(`Downloading ${pdfFiles.length} new PDFs...`, PROGRESS_PERCENT.DOWNLOADING_START);
+      updateProgress(`Downloading ${filesToUpload.length} new files...`, PROGRESS_PERCENT.DOWNLOADING_START);
 
-      // Download PDFs in parallel batches for 5-10x speedup
-      const filesToUpload = [];
+      // Download files in parallel batches for 5-10x speedup
+      const downloadedFiles = [];
       let completed = 0;
-      const total = pdfFiles.length;
+      const total = filesToUpload.length;
       const concurrency = 8;
 
-      // Download single PDF
-      const downloadPDF = async (pdf) => {
+      // Download single file
+      const downloadFile = async (file) => {
         try {
-          const blob = await canvasAPI.downloadFile(pdf.url);
-          filesToUpload.push({ blob, name: pdf.name });
+          const blob = await canvasAPI.downloadFile(file.url);
+          downloadedFiles.push({ blob, name: file.name });
           completed++;
 
           // Update progress
           const downloadProgressRange = PROGRESS_PERCENT.DOWNLOADING_END - PROGRESS_PERCENT.DOWNLOADING_START;
           const progress = PROGRESS_PERCENT.DOWNLOADING_START + ((completed / total) * downloadProgressRange);
-          updateProgress(`Downloading PDFs: ${completed}/${total}`, progress);
+          updateProgress(`Downloading files: ${completed}/${total}`, progress);
 
-          console.log(`✅ Downloaded ${pdf.name} (${completed}/${total})`);
-          return { success: true, name: pdf.name };
+          console.log(`✅ Downloaded ${file.name} (${completed}/${total})`);
+          return { success: true, name: file.name };
         } catch (error) {
           completed++;
 
           // Update progress even on error
           const downloadProgressRange = PROGRESS_PERCENT.DOWNLOADING_END - PROGRESS_PERCENT.DOWNLOADING_START;
           const progress = PROGRESS_PERCENT.DOWNLOADING_START + ((completed / total) * downloadProgressRange);
-          updateProgress(`Downloading PDFs: ${completed}/${total}`, progress);
+          updateProgress(`Downloading files: ${completed}/${total}`, progress);
 
-          console.warn(`❌ Failed to download ${pdf.name}:`, error);
-          return { success: false, name: pdf.name, error };
+          console.warn(`❌ Failed to download ${file.name}:`, error);
+          return { success: false, name: file.name, error };
         }
       };
 
       // Process downloads in batches
       const downloadBatch = async (batch) => {
-        return Promise.all(batch.map(pdf => downloadPDF(pdf)));
+        return Promise.all(batch.map(file => downloadFile(file)));
       };
 
       // Split files into batches
       const batches = [];
-      for (let i = 0; i < pdfFiles.length; i += concurrency) {
-        batches.push(pdfFiles.slice(i, i + concurrency));
+      for (let i = 0; i < filesToUpload.length; i += concurrency) {
+        batches.push(filesToUpload.slice(i, i + concurrency));
       }
 
       // Download all batches sequentially (files within each batch in parallel)
@@ -764,12 +842,12 @@ async function createStudyBot() {
         await downloadBatch(batch);
       }
 
-      console.log(`📦 Downloaded ${filesToUpload.length}/${total} PDFs successfully`);
+      console.log(`📦 Downloaded ${downloadedFiles.length}/${total} files successfully`);
 
-      if (filesToUpload.length > 0) {
-        updateProgress(`Uploading ${filesToUpload.length} PDFs to backend...`, PROGRESS_PERCENT.UPLOADING);
-        await backendClient.uploadPDFs(currentCourse.id, filesToUpload);
-        console.log(`✅ Uploaded ${filesToUpload.length} new PDFs`);
+      if (downloadedFiles.length > 0) {
+        updateProgress(`Uploading ${downloadedFiles.length} files to backend...`, PROGRESS_PERCENT.UPLOADING);
+        await backendClient.uploadPDFs(currentCourse.id, downloadedFiles);
+        console.log(`✅ Uploaded ${downloadedFiles.length} new files`);
       }
     }
 
