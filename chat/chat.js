@@ -37,6 +37,9 @@ document.addEventListener('DOMContentLoaded', init);
 async function init() {
   console.log('Chat interface initializing...');
 
+  // Initialize theme
+  initTheme();
+
   // Get course ID from URL parameters
   const urlParams = new URLSearchParams(window.location.search);
   courseId = urlParams.get('courseId');
@@ -153,11 +156,19 @@ function displayMaterials() {
       </div>
       <div class="category-items" data-category-items="${key}">
         ${items.map((item, index) => `
-          <div class="material-item">
+          <div class="material-item" data-category="${key}" data-index="${index}">
             <input type="checkbox" class="material-checkbox" id="material-${key}-${index}" data-category="${key}" data-index="${index}" checked>
             <label for="material-${key}-${index}" title="${item.name || item.display_name}">
               ${item.name || item.display_name}
             </label>
+            <button class="delete-material-btn" title="Remove from AI memory">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 6H5H21" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M8 6V4C8 3.46957 8.21071 2.96086 8.58579 2.58579C8.96086 2.21071 9.46957 2 10 2H14C14.5304 2 15.0391 2.21071 15.4142 2.58579C15.7893 2.96086 16 3.46957 16 4V6M19 6V20C19 20.5304 18.7893 21.0391 18.4142 21.4142C18.0391 21.7893 17.5304 22 17 22H7C6.46957 22 5.96086 21.7893 5.58579 21.4142C5.21071 21.0391 5 20.5304 5 20V6H19Z" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M10 11V17" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M14 11V17" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
           </div>
         `).join('')}
       </div>
@@ -204,7 +215,66 @@ function displayMaterials() {
     document.querySelectorAll('.material-checkbox, .category-checkbox').forEach(cb => cb.checked = false);
   });
 
+  // Setup delete button handlers using event delegation
+  materialsList.addEventListener('click', (e) => {
+    const deleteBtn = e.target.closest('.delete-material-btn');
+    if (deleteBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const materialItem = deleteBtn.closest('.material-item');
+      const category = materialItem.getAttribute('data-category');
+      const index = parseInt(materialItem.getAttribute('data-index'));
+
+      if (processedMaterials && processedMaterials[category]) {
+        const material = processedMaterials[category][index];
+        const materialName = material.name || material.display_name;
+
+        if (confirm(`Remove "${materialName}" from AI memory?\n\nThis will permanently delete this file from the chat context.`)) {
+          processedMaterials[category].splice(index, 1);
+
+          chrome.storage.local.set({
+            [`materials_${courseId}`]: processedMaterials
+          }, () => {
+            console.log(`Deleted material: ${materialName}`);
+            displayMaterials();
+            showTemporaryMessage(`Removed "${materialName}" from AI memory`);
+          });
+        }
+      }
+    }
+  });
+
   console.log(`displayMaterials complete - displayed ${displayedCategories} categories`);
+}
+
+/**
+ * Show a temporary success message
+ */
+function showTemporaryMessage(message) {
+  const messageDiv = document.createElement('div');
+  messageDiv.className = 'temp-message';
+  messageDiv.textContent = message;
+  messageDiv.style.cssText = `
+    position: fixed;
+    top: 24px;
+    right: 24px;
+    background: var(--success);
+    color: white;
+    padding: 12px 20px;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    z-index: 10000;
+    font-family: Inter, sans-serif;
+    animation: slideIn 0.3s ease-out;
+  `;
+
+  document.body.appendChild(messageDiv);
+
+  setTimeout(() => {
+    messageDiv.style.animation = 'slideOut 0.3s ease-out';
+    setTimeout(() => messageDiv.remove(), 300);
+  }, 3000);
 }
 
 
@@ -283,6 +353,47 @@ function getSyllabusId() {
 }
 
 /**
+ * Upload materials to backend
+ */
+async function uploadMaterialsToBackend() {
+  try {
+    console.log('📤 Uploading materials to backend...');
+
+    // Collect all PDF files from materials
+    const filesToUpload = [];
+
+    for (const category in processedMaterials) {
+      const items = processedMaterials[category];
+      if (Array.isArray(items)) {
+        for (const item of items) {
+          if (item.blob && (item.name || item.display_name)) {
+            filesToUpload.push({
+              blob: item.blob,
+              name: item.name || item.display_name
+            });
+          }
+        }
+      }
+    }
+
+    if (filesToUpload.length === 0) {
+      console.warn('No files to upload');
+      return;
+    }
+
+    console.log(`Uploading ${filesToUpload.length} files to backend...`);
+
+    // Upload using websocket client
+    await backendClient.uploadPDFs(courseId, filesToUpload);
+
+    console.log('✅ Files uploaded successfully');
+  } catch (error) {
+    console.error('Error uploading materials to backend:', error);
+    throw error;
+  }
+}
+
+/**
  * Initialize connection to Python backend
  */
 async function loadAPIKey() {
@@ -298,6 +409,21 @@ async function loadAPIKey() {
       setAPIStatus('error', 'Backend Offline');
       showError('Python backend is not running. Please start the backend server.');
       return;
+    }
+
+    // Check if backend has files for this course
+    try {
+      const status = await backendClient.getCollectionStatus(courseId);
+      console.log('Backend collection status:', status);
+
+      // If backend has no files, upload them
+      if (!status.files || status.files.length === 0) {
+        console.log('⚠️ Backend has no files for this course, uploading...');
+        await uploadMaterialsToBackend();
+      }
+    } catch (error) {
+      console.warn('Could not check collection status, will upload files:', error);
+      await uploadMaterialsToBackend();
     }
 
     // Connect WebSocket
@@ -342,6 +468,17 @@ function setupEventListeners() {
     });
   });
 
+  // Suggested prompts
+  document.querySelectorAll('.suggested-prompt').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const prompt = btn.getAttribute('data-prompt') || btn.textContent;
+      elements.messageInput.value = prompt;
+      elements.messageInput.focus();
+      // Auto-send the message
+      sendMessage();
+    });
+  });
+
   // New chat
   elements.newChatBtn.addEventListener('click', () => {
     if (confirm('Start a new chat? Current conversation will be saved.')) {
@@ -366,6 +503,16 @@ function setupEventListeners() {
       elements.messagesContainer.appendChild(createWelcomeMessage());
     }
   });
+
+  // Recent chats panel toggle
+  const panelToggleBtn = document.getElementById('panel-toggle-btn');
+  const recentChatsPanel = document.getElementById('recent-chats-panel');
+
+  if (panelToggleBtn && recentChatsPanel) {
+    panelToggleBtn.addEventListener('click', () => {
+      recentChatsPanel.classList.toggle('collapsed');
+    });
+  }
 
   // Enable send button when input has text
   elements.messageInput.addEventListener('input', () => {
@@ -763,5 +910,42 @@ function clearMaterials() {
     localStorage.removeItem('canvasMaterials');
     localStorage.removeItem('canvasCourseName');
     location.reload();
+  }
+}
+
+// Theme Management
+function initTheme() {
+  // Load saved theme preference
+  chrome.storage.local.get(['theme'], (result) => {
+    const savedTheme = result.theme || 'dark';
+    applyTheme(savedTheme);
+  });
+
+  // Set up theme toggle
+  const themeToggle = document.getElementById('theme-toggle');
+  if (themeToggle) {
+    themeToggle.addEventListener('click', toggleTheme);
+  }
+}
+
+function toggleTheme() {
+  const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+  const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+  applyTheme(newTheme);
+
+  // Save theme preference
+  chrome.storage.local.set({ theme: newTheme });
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  const themeToggle = document.getElementById('theme-toggle');
+
+  if (themeToggle) {
+    if (theme === 'light') {
+      themeToggle.classList.add('light');
+    } else {
+      themeToggle.classList.remove('light');
+    }
   }
 }

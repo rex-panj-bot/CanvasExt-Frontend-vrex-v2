@@ -37,6 +37,9 @@ document.addEventListener('DOMContentLoaded', init);
 async function init() {
   console.log('Popup V2 initializing...');
 
+  // Initialize theme
+  initTheme();
+
   fileProcessor = new FileProcessor();
 
   // Check if user has any authentication configured
@@ -982,4 +985,41 @@ function deselectAllFiles() {
     cb.checked = false;
   });
   selectedFiles.clear();
+}
+
+// Theme Management
+function initTheme() {
+  // Load saved theme preference
+  chrome.storage.local.get(['theme'], (result) => {
+    const savedTheme = result.theme || 'dark';
+    applyTheme(savedTheme);
+  });
+
+  // Set up theme toggle
+  const themeToggle = document.getElementById('theme-toggle');
+  if (themeToggle) {
+    themeToggle.addEventListener('click', toggleTheme);
+  }
+}
+
+function toggleTheme() {
+  const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+  const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+  applyTheme(newTheme);
+
+  // Save theme preference
+  chrome.storage.local.set({ theme: newTheme });
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  const themeToggle = document.getElementById('theme-toggle');
+
+  if (themeToggle) {
+    if (theme === 'light') {
+      themeToggle.classList.add('light');
+    } else {
+      themeToggle.classList.remove('light');
+    }
+  }
 }
