@@ -12,7 +12,7 @@ let processedMaterials = null; // Course materials for sidebar display
 
 // DOM Elements
 const elements = {
-  courseName: document.getElementById('course-name'),
+  courseName: document.getElementById('sidebar-course-name'),
   welcomeCourseName: document.getElementById('welcome-course-name'),
   materialsList: document.getElementById('materials-list'),
   messagesContainer: document.getElementById('messages-container'),
@@ -234,7 +234,7 @@ function displayMaterials() {
           processedMaterials[category].splice(index, 1);
 
           chrome.storage.local.set({
-            [`materials_${courseId}`]: processedMaterials
+            [`course_materials_${courseId}`]: processedMaterials
           }, () => {
             console.log(`Deleted material: ${materialName}`);
             displayMaterials();
