@@ -9,6 +9,8 @@ let courseName = '';
 let courseId = '';
 let conversationHistory = [];
 let processedMaterials = null; // Course materials for sidebar display
+let currentSessionId = null; // Current chat session ID for saving
+let availableCourses = []; // List of courses with materials
 
 // DOM Elements
 const elements = {
@@ -49,11 +51,20 @@ async function init() {
     return;
   }
 
+  // Generate session ID for this chat
+  currentSessionId = `session_${courseId}_${Date.now()}`;
+
   // Load materials from storage
   await loadMaterials();
 
   // Load API key and initialize Claude
   await loadAPIKey();
+
+  // Load available courses for switcher
+  await loadAvailableCourses();
+
+  // Load recent chats for this course
+  await loadRecentChats();
 
   // Setup event listeners
   setupEventListeners();
@@ -482,9 +493,13 @@ function setupEventListeners() {
   // New chat
   elements.newChatBtn.addEventListener('click', () => {
     if (confirm('Start a new chat? Current conversation will be saved.')) {
+      // Generate new session ID
+      currentSessionId = `session_${courseId}_${Date.now()}`;
       conversationHistory = [];
       elements.messagesContainer.innerHTML = '';
       elements.messagesContainer.appendChild(createWelcomeMessage());
+      // Refresh recent chats
+      loadRecentChats();
     }
   });
 
@@ -511,6 +526,26 @@ function setupEventListeners() {
   if (panelToggleBtn && recentChatsPanel) {
     panelToggleBtn.addEventListener('click', () => {
       recentChatsPanel.classList.toggle('collapsed');
+    });
+  }
+
+  // Course switcher dropdown toggle
+  const courseSwitcherBtn = document.getElementById('course-switcher-sidebar-btn');
+  const courseDropdown = document.getElementById('course-dropdown-sidebar');
+
+  if (courseSwitcherBtn && courseDropdown) {
+    courseSwitcherBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      courseDropdown.classList.toggle('hidden');
+      courseSwitcherBtn.classList.toggle('active');
+    });
+
+    // Close dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.course-switcher-sidebar')) {
+        courseDropdown.classList.add('hidden');
+        courseSwitcherBtn.classList.remove('active');
+      }
     });
   }
 
@@ -566,6 +601,7 @@ async function sendMessage() {
       conversationHistory,
       selectedDocIds,
       syllabusId,
+      currentSessionId,  // Session ID for chat history
       // onChunk callback for streaming text
       (chunk) => {
         assistantMessage += chunk;
@@ -766,9 +802,278 @@ async function saveConversation() {
       }, resolve);
     });
     console.log('Conversation saved');
+
+    // Also refresh recent chats panel after saving
+    await loadRecentChats();
   } catch (error) {
     console.error('Error saving conversation:', error);
   }
+}
+
+// ========== RECENT CHATS PANEL ==========
+
+/**
+ * Load recent chats from backend and display in panel
+ */
+async function loadRecentChats() {
+  try {
+    if (!backendClient) return;
+
+    const response = await backendClient.getRecentChats(courseId, 20);
+
+    if (!response.success) {
+      console.error('Failed to load recent chats:', response.error);
+      return;
+    }
+
+    const chats = response.chats || [];
+    const chatsList = document.getElementById('recent-chats-list');
+
+    if (chats.length === 0) {
+      chatsList.innerHTML = `
+        <div class="empty-state">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+          </svg>
+          <p>No recent chats yet</p>
+          <span>Start a conversation to see your chat history</span>
+        </div>
+      `;
+      return;
+    }
+
+    // Render chats
+    chatsList.innerHTML = chats.map(chat => {
+      const date = new Date(chat.updated_at);
+      const timeAgo = getTimeAgo(date);
+      const isActive = chat.session_id === currentSessionId;
+
+      return `
+        <div class="chat-item ${isActive ? 'active' : ''}" data-session-id="${chat.session_id}">
+          <div class="chat-item-content">
+            <div class="chat-item-title">${escapeHtml(chat.title || 'Untitled Chat')}</div>
+            <div class="chat-item-meta">
+              <span class="chat-item-time">${timeAgo}</span>
+              <span class="chat-item-count">${chat.message_count} messages</span>
+            </div>
+          </div>
+          <div class="chat-item-actions">
+            <button class="chat-action-btn delete-chat-btn" title="Delete chat" data-session-id="${chat.session_id}">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
+            </button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // Add click handlers to chat items
+    chatsList.querySelectorAll('.chat-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        // Don't trigger if clicking delete button
+        if (e.target.closest('.delete-chat-btn')) return;
+
+        const sessionId = item.dataset.sessionId;
+        loadChatSession(sessionId);
+      });
+    });
+
+    // Add delete handlers
+    chatsList.querySelectorAll('.delete-chat-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const sessionId = btn.dataset.sessionId;
+
+        if (confirm('Delete this chat? This cannot be undone.')) {
+          await deleteChatSession(sessionId);
+        }
+      });
+    });
+
+  } catch (error) {
+    console.error('Error loading recent chats:', error);
+  }
+}
+
+/**
+ * Load a specific chat session
+ */
+async function loadChatSession(sessionId) {
+  try {
+    const response = await backendClient.getChatSession(courseId, sessionId);
+
+    if (!response.success) {
+      showError('Failed to load chat session: ' + response.error);
+      return;
+    }
+
+    const session = response.session;
+
+    // Update current session
+    currentSessionId = sessionId;
+
+    // Clear current chat and load history
+    elements.messagesContainer.innerHTML = '';
+
+    // Load conversation history
+    conversationHistory = session.messages.map(msg => ({
+      role: msg.role,
+      content: msg.content
+    }));
+
+    // Display messages
+    conversationHistory.forEach(msg => {
+      addMessage(msg.role, msg.content);
+    });
+
+    // Refresh recent chats to update active state
+    await loadRecentChats();
+
+    console.log(`Loaded chat session: ${sessionId}`);
+  } catch (error) {
+    console.error('Error loading chat session:', error);
+    showError('Failed to load chat: ' + error.message);
+  }
+}
+
+/**
+ * Delete a chat session
+ */
+async function deleteChatSession(sessionId) {
+  try {
+    const response = await backendClient.deleteChatSession(courseId, sessionId);
+
+    if (!response.success) {
+      showError('Failed to delete chat: ' + response.error);
+      return;
+    }
+
+    // If deleting current session, start a new one
+    if (sessionId === currentSessionId) {
+      currentSessionId = `session_${courseId}_${Date.now()}`;
+      conversationHistory = [];
+      elements.messagesContainer.innerHTML = '';
+      elements.messagesContainer.appendChild(createWelcomeMessage());
+    }
+
+    // Refresh recent chats list
+    await loadRecentChats();
+
+    console.log(`Deleted chat session: ${sessionId}`);
+  } catch (error) {
+    console.error('Error deleting chat session:', error);
+    showError('Failed to delete chat: ' + error.message);
+  }
+}
+
+// ========== COURSE SWITCHER ==========
+
+/**
+ * Load available courses from storage
+ */
+async function loadAvailableCourses() {
+  try {
+    // Get all keys from storage that match course_materials_* pattern
+    const allStorage = await new Promise((resolve) => {
+      chrome.storage.local.get(null, resolve);
+    });
+
+    availableCourses = [];
+
+    for (const key in allStorage) {
+      if (key.startsWith('course_materials_')) {
+        const data = allStorage[key];
+        if (data && data.courseId && data.courseName) {
+          availableCourses.push({
+            id: data.courseId,
+            name: data.courseName
+          });
+        }
+      }
+    }
+
+    // Populate course switcher dropdown
+    populateCourseSwitcher();
+
+  } catch (error) {
+    console.error('Error loading available courses:', error);
+  }
+}
+
+/**
+ * Populate the course switcher dropdown
+ */
+function populateCourseSwitcher() {
+  const courseList = document.getElementById('course-list-sidebar');
+
+  if (!courseList) return;
+
+  if (availableCourses.length === 0) {
+    courseList.innerHTML = '<div class="loading-courses">No courses available</div>';
+    return;
+  }
+
+  courseList.innerHTML = availableCourses.map(course => {
+    const isActive = course.id === courseId;
+    return `
+      <div class="course-item ${isActive ? 'active' : ''}" data-course-id="${course.id}">
+        <div class="course-item-icon">📚</div>
+        <div class="course-item-name">${escapeHtml(course.name)}</div>
+        ${isActive ? '<div class="course-item-badge">Current</div>' : ''}
+      </div>
+    `;
+  }).join('');
+
+  // Add click handlers
+  courseList.querySelectorAll('.course-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const newCourseId = item.dataset.courseId;
+      if (newCourseId !== courseId) {
+        switchCourse(newCourseId);
+      }
+    });
+  });
+}
+
+/**
+ * Switch to a different course
+ */
+async function switchCourse(newCourseId) {
+  try {
+    if (confirm('Switch to a different course? Your current chat will be saved.')) {
+      // Reload page with new course ID
+      window.location.href = `chat.html?courseId=${newCourseId}`;
+    }
+  } catch (error) {
+    console.error('Error switching course:', error);
+    showError('Failed to switch course: ' + error.message);
+  }
+}
+
+// ========== HELPER FUNCTIONS ==========
+
+/**
+ * Get human-readable time ago string
+ */
+function getTimeAgo(date) {
+  const seconds = Math.floor((new Date() - date) / 1000);
+
+  if (seconds < 60) return 'just now';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
+
+  return date.toLocaleDateString();
+}
+
+/**
+ * Escape HTML to prevent XSS
+ */
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
 }
 
 function showSettingsModal() {

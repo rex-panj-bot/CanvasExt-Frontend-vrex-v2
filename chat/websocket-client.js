@@ -46,7 +46,7 @@ class WebSocketClient {
   /**
    * Send query and receive streaming response
    */
-  async sendQuery(message, conversationHistory, selectedDocs, syllabusId, onChunk, onComplete, onError) {
+  async sendQuery(message, conversationHistory, selectedDocs, syllabusId, sessionId, onChunk, onComplete, onError) {
     if (!this.isConnected) {
       console.error('WebSocket not connected');
       if (onError) onError(new Error('Not connected to backend'));
@@ -60,7 +60,8 @@ class WebSocketClient {
         message: message,
         history: conversationHistory,
         selected_docs: selectedDocs || [],
-        syllabus_id: syllabusId || null
+        syllabus_id: syllabusId || null,
+        session_id: sessionId || null  // For chat history saving
       };
 
       // Handle incoming messages
@@ -174,6 +175,70 @@ class BackendClient {
     } catch (error) {
       console.error('Backend health check failed:', error);
       return false;
+    }
+  }
+
+  /**
+   * Get recent chat sessions for a course
+   */
+  async getRecentChats(courseId, limit = 20) {
+    try {
+      const response = await fetch(`${this.backendUrl}/chats/${courseId}?limit=${limit}`);
+      const result = await response.json();
+      return result;
+    } catch (error) {
+      console.error('Error fetching recent chats:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Load a specific chat session
+   */
+  async getChatSession(courseId, sessionId) {
+    try {
+      const response = await fetch(`${this.backendUrl}/chats/${courseId}/${sessionId}`);
+      const result = await response.json();
+      return result;
+    } catch (error) {
+      console.error('Error fetching chat session:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete a chat session
+   */
+  async deleteChatSession(courseId, sessionId) {
+    try {
+      const response = await fetch(`${this.backendUrl}/chats/${courseId}/${sessionId}`, {
+        method: 'DELETE'
+      });
+      const result = await response.json();
+      return result;
+    } catch (error) {
+      console.error('Error deleting chat session:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update chat session title
+   */
+  async updateChatTitle(courseId, sessionId, title) {
+    try {
+      const response = await fetch(`${this.backendUrl}/chats/${courseId}/${sessionId}/title`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ title })
+      });
+      const result = await response.json();
+      return result;
+    } catch (error) {
+      console.error('Error updating chat title:', error);
+      throw error;
     }
   }
 }
