@@ -41,6 +41,13 @@ document.addEventListener('DOMContentLoaded', init);
 async function init() {
   console.log('Chat interface initializing...');
 
+  // Check for API key first (required to use the chat)
+  const hasApiKey = await checkAndPromptForApiKey();
+  if (!hasApiKey) {
+    console.log('Waiting for user to provide Google Gemini API key...');
+    return; // Stop initialization until API key is provided
+  }
+
   // Initialize theme
   initTheme();
 
@@ -1365,4 +1372,125 @@ function applyTheme(theme) {
       themeToggle.classList.remove('light');
     }
   }
+}
+
+/**
+ * Check if user has API key, show modal if not
+ */
+async function checkAndPromptForApiKey() {
+  const result = await chrome.storage.local.get(['gemini_api_key']);
+  const apiKey = result.gemini_api_key;
+
+  if (apiKey && apiKey.trim()) {
+    console.log('✅ Google Gemini API key found');
+    return true;
+  }
+
+  // No API key found - show modal
+  console.log('❌ No Google Gemini API key found - showing setup modal');
+  showApiKeyModal();
+  return false;
+}
+
+/**
+ * Show API key setup modal
+ */
+function showApiKeyModal() {
+  const modal = document.getElementById('apiKeyModal');
+  const input = document.getElementById('apiKeyModalInput');
+  const saveBtn = document.getElementById('saveApiKeyModalBtn');
+  const settingsBtn = document.getElementById('openSettingsModalBtn');
+  const status = document.getElementById('apiKeyModalStatus');
+
+  if (!modal) {
+    console.error('API key modal not found in DOM');
+    return;
+  }
+
+  modal.classList.remove('hidden');
+  input.focus();
+
+  // Save button click
+  saveBtn.onclick = async () => {
+    const apiKey = input.value.trim();
+
+    if (!apiKey) {
+      showModalStatus('Please enter your Google Gemini API key', 'error');
+      return;
+    }
+
+    if (!apiKey.startsWith('AIza')) {
+      showModalStatus('Invalid API key format. Google Gemini keys start with "AIza"', 'error');
+      return;
+    }
+
+    if (apiKey.length < 39) {
+      showModalStatus('API key seems too short. Please check the complete key.', 'error');
+      return;
+    }
+
+    try {
+      showModalStatus('Validating API key with Google...', 'info');
+
+      // Test the API key
+      const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models?key=' + apiKey);
+
+      if (response.status === 200) {
+        // Save the API key
+        await chrome.storage.local.set({ gemini_api_key: apiKey });
+        showModalStatus('✅ API key saved successfully!', 'success');
+
+        // Close modal and reload page after short delay
+        setTimeout(() => {
+          modal.classList.add('hidden');
+          window.location.reload();
+        }, 1500);
+      } else if (response.status === 400 || response.status === 403) {
+        showModalStatus('Invalid API key. Please check and try again.', 'error');
+      } else {
+        // Save anyway for other errors (might be network issues)
+        await chrome.storage.local.set({ gemini_api_key: apiKey });
+        showModalStatus('API key saved (could not validate - will try during use)', 'success');
+
+        setTimeout(() => {
+          modal.classList.add('hidden');
+          window.location.reload();
+        }, 1500);
+      }
+    } catch (error) {
+      console.error('Error validating API key:', error);
+      // Save anyway if network error
+      await chrome.storage.local.set({ gemini_api_key: apiKey });
+      showModalStatus('API key saved (validation failed - will try during use)', 'success');
+
+      setTimeout(() => {
+        modal.classList.add('hidden');
+        window.location.reload();
+      }, 1500);
+    }
+  };
+
+  // Settings button - open full settings page
+  settingsBtn.onclick = () => {
+    window.open(chrome.runtime.getURL('popup/settings.html'), '_blank');
+  };
+
+  // Enter key to save
+  input.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+      saveBtn.click();
+    }
+  });
+}
+
+/**
+ * Show status message in modal
+ */
+function showModalStatus(message, type) {
+  const status = document.getElementById('apiKeyModalStatus');
+  if (!status) return;
+
+  status.textContent = message;
+  status.className = `modal-status ${type}`;
+  status.classList.remove('hidden');
 }

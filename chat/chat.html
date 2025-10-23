@@ -256,6 +256,50 @@
     </div>
   </div>
 
+  <!-- API Key Setup Modal (shown on first use) -->
+  <div id="apiKeyModal" class="api-key-modal hidden">
+    <div class="api-key-modal-content">
+      <h2>🔑 Google Gemini API Key Required</h2>
+      <p>To use the AI Study Assistant, you need a <strong>free Google Gemini API key</strong>.</p>
+
+      <div class="api-key-steps">
+        <h3>Quick Setup (2 minutes):</h3>
+        <ol>
+          <li>Visit <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a></li>
+          <li>Sign in with your Google account</li>
+          <li>Click "Create API Key"</li>
+          <li>Copy the key (starts with "AIza...")</li>
+          <li>Paste it below</li>
+        </ol>
+      </div>
+
+      <div id="apiKeyModalStatus" class="modal-status hidden"></div>
+
+      <input
+        type="password"
+        id="apiKeyModalInput"
+        class="api-key-modal-input"
+        placeholder="Paste your Google Gemini API key here..."
+        autocomplete="off"
+      >
+
+      <div class="api-key-modal-buttons">
+        <button id="saveApiKeyModalBtn" class="btn-modal-primary">Save & Continue</button>
+        <button id="openSettingsModalBtn" class="btn-modal-secondary">Open Full Settings</button>
+      </div>
+
+      <div class="api-key-modal-info">
+        <p><strong>Why do I need this?</strong></p>
+        <p>We use Google's Gemini AI to power the study assistant. By providing your own API key, you get:</p>
+        <ul>
+          <li>✅ Free tier: 1,500 requests/day</li>
+          <li>✅ No credit card required</li>
+          <li>✅ Your data stays private</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
   <!-- Scripts -->
   <script src="../utils/storage.js"></script>
   <script src="websocket-client.js"></script>

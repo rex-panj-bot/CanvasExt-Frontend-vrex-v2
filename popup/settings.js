@@ -88,9 +88,14 @@ async function saveApiKey() {
     return;
   }
 
-  // Basic validation
+  // Basic validation - Google Gemini API keys start with "AIza"
   if (!apiKey.startsWith('AIza')) {
-    showStatus('Invalid API key format. Gemini API keys start with "AIza"', 'error');
+    showStatus('Invalid API key format. Google Gemini API keys start with "AIza"', 'error');
+    return;
+  }
+
+  if (apiKey.length < 39) {
+    showStatus('API key seems too short. Please check you copied the complete key.', 'error');
     return;
   }
 
