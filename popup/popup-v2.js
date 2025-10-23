@@ -670,7 +670,7 @@ async function createStudyBot() {
     updateProgress('Checking backend...', PROGRESS_PERCENT.BACKEND_CHECK);
 
     // Check backend and get already uploaded files
-    const backendClient = new BackendClient('http://localhost:8000');
+    const backendClient = new BackendClient('https://web-production-9aaba7.up.railway.app');
     const isBackendReady = await backendClient.healthCheck();
 
     if (!isBackendReady) {
@@ -678,7 +678,7 @@ async function createStudyBot() {
     }
 
     // Get list of files already uploaded
-    const statusResponse = await fetch(`http://localhost:8000/collections/${currentCourse.id}/status`);
+    const statusResponse = await fetch(`https://web-production-9aaba7.up.railway.app/collections/${currentCourse.id}/status`);
     const status = await statusResponse.json();
     const uploadedFileIds = new Set(status.files || []);
 

@@ -4,7 +4,7 @@
  */
 
 class WebSocketClient {
-  constructor(backendUrl = 'ws://localhost:8000') {
+  constructor(backendUrl = 'https://web-production-9aaba7.up.railway.app') {
     this.backendUrl = backendUrl;
     this.ws = null;
     this.courseId = null;
@@ -116,7 +116,7 @@ class WebSocketClient {
  * Backend HTTP Client for PDF uploads
  */
 class BackendClient {
-  constructor(backendUrl = 'http://localhost:8000') {
+  constructor(backendUrl = 'https://web-production-9aaba7.up.railway.app') {
     this.backendUrl = backendUrl;
   }
 

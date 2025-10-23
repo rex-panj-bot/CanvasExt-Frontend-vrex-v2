@@ -4,7 +4,7 @@
  */
 
 class Config {
-  static DEFAULT_BACKEND_URL = 'http://localhost:8000';
+  static DEFAULT_BACKEND_URL = 'https://web-production-9aaba7.up.railway.app';
   static STORAGE_KEY = 'backend_url';
 
   /**

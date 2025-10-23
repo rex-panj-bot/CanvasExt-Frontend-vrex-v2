@@ -433,8 +433,8 @@ async function uploadMaterialsToBackend() {
 async function loadAPIKey() {
   try {
     // Initialize Python backend clients
-    backendClient = new BackendClient('http://localhost:8000');
-    wsClient = new WebSocketClient('ws://localhost:8000');
+    backendClient = new BackendClient('https://web-production-9aaba7.up.railway.app');
+    wsClient = new WebSocketClient('wss://web-production-9aaba7.up.railway.app');
 
     // Test backend connection
     const isBackendReady = await backendClient.healthCheck();
@@ -677,7 +677,7 @@ function parseCitations(content) {
     const cleanDocName = docName.trim();
 
     // Create clickable citation link
-    const pdfUrl = `http://localhost:8000/pdfs/${courseId}/${encodeURIComponent(cleanDocName)}#page=${pageNum}`;
+    const pdfUrl = `https://web-production-9aaba7.up.railway.app/pdfs/${courseId}/${encodeURIComponent(cleanDocName)}#page=${pageNum}`;
 
     return `<a href="${pdfUrl}" class="citation-link" target="_blank" title="Open ${cleanDocName} at page ${pageNum}">📄 ${cleanDocName}, p.${pageNum}</a>`;
   });
