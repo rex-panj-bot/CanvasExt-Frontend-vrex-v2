@@ -153,7 +153,6 @@ function displayMaterials() {
     modulesSection.className = 'materials-section';
     modulesSection.innerHTML = `
       <div class="section-header">
-        <span class="section-icon">📚</span>
         <span class="section-title">Course Modules</span>
       </div>
     `;
@@ -251,7 +250,6 @@ function displayMaterials() {
       filesSection.className = 'materials-section';
       filesSection.innerHTML = `
         <div class="section-header">
-          <span class="section-icon">📄</span>
           <span class="section-title">Course Files</span>
           <span class="section-count">${standaloneFiles.length}</span>
         </div>
@@ -281,13 +279,15 @@ function displayMaterials() {
 
   // 3. Display other categories (syllabus, lectures, readings, assignments, pages, etc.)
   const otherCategories = {
-    syllabus: { name: 'Syllabus', icon: '📋' },
-    lectures: { name: 'Lectures', icon: '📝' },
-    readings: { name: 'Readings', icon: '📖' },
-    assignments: { name: 'Assignments', icon: '✏️' },
-    pages: { name: 'Pages', icon: '📄' },
-    other: { name: 'Other', icon: '📦' }
+    syllabus: { name: 'Syllabus' },
+    lectures: { name: 'Lectures' },
+    readings: { name: 'Readings' },
+    assignments: { name: 'Assignments' },
+    pages: { name: 'Pages' },
+    other: { name: 'Other' }
   };
+
+  let displayedCategories = 0;
 
   Object.entries(processedMaterials).forEach(([key, items]) => {
     if (key === 'modules' || key === 'files') return; // Already handled
@@ -303,7 +303,6 @@ function displayMaterials() {
     categoryDiv.innerHTML = `
       <div class="category-header" data-category="${key}">
         <input type="checkbox" class="category-checkbox" id="category-${key}" checked>
-        <span class="category-icon">${category.icon}</span>
         <span class="category-name">${category.name}</span>
         <span class="category-count">${items.length}</span>
       </div>
