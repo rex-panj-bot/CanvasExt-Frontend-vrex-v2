@@ -84,12 +84,37 @@ html {
   padding: 20px;
   border-radius: 16px 16px 0 0;
   text-align: center;
+  position: relative;
 }
 
 .header h1 {
   font-size: 20px;
   font-weight: 600;
   letter-spacing: -0.5px;
+}
+
+.settings-btn {
+  position: absolute;
+  top: 50%;
+  right: 20px;
+  transform: translateY(-50%);
+  color: var(--text-secondary);
+  text-decoration: none;
+  padding: 8px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.settings-btn:hover {
+  color: var(--blue-primary);
+  background: var(--surface-hover);
+}
+
+.settings-btn svg {
+  stroke: currentColor;
 }
 
 /* Screen Management */

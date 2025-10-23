@@ -676,7 +676,14 @@ async function sendMessage() {
     const selectedDocIds = getSelectedDocIds();
     const syllabusId = getSyllabusId();
 
+    // Load user settings
+    const settings = await chrome.storage.local.get(['gemini_api_key', 'enable_web_search']);
+    const apiKey = settings.gemini_api_key || null;
+    const enableWebSearch = settings.enable_web_search || false;
+
     console.log(`Selected ${selectedDocIds.length} documents`);
+    console.log(`API Key: ${apiKey ? 'User-provided' : 'Default (backend)'}`);
+    console.log(`Web Search: ${enableWebSearch ? 'Enabled' : 'Disabled'}`);
 
     // Show thinking indicator after 2 seconds if no response
     thinkingTimeout = setTimeout(() => {
@@ -691,6 +698,8 @@ async function sendMessage() {
       selectedDocIds,
       syllabusId,
       currentSessionId,  // Session ID for chat history
+      apiKey,  // User's Gemini API key
+      enableWebSearch,  // Web search toggle
       // onChunk callback for streaming text
       (chunk) => {
         // Check if this is a loading message (starts with 📤)
