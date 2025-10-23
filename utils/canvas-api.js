@@ -10,12 +10,26 @@ class CanvasAPI {
     this.authMode = authMode; // 'token', 'oauth', or 'session'
     this.requestDelay = 100; // ms between requests to avoid rate limiting
     this.lastRequestTime = 0;
+    this.concurrentRequests = 0; // Track concurrent requests
+    this.maxConcurrentRequests = 10; // Allow up to 10 parallel requests
   }
 
   /**
-   * Delay to respect rate limits
+   * Delay to respect rate limits (optimized for parallel downloads)
+   * Only enforces delay for API requests, not file downloads
    */
-  async rateLimit() {
+  async rateLimit(isFileDownload = false) {
+    // For file downloads, use a lighter rate limit to allow parallelism
+    if (isFileDownload) {
+      // Wait if too many concurrent downloads
+      while (this.concurrentRequests >= this.maxConcurrentRequests) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      this.concurrentRequests++;
+      return;
+    }
+
+    // For API requests, use traditional rate limiting
     const now = Date.now();
     const timeSinceLastRequest = now - this.lastRequestTime;
     if (timeSinceLastRequest < this.requestDelay) {
@@ -307,10 +321,10 @@ class CanvasAPI {
   }
 
   /**
-   * Download file content
+   * Download file content (optimized for parallel downloads)
    */
   async downloadFile(fileUrl) {
-    await this.rateLimit();
+    await this.rateLimit(true); // Use file download rate limiting
 
     const headers = this.getAuthHeaders();
     const fetchOptions = { headers };
@@ -327,8 +341,15 @@ class CanvasAPI {
         throw new Error(`Failed to download file: ${response.status} ${response.statusText}`);
       }
 
-      return await response.blob();
+      const blob = await response.blob();
+
+      // Decrement concurrent request counter
+      this.concurrentRequests--;
+
+      return blob;
     } catch (error) {
+      // Decrement counter even on error
+      this.concurrentRequests--;
       console.error('Error downloading file:', error);
       throw error;
     }
