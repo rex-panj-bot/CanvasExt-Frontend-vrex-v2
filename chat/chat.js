@@ -118,7 +118,7 @@ async function loadMaterials() {
 }
 
 /**
- * Display materials with checkboxes in sidebar
+ * Display materials with module-based organization
  */
 function displayMaterials() {
   const materialsList = elements.materialsList;
@@ -135,17 +135,6 @@ function displayMaterials() {
 
   materialsList.innerHTML = '';
 
-  const categories = {
-    syllabus: { name: 'Syllabus', icon: '📋' },
-    lectures: { name: 'Lectures', icon: '📝' },
-    readings: { name: 'Readings', icon: '📖' },
-    assignments: { name: 'Assignments', icon: '✏️' },
-    pages: { name: 'Pages', icon: '📄' },
-    files: { name: 'Files', icon: '📄' },
-    modules: { name: 'Modules', icon: '📚' },
-    other: { name: 'Other', icon: '📦' }
-  };
-
   // Add select all/deselect all controls
   const controlsDiv = document.createElement('div');
   controlsDiv.className = 'materials-controls';
@@ -155,12 +144,156 @@ function displayMaterials() {
   `;
   materialsList.appendChild(controlsDiv);
 
-  let displayedCategories = 0;
+  // Track files shown in modules to avoid duplicates
+  const filesShownInModules = new Set();
+
+  // 1. Display Modules (if any) with their files
+  if (processedMaterials.modules && processedMaterials.modules.length > 0) {
+    const modulesSection = document.createElement('div');
+    modulesSection.className = 'materials-section';
+    modulesSection.innerHTML = `
+      <div class="section-header">
+        <span class="section-icon">📚</span>
+        <span class="section-title">Course Modules</span>
+      </div>
+    `;
+
+    processedMaterials.modules.forEach((module, moduleIdx) => {
+      // Filter module items to only show Files (downloadable content)
+      const moduleFiles = module.items ? module.items.filter(item => item.type === 'File' && item.url) : [];
+
+      if (moduleFiles.length === 0) return; // Skip modules with no files
+
+      // Track these files
+      moduleFiles.forEach(file => {
+        if (file.content_id) {
+          filesShownInModules.add(file.content_id.toString());
+        }
+      });
+
+      const moduleDiv = document.createElement('div');
+      moduleDiv.className = 'material-module';
+      moduleDiv.innerHTML = `
+        <div class="module-header" data-module-idx="${moduleIdx}">
+          <input type="checkbox" class="module-checkbox" id="module-${moduleIdx}" checked>
+          <svg class="module-chevron" width="12" height="12" viewBox="0 0 16 16" fill="none">
+            <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span class="module-name">${module.name || `Module ${moduleIdx + 1}`}</span>
+          <span class="module-count">${moduleFiles.length}</span>
+        </div>
+        <div class="module-items">
+          ${moduleFiles.map((file, fileIdx) => `
+            <div class="material-item" data-module-idx="${moduleIdx}" data-file-idx="${fileIdx}">
+              <input type="checkbox"
+                     class="material-checkbox"
+                     id="module-${moduleIdx}-file-${fileIdx}"
+                     data-module-idx="${moduleIdx}"
+                     data-file-idx="${fileIdx}"
+                     data-file-url="${file.url || ''}"
+                     checked>
+              <label class="material-label" title="${file.title || file.name}">
+                ${file.title || file.name}
+              </label>
+            </div>
+          `).join('')}
+        </div>
+      `;
+
+      modulesSection.appendChild(moduleDiv);
+
+      // Setup module collapse/expand
+      const header = moduleDiv.querySelector('.module-header');
+      const itemsDiv = moduleDiv.querySelector('.module-items');
+      const moduleCheckbox = moduleDiv.querySelector('.module-checkbox');
+      const chevron = moduleDiv.querySelector('.module-chevron');
+
+      header.addEventListener('click', (e) => {
+        if (e.target !== moduleCheckbox) {
+          itemsDiv.classList.toggle('collapsed');
+          moduleDiv.classList.toggle('collapsed');
+          chevron.classList.toggle('rotated');
+        }
+      });
+
+      // Module checkbox selects/deselects all files in module
+      moduleCheckbox.addEventListener('change', (e) => {
+        e.stopPropagation();
+        const checkboxes = itemsDiv.querySelectorAll('.material-checkbox');
+        checkboxes.forEach(cb => cb.checked = moduleCheckbox.checked);
+      });
+
+      // Update module checkbox when individual items change
+      const itemCheckboxes = itemsDiv.querySelectorAll('.material-checkbox');
+      itemCheckboxes.forEach(cb => {
+        cb.addEventListener('change', () => {
+          const allChecked = Array.from(itemCheckboxes).every(icb => icb.checked);
+          const noneChecked = Array.from(itemCheckboxes).every(icb => !icb.checked);
+          moduleCheckbox.checked = allChecked;
+          moduleCheckbox.indeterminate = !allChecked && !noneChecked;
+        });
+      });
+    });
+
+    materialsList.appendChild(modulesSection);
+  }
+
+  // 2. Display standalone Files (not in modules)
+  if (processedMaterials.files && processedMaterials.files.length > 0) {
+    // Filter out files already shown in modules
+    const standaloneFiles = processedMaterials.files.filter(file => {
+      const fileId = file.id?.toString() || file.content_id?.toString();
+      return !filesShownInModules.has(fileId);
+    });
+
+    if (standaloneFiles.length > 0) {
+      const filesSection = document.createElement('div');
+      filesSection.className = 'materials-section';
+      filesSection.innerHTML = `
+        <div class="section-header">
+          <span class="section-icon">📄</span>
+          <span class="section-title">Course Files</span>
+          <span class="section-count">${standaloneFiles.length}</span>
+        </div>
+      `;
+
+      const filesDiv = document.createElement('div');
+      filesDiv.className = 'section-items';
+      filesDiv.innerHTML = standaloneFiles.map((file, fileIdx) => `
+        <div class="material-item" data-category="files" data-index="${fileIdx}">
+          <input type="checkbox"
+                 class="material-checkbox"
+                 id="file-${fileIdx}"
+                 data-category="files"
+                 data-index="${fileIdx}"
+                 data-file-url="${file.url || ''}"
+                 checked>
+          <label class="material-label" title="${file.display_name || file.name}">
+            ${file.display_name || file.name}
+          </label>
+        </div>
+      `).join('');
+
+      filesSection.appendChild(filesDiv);
+      materialsList.appendChild(filesSection);
+    }
+  }
+
+  // 3. Display other categories (syllabus, lectures, readings, assignments, pages, etc.)
+  const otherCategories = {
+    syllabus: { name: 'Syllabus', icon: '📋' },
+    lectures: { name: 'Lectures', icon: '📝' },
+    readings: { name: 'Readings', icon: '📖' },
+    assignments: { name: 'Assignments', icon: '✏️' },
+    pages: { name: 'Pages', icon: '📄' },
+    other: { name: 'Other', icon: '📦' }
+  };
 
   Object.entries(processedMaterials).forEach(([key, items]) => {
+    if (key === 'modules' || key === 'files') return; // Already handled
     if (!Array.isArray(items) || items.length === 0) return;
 
-    const category = categories[key];
+    const category = otherCategories[key];
     if (!category) return;
 
     displayedCategories++;
@@ -345,26 +478,44 @@ function getSelectedMaterials() {
 
 /**
  * Convert selected materials to backend document IDs
+ * Handles both module-based files and standalone files
  */
 function getSelectedDocIds() {
-  const selected = getSelectedMaterials();
   const docIds = [];
+  const checkedBoxes = document.querySelectorAll('.material-checkbox:checked');
 
-  Object.values(selected).forEach(categoryItems => {
-    if (Array.isArray(categoryItems)) {
-      categoryItems.forEach(item => {
-        if (item && (item.name || item.display_name)) {
-          let materialName = item.name || item.display_name;
+  checkedBoxes.forEach(checkbox => {
+    const moduleIdx = checkbox.dataset.moduleIdx;
+    const fileIdx = checkbox.dataset.fileIdx;
+    const category = checkbox.dataset.category;
+    const index = checkbox.dataset.index;
 
-          // Remove .pdf extension if present
-          if (materialName.endsWith('.pdf')) {
-            materialName = materialName.slice(0, -4);
-          }
+    let materialName = null;
 
-          const docId = `${courseId}_${materialName}`;
-          docIds.push(docId);
+    // Handle module files
+    if (moduleIdx !== undefined && fileIdx !== undefined) {
+      const module = processedMaterials.modules?.[parseInt(moduleIdx)];
+      if (module && module.items) {
+        const moduleFiles = module.items.filter(item => item.type === 'File' && item.url);
+        const file = moduleFiles[parseInt(fileIdx)];
+        if (file) {
+          materialName = file.title || file.name;
         }
-      });
+      }
+    }
+    // Handle standalone files and other categories
+    else if (category && index !== undefined) {
+      const item = processedMaterials[category]?.[parseInt(index)];
+      if (item) {
+        materialName = item.name || item.display_name || item.title;
+      }
+    }
+
+    if (materialName) {
+      // Remove file extension for document ID
+      const cleanName = materialName.replace(/\.(pdf|docx?|txt|xlsx?|pptx?|csv|md|rtf|png|jpe?g|gif|webp)$/i, '');
+      const docId = `${courseId}_${cleanName}`;
+      docIds.push(docId);
     }
   });
 
