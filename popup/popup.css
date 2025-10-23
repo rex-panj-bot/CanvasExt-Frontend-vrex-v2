@@ -337,6 +337,15 @@ html {
   color: var(--text-primary);
 }
 
+.btn-icon.btn-danger {
+  color: #ef4444;
+}
+
+.btn-icon.btn-danger:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: #dc2626;
+}
+
 .btn-back {
   background: none;
   border: none;

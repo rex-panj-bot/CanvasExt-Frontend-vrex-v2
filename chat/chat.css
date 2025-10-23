@@ -26,7 +26,7 @@
   --success: #10b981;
   --error: #ef4444;
   --warning: #f59e0b;
-  --sidebar-width: 340px;
+  --sidebar-width: 260px;
 }
 
 /* Light Theme */
@@ -48,7 +48,7 @@
   --success: #10b981;
   --error: #ef4444;
   --warning: #f59e0b;
-  --sidebar-width: 340px;
+  --sidebar-width: 260px;
 }
 
 html[data-theme="light"] body {
@@ -66,8 +66,8 @@ body {
   display: flex;
   height: 100vh;
   background: var(--background);
-  gap: 32px;
-  padding: 24px;
+  gap: 20px;
+  padding: 20px;
 }
 
 /* ========== SIDEBAR ========== */
@@ -90,14 +90,7 @@ body {
 
 .sidebar-header-top {
   display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.course-icon {
-  font-size: 36px;
-  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
-  flex-shrink: 0;
+  align-items: flex-start;
 }
 
 .sidebar-header h2 {
@@ -111,15 +104,16 @@ body {
 .course-switcher-sidebar {
   position: relative;
   flex: 1;
+  width: 100%;
 }
 
 .course-switcher-sidebar-btn {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
   width: 100%;
-  padding: 8px 12px;
+  padding: 10px 12px;
   background: var(--surface-hover);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -128,6 +122,7 @@ body {
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
+  min-height: 44px;
 }
 
 .course-switcher-sidebar-btn:hover {
@@ -136,10 +131,11 @@ body {
 }
 
 .course-switcher-sidebar-btn span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   text-align: left;
+  line-height: 1.4;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  flex: 1;
 }
 
 .course-switcher-sidebar-btn .dropdown-arrow {
@@ -335,15 +331,15 @@ body {
 }
 
 .material-item {
-  padding: 10px 12px;
+  padding: 6px 12px;
   font-size: 13px;
   color: var(--text-secondary);
-  border-radius: 10px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   transition: all 0.2s;
-  margin-bottom: 4px;
+  margin-bottom: 3px;
 }
 
 .material-item:hover {
@@ -357,7 +353,7 @@ body {
   font-weight: 500;
 }
 
-.material-item label {
+.material-item .material-label {
   flex: 1;
   cursor: pointer;
   white-space: nowrap;

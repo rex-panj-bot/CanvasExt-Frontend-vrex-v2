@@ -169,7 +169,7 @@ function displayMaterials() {
         ${items.map((item, index) => `
           <div class="material-item" data-category="${key}" data-index="${index}">
             <input type="checkbox" class="material-checkbox" id="material-${key}-${index}" data-category="${key}" data-index="${index}" checked>
-            <label for="material-${key}-${index}" title="${item.name || item.display_name}">
+            <label class="material-label" title="${item.name || item.display_name}">
               ${item.name || item.display_name}
             </label>
             <button class="delete-material-btn" title="Remove from AI memory">
@@ -251,6 +251,29 @@ function displayMaterials() {
             displayMaterials();
             showTemporaryMessage(`Removed "${materialName}" from AI memory`);
           });
+        }
+      }
+    }
+
+    // Handle clicking on file name label to open in new tab
+    const label = e.target.closest('.material-label');
+    if (label && !deleteBtn) {  // Only if not clicking delete button
+      e.preventDefault();
+      e.stopPropagation();
+
+      const materialItem = label.closest('.material-item');
+      const category = materialItem.getAttribute('data-category');
+      const index = parseInt(materialItem.getAttribute('data-index'));
+
+      if (processedMaterials && processedMaterials[category]) {
+        const material = processedMaterials[category][index];
+
+        // Open file URL in new tab if available
+        if (material.url) {
+          chrome.tabs.create({ url: material.url });
+          console.log(`Opening file in new tab: ${material.name || material.display_name}`);
+        } else {
+          console.warn('No URL available for this material');
         }
       }
     }
