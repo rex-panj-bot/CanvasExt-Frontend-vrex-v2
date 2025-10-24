@@ -124,7 +124,15 @@ async function loadMaterials() {
     }
 
     courseName = materialsData.courseName;
-    processedMaterials = materialsData.materials;
+    // Ensure processedMaterials always has a valid structure
+    // Some courses may not have modules, only files/pages/assignments
+    processedMaterials = materialsData.materials || {
+      modules: [],
+      files: [],
+      pages: [],
+      assignments: [],
+      errors: []
+    };
 
     // Count blobs
     let blobCount = 0;
@@ -627,10 +635,16 @@ async function uploadMaterialsToBackend() {
   try {
     console.log('📤 Uploading materials to backend...');
 
+    // Check if materials are loaded
+    if (!processedMaterials) {
+      console.error('❌ No materials loaded yet, cannot upload to backend');
+      return;
+    }
+
     // Collect all files from materials
     const filesToUpload = [];
 
-    // Collect from modules
+    // Collect from modules (if course has modules)
     if (processedMaterials.modules && Array.isArray(processedMaterials.modules)) {
       for (const module of processedMaterials.modules) {
         if (module.items && Array.isArray(module.items)) {
