@@ -327,13 +327,13 @@ class CanvasAPI {
     await this.rateLimit(true); // Use file download rate limiting
 
     const headers = this.getAuthHeaders();
-    const fetchOptions = { headers };
-
-    // IMPORTANT: Use 'omit' credentials mode to avoid CORS issues with Canvas CDN
-    // Canvas redirects file downloads to CDN (cdn.inst-fs-*.inscloudgate.net)
-    // The CDN returns Access-Control-Allow-Origin: *, which conflicts with credentials: 'include'
-    // Using 'omit' allows the redirect to work properly
-    fetchOptions.credentials = 'omit';
+    const fetchOptions = {
+      headers,
+      // IMPORTANT: Use 'same-origin' instead of 'include' or 'omit'
+      // This allows credentials for same-origin requests but not for CDN redirects
+      // Canvas CDN redirects will work because the download URL includes a token
+      credentials: 'same-origin'
+    };
 
     try {
       const response = await fetch(fileUrl, fetchOptions);
