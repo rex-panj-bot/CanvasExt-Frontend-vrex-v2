@@ -429,16 +429,16 @@ function displayMaterials() {
           const blobUrl = URL.createObjectURL(fileItem.blob);
           chrome.tabs.create({ url: blobUrl });
           console.log(`✅ Opening file from blob: ${fileName}`);
-        } else if (fileItem.url) {
-          // Fallback: Open Canvas URL (will show JSON if not authenticated properly)
-          console.warn(`⚠️  No blob available for ${fileName}, opening Canvas URL (may not work)`);
-          chrome.tabs.create({ url: fileItem.url });
         } else {
-          console.warn(`❌ No blob or URL available for ${fileName}`);
-          showError('File cannot be opened - no data available');
+          // No blob available - show clear error message
+          console.error(`❌ No blob data available for ${fileName}`);
+          console.error(`   This means the file was not properly downloaded when materials were scanned.`);
+          console.error(`   File item:`, fileItem);
+          showTemporaryMessage(`Cannot open "${fileName}" - file data not available. Please re-scan course materials.`);
         }
       } else {
         console.warn('No file item found for this material');
+        showTemporaryMessage('File not found in materials list');
       }
     }
   });
