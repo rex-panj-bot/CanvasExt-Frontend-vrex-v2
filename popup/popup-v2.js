@@ -725,8 +725,10 @@ async function createStudyBot() {
       'png', 'jpg', 'jpeg', 'gif'    // Images (for vision)
     ];
 
-    // Get file URLs that need to be uploaded
-    const filesToUpload = [];
+    // Collect ALL files for local download + determine which need backend upload
+    const allFilesToDownload = []; // For local blob storage (ALWAYS download)
+    const filesToUploadToBackend = []; // For backend AI processing (only if new)
+
     for (const [category, items] of Object.entries(materialsToProcess)) {
       if (!Array.isArray(items)) continue;
 
@@ -741,38 +743,42 @@ async function createStudyBot() {
           continue;
         }
 
-        // Check if already uploaded (backend format: courseId_filename without extension)
-        const fileNameWithoutExt = itemName.substring(0, itemName.lastIndexOf('.')) || itemName;
-        const fileId = `${currentCourse.id}_${fileNameWithoutExt}`;
-        if (uploadedFileIds.has(fileId)) {
-          console.log(`⏭️  Skipping ${itemName} (already uploaded)`);
-          continue;
-        }
-
-        filesToUpload.push({
+        const fileInfo = {
           url: item.url,
           name: itemName,
           type: ext
-        });
+        };
+
+        // ALWAYS add to download list (for local blobs - needed to open files)
+        allFilesToDownload.push(fileInfo);
+
+        // Check backend cache ONLY for upload decision (not download)
+        const fileNameWithoutExt = itemName.substring(0, itemName.lastIndexOf('.')) || itemName;
+        const fileId = `${currentCourse.id}_${fileNameWithoutExt}`;
+        if (!uploadedFileIds.has(fileId)) {
+          filesToUploadToBackend.push(fileInfo);
+          console.log(`📤 Will upload to backend: ${itemName}`);
+        } else {
+          console.log(`✅ Already on backend (will still download locally): ${itemName}`);
+        }
       }
     }
 
-    console.log(`📊 File type breakdown:`, filesToUpload.reduce((acc, f) => {
+    console.log(`📊 Total files: ${allFilesToDownload.length}, New files for backend: ${filesToUploadToBackend.length}`);
+    console.log(`📊 File type breakdown:`, allFilesToDownload.reduce((acc, f) => {
       acc[f.type] = (acc[f.type] || 0) + 1;
       return acc;
     }, {}));
 
-    if (filesToUpload.length === 0) {
-      updateProgress('All files already uploaded!', 90);
-      console.log('✅ All files already on backend, opening chat...');
-    } else {
-      updateProgress(`Downloading ${filesToUpload.length} new files...`, PROGRESS_PERCENT.DOWNLOADING_START);
+    // ALWAYS download files locally (even if backend has them)
+    // This ensures we have blobs for opening files from the sidebar
+    updateProgress(`Downloading ${allFilesToDownload.length} files locally...`, PROGRESS_PERCENT.DOWNLOADING_START);
+    console.log(`📥 Downloading ${allFilesToDownload.length} files for local blob storage...`);
 
-      // Download files in parallel batches for 5-10x speedup
-      const downloadedFiles = [];
-      let completed = 0;
-      const total = filesToUpload.length;
-      const concurrency = 8;
+    const downloadedFiles = [];
+    let completed = 0;
+    const total = allFilesToDownload.length;
+    const concurrency = 8;
 
       // Download single file
       const downloadFile = async (file) => {
@@ -801,55 +807,63 @@ async function createStudyBot() {
         }
       };
 
-      // Process downloads in batches
-      const downloadBatch = async (batch) => {
-        return Promise.all(batch.map(file => downloadFile(file)));
-      };
+    // Process downloads in batches
+    const downloadBatch = async (batch) => {
+      return Promise.all(batch.map(file => downloadFile(file)));
+    };
 
-      // Split files into batches
-      const batches = [];
-      for (let i = 0; i < filesToUpload.length; i += concurrency) {
-        batches.push(filesToUpload.slice(i, i + concurrency));
-      }
-
-      // Download all batches sequentially (files within each batch in parallel)
-      for (const batch of batches) {
-        await downloadBatch(batch);
-      }
-
-      console.log(`📦 Downloaded ${downloadedFiles.length}/${total} files successfully`);
-
-      if (downloadedFiles.length > 0) {
-        updateProgress(`Uploading ${downloadedFiles.length} files to backend...`, PROGRESS_PERCENT.UPLOADING);
-        await backendClient.uploadPDFs(currentCourse.id, downloadedFiles);
-        console.log(`✅ Uploaded ${downloadedFiles.length} new files`);
-
-        // CRITICAL: Attach downloaded blobs to materialsToProcess
-        // This is needed for opening files from blob URLs and citation links
-        console.log(`🔗 Attaching ${downloadedFiles.length} blobs to materials...`);
-        const blobMap = new Map();
-        downloadedFiles.forEach(df => {
-          blobMap.set(df.name, df.blob);
-          console.log(`  📎 Mapped blob: ${df.name}`);
-        });
-
-        // Attach blobs to all matching items in materialsToProcess
-        let attachedCount = 0;
-        for (const [category, items] of Object.entries(materialsToProcess)) {
-          if (!Array.isArray(items)) continue;
-
-          items.forEach(item => {
-            const itemName = item.display_name || item.filename || item.name;
-            if (itemName && blobMap.has(itemName)) {
-              item.blob = blobMap.get(itemName);
-              attachedCount++;
-              console.log(`  ✅ Attached blob to: ${itemName} (${category})`);
-            }
-          });
-        }
-        console.log(`✅ Attached ${attachedCount} blobs to materials structure`);
-      }
+    // Split files into batches
+    const batches = [];
+    for (let i = 0; i < allFilesToDownload.length; i += concurrency) {
+      batches.push(allFilesToDownload.slice(i, i + concurrency));
     }
+
+    // Download all batches sequentially (files within each batch in parallel)
+    for (const batch of batches) {
+      await downloadBatch(batch);
+    }
+
+    console.log(`📦 Downloaded ${downloadedFiles.length}/${total} files successfully`);
+
+    // Upload to backend ONLY files that are new (not in backend cache)
+    if (filesToUploadToBackend.length > 0) {
+      updateProgress(`Uploading ${filesToUploadToBackend.length} new files to backend...`, PROGRESS_PERCENT.UPLOADING);
+
+      // Filter downloaded files to only include ones that need backend upload
+      const blobsToUpload = downloadedFiles.filter(df =>
+        filesToUploadToBackend.some(f => f.name === df.name)
+      );
+
+      await backendClient.uploadPDFs(currentCourse.id, blobsToUpload);
+      console.log(`✅ Uploaded ${blobsToUpload.length} new files to backend`);
+    } else {
+      console.log(`✅ All files already on backend, skipping upload`);
+    }
+
+    // ALWAYS attach downloaded blobs to materialsToProcess (regardless of backend upload)
+    // This is CRITICAL for opening files from blob URLs and citation links
+    console.log(`🔗 Attaching ${downloadedFiles.length} blobs to materials...`);
+    const blobMap = new Map();
+    downloadedFiles.forEach(df => {
+      blobMap.set(df.name, df.blob);
+      console.log(`  📎 Mapped blob: ${df.name}`);
+    });
+
+    // Attach blobs to all matching items in materialsToProcess
+    let attachedCount = 0;
+    for (const [category, items] of Object.entries(materialsToProcess)) {
+      if (!Array.isArray(items)) continue;
+
+      items.forEach(item => {
+        const itemName = item.display_name || item.filename || item.name;
+        if (itemName && blobMap.has(itemName)) {
+          item.blob = blobMap.get(itemName);
+          attachedCount++;
+          console.log(`  ✅ Attached blob to: ${itemName} (${category})`);
+        }
+      });
+    }
+    console.log(`✅ Attached ${attachedCount} blobs to materials structure`);
 
     updateProgress('Opening study assistant...', PROGRESS_PERCENT.COMPLETE);
 
