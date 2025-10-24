@@ -882,56 +882,23 @@ async function createStudyBot() {
 
     console.log(`✅ Attached ${attachedCount} blobs to materials structure (out of ${downloadedFiles.length} downloaded)`);
 
-    updateProgress('Opening study assistant...', PROGRESS_PERCENT.COMPLETE);
+    updateProgress('Saving materials to database...', PROGRESS_PERCENT.COMPLETE);
 
-    // Convert blobs to base64 for storage (chrome.storage doesn't support Blob objects)
-    console.log('🔄 Converting blobs to base64 for storage...');
-    const convertBlobsToBase64 = async (materials) => {
-      const blobToBase64 = (blob) => {
-        return new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result);
-          reader.onerror = reject;
-          reader.readAsDataURL(blob);
-        });
-      };
+    // Save to IndexedDB (supports Blob objects directly, no size limit!)
+    console.log('💾 Saving materials with blobs to IndexedDB...');
+    const materialsDB = new MaterialsDB();
+    await materialsDB.saveMaterials(currentCourse.id, currentCourse.name, materialsToProcess);
+    await materialsDB.close();
+    console.log('✅ Materials saved to IndexedDB');
 
-      // Convert blobs in all categories
-      for (const [category, items] of Object.entries(materials)) {
-        if (!Array.isArray(items)) continue;
-        for (const item of items) {
-          if (item.blob) {
-            item.blobData = await blobToBase64(item.blob);
-            delete item.blob; // Remove blob object, keep base64
-          }
-        }
-      }
-
-      // Convert blobs in module items
-      if (materials.modules && Array.isArray(materials.modules)) {
-        for (const module of materials.modules) {
-          if (module.items && Array.isArray(module.items)) {
-            for (const item of module.items) {
-              if (item.blob) {
-                item.blobData = await blobToBase64(item.blob);
-                delete item.blob; // Remove blob object, keep base64
-              }
-            }
-          }
-        }
-      }
-    };
-
-    await convertBlobsToBase64(materialsToProcess);
-    console.log('✅ Converted blobs to base64');
-
-    // Save course metadata and materials for chat interface (NOW WITH BASE64 BLOB DATA!)
+    // Also save lightweight metadata to chrome.storage for quick access
     const storageKey = `course_materials_${currentCourse.id}`;
     await chrome.storage.local.set({
       [storageKey]: {
         courseName: currentCourse.name,
         courseId: currentCourse.id,
-        materials: materialsToProcess
+        lastUpdated: Date.now(),
+        fileCount: downloadedFiles.length
       }
     });
 

@@ -1,0 +1,127 @@
+/**
+ * IndexedDB wrapper for storing course materials with blobs
+ * Chrome storage has ~10MB limit, IndexedDB has ~unlimited storage
+ */
+
+class MaterialsDB {
+  constructor() {
+    this.dbName = 'CanvasMaterialsDB';
+    this.version = 1;
+    this.db = null;
+  }
+
+  /**
+   * Open database connection
+   */
+  async open() {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(this.dbName, this.version);
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        this.db = request.result;
+        resolve(this.db);
+      };
+
+      request.onupgradeneeded = (event) => {
+        const db = event.target.result;
+
+        // Create object store for course materials
+        if (!db.objectStoreNames.contains('materials')) {
+          const objectStore = db.createObjectStore('materials', { keyPath: 'courseId' });
+          objectStore.createIndex('courseName', 'courseName', { unique: false });
+          objectStore.createIndex('lastUpdated', 'lastUpdated', { unique: false });
+        }
+      };
+    });
+  }
+
+  /**
+   * Save course materials with blobs
+   */
+  async saveMaterials(courseId, courseName, materials) {
+    if (!this.db) await this.open();
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction(['materials'], 'readwrite');
+      const store = transaction.objectStore('materials');
+
+      const data = {
+        courseId,
+        courseName,
+        materials,
+        lastUpdated: Date.now()
+      };
+
+      const request = store.put(data);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Load course materials
+   */
+  async loadMaterials(courseId) {
+    if (!this.db) await this.open();
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction(['materials'], 'readonly');
+      const store = transaction.objectStore('materials');
+      const request = store.get(courseId);
+
+      request.onsuccess = () => {
+        resolve(request.result || null);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Delete course materials
+   */
+  async deleteMaterials(courseId) {
+    if (!this.db) await this.open();
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction(['materials'], 'readwrite');
+      const store = transaction.objectStore('materials');
+      const request = store.delete(courseId);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * List all stored courses
+   */
+  async listCourses() {
+    if (!this.db) await this.open();
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction(['materials'], 'readonly');
+      const store = transaction.objectStore('materials');
+      const request = store.getAllKeys();
+
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Close database connection
+   */
+  close() {
+    if (this.db) {
+      this.db.close();
+      this.db = null;
+    }
+  }
+}
+
+// Export for use in other scripts
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = MaterialsDB;
+}
