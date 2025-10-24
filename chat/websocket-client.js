@@ -167,10 +167,23 @@ class BackendClient {
   async uploadPDFs(courseId, files) {
     const formData = new FormData();
 
-    // Add files to form data
+    // Add files to form data, validating that blob exists
+    let validFileCount = 0;
     for (const file of files) {
-      formData.append('files', file.blob, file.name);
+      // Validate that blob is actually a Blob object
+      if (file.blob && file.blob instanceof Blob) {
+        formData.append('files', file.blob, file.name);
+        validFileCount++;
+      } else {
+        console.warn(`⚠️ Skipping ${file.name} - not a valid Blob (type: ${typeof file.blob})`);
+      }
     }
+
+    if (validFileCount === 0) {
+      throw new Error('No valid files to upload. All files were skipped due to missing or invalid blobs.');
+    }
+
+    console.log(`📤 Uploading ${validFileCount} files to backend...`);
 
     try {
       const response = await fetch(`${this.backendUrl}/upload_pdfs?course_id=${courseId}`, {
