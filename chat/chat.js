@@ -94,13 +94,20 @@ async function loadMaterials() {
     if (!materialsData) {
       console.log('⚠️ No data in IndexedDB, checking chrome.storage (legacy)...');
       const key = `course_materials_${courseId}`;
+      console.log(`   Looking for key: ${key}`);
+
       const stored = await new Promise((resolve) => {
         chrome.storage.local.get([key], (result) => {
+          console.log(`   chrome.storage result:`, result);
           resolve(result[key]);
         });
       });
 
+      console.log(`   Stored data:`, stored);
+      console.log(`   Has materials:`, stored && stored.materials);
+
       if (!stored || !stored.materials) {
+        console.error('❌ No materials in chrome.storage either!');
         showError('No materials found for this course. Please go back and scan materials first.');
         return;
       }
