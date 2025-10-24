@@ -823,12 +823,37 @@ async function createStudyBot() {
         updateProgress(`Uploading ${downloadedFiles.length} files to backend...`, PROGRESS_PERCENT.UPLOADING);
         await backendClient.uploadPDFs(currentCourse.id, downloadedFiles);
         console.log(`✅ Uploaded ${downloadedFiles.length} new files`);
+
+        // CRITICAL: Attach downloaded blobs to materialsToProcess
+        // This is needed for opening files from blob URLs and citation links
+        console.log(`🔗 Attaching ${downloadedFiles.length} blobs to materials...`);
+        const blobMap = new Map();
+        downloadedFiles.forEach(df => {
+          blobMap.set(df.name, df.blob);
+          console.log(`  📎 Mapped blob: ${df.name}`);
+        });
+
+        // Attach blobs to all matching items in materialsToProcess
+        let attachedCount = 0;
+        for (const [category, items] of Object.entries(materialsToProcess)) {
+          if (!Array.isArray(items)) continue;
+
+          items.forEach(item => {
+            const itemName = item.display_name || item.filename || item.name;
+            if (itemName && blobMap.has(itemName)) {
+              item.blob = blobMap.get(itemName);
+              attachedCount++;
+              console.log(`  ✅ Attached blob to: ${itemName} (${category})`);
+            }
+          });
+        }
+        console.log(`✅ Attached ${attachedCount} blobs to materials structure`);
       }
     }
 
     updateProgress('Opening study assistant...', PROGRESS_PERCENT.COMPLETE);
 
-    // Save course metadata and materials for chat interface
+    // Save course metadata and materials for chat interface (NOW WITH BLOBS!)
     const storageKey = `course_materials_${currentCourse.id}`;
     await chrome.storage.local.set({
       [storageKey]: {

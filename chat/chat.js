@@ -400,36 +400,45 @@ function displayMaterials() {
       const category = materialItem.getAttribute('data-category');
       const index = materialItem.getAttribute('data-index');
 
-      let fileUrl = null;
       let fileName = null;
+      let fileItem = null;
 
       // Handle module files
       if (moduleIdx !== null && fileIdx !== null) {
         const module = processedMaterials.modules?.[parseInt(moduleIdx)];
         if (module && module.items) {
           const moduleFiles = module.items.filter(item => item.type === 'File' && item.url);
-          const file = moduleFiles[parseInt(fileIdx)];
-          if (file) {
-            fileUrl = file.url;
-            fileName = file.title || file.name;
+          fileItem = moduleFiles[parseInt(fileIdx)];
+          if (fileItem) {
+            fileName = fileItem.title || fileItem.name;
           }
         }
       }
       // Handle standalone files
       else if (category && index !== null) {
-        const material = processedMaterials[category]?.[parseInt(index)];
-        if (material) {
-          fileUrl = material.url;
-          fileName = material.name || material.display_name;
+        fileItem = processedMaterials[category]?.[parseInt(index)];
+        if (fileItem) {
+          fileName = fileItem.name || fileItem.display_name;
         }
       }
 
-      // Open file URL in new tab if available
-      if (fileUrl) {
-        chrome.tabs.create({ url: fileUrl });
-        console.log(`Opening file in new tab: ${fileName}`);
+      // Open file - prefer blob, fallback to URL
+      if (fileItem) {
+        if (fileItem.blob) {
+          // Open from local blob (FAST, works offline)
+          const blobUrl = URL.createObjectURL(fileItem.blob);
+          chrome.tabs.create({ url: blobUrl });
+          console.log(`✅ Opening file from blob: ${fileName}`);
+        } else if (fileItem.url) {
+          // Fallback: Open Canvas URL (will show JSON if not authenticated properly)
+          console.warn(`⚠️  No blob available for ${fileName}, opening Canvas URL (may not work)`);
+          chrome.tabs.create({ url: fileItem.url });
+        } else {
+          console.warn(`❌ No blob or URL available for ${fileName}`);
+          showError('File cannot be opened - no data available');
+        }
       } else {
-        console.warn('No URL available for this material');
+        console.warn('No file item found for this material');
       }
     }
   });
@@ -1001,23 +1010,49 @@ function parseCitations(content) {
 }
 
 /**
+ * Normalize filename for flexible matching
+ * Removes date prefixes, handles underscores/dashes, case-insensitive
+ */
+function normalizeFilename(name) {
+  if (!name) return '';
+  return name
+    .replace(/^[A-Z]{3}_?\d+_/i, '')  // Remove date prefixes like "AUG_28_", "SEP_2_"
+    .replace(/\.(pdf|docx?|pptx?|xlsx?|txt|md|csv)$/i, '') // Remove extension
+    .replace(/[_-]/g, ' ')  // Replace underscores and dashes with spaces
+    .toLowerCase()
+    .trim();
+}
+
+/**
  * Open a cited document from local storage
  */
 async function openCitedDocument(docName, pageNum) {
   try {
-    console.log(`📄 Opening citation: ${docName}, page ${pageNum}`);
+    console.log(`📄 Opening citation: "${docName}", page ${pageNum}`);
+
+    const normalizedDocName = normalizeFilename(docName);
+    console.log(`  🔍 Normalized search: "${normalizedDocName}"`);
 
     // Find the file in processedMaterials
     let fileItem = null;
+    let matchedFileName = null;
 
     // Check modules
     if (processedMaterials.modules) {
       for (const module of processedMaterials.modules) {
         if (module.items) {
           for (const item of module.items) {
-            if (item.type === 'File' && item.title && item.title.includes(docName)) {
-              fileItem = item;
-              break;
+            if (item.type === 'File' && item.title) {
+              const normalizedTitle = normalizeFilename(item.title);
+              console.log(`    Checking module file: "${item.title}" → "${normalizedTitle}"`);
+
+              // Try exact match first, then partial match
+              if (normalizedTitle === normalizedDocName || normalizedTitle.includes(normalizedDocName) || normalizedDocName.includes(normalizedTitle)) {
+                fileItem = item;
+                matchedFileName = item.title;
+                console.log(`    ✅ MATCH FOUND in module: ${matchedFileName}`);
+                break;
+              }
             }
           }
         }
@@ -1029,15 +1064,27 @@ async function openCitedDocument(docName, pageNum) {
     if (!fileItem && processedMaterials.files) {
       for (const file of processedMaterials.files) {
         const fileName = file.name || file.display_name || '';
-        if (fileName.includes(docName)) {
-          fileItem = file;
-          break;
+        if (fileName) {
+          const normalizedFileName = normalizeFilename(fileName);
+          console.log(`    Checking standalone file: "${fileName}" → "${normalizedFileName}"`);
+
+          // Try exact match first, then partial match
+          if (normalizedFileName === normalizedDocName || normalizedFileName.includes(normalizedDocName) || normalizedDocName.includes(normalizedFileName)) {
+            fileItem = file;
+            matchedFileName = fileName;
+            console.log(`    ✅ MATCH FOUND in files: ${matchedFileName}`);
+            break;
+          }
         }
       }
     }
 
     if (!fileItem) {
-      console.warn(`Could not find file: ${docName}`);
+      console.error(`❌ File not found: "${docName}"`);
+      console.error(`  Searched for normalized: "${normalizedDocName}"`);
+      console.error(`  Available files:`,
+        processedMaterials.files?.map(f => f.name || f.display_name) || []
+      );
       showError(`File not found: ${docName}`);
       return;
     }
@@ -1045,7 +1092,7 @@ async function openCitedDocument(docName, pageNum) {
     // Get the blob
     const blob = fileItem.blob;
     if (!blob) {
-      console.warn(`No blob available for: ${docName}`);
+      console.warn(`No blob available for: ${matchedFileName}`);
       showError(`File data not available: ${docName}`);
       return;
     }
@@ -1057,7 +1104,7 @@ async function openCitedDocument(docName, pageNum) {
     const finalUrl = `${blobUrl}#page=${pageNum}`;
     window.open(finalUrl, '_blank');
 
-    console.log(`✅ Opened ${docName} at page ${pageNum}`);
+    console.log(`✅ Opened "${matchedFileName}" at page ${pageNum}`);
   } catch (error) {
     console.error('Error opening cited document:', error);
     showError(`Error opening document: ${error.message}`);
