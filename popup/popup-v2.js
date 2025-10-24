@@ -855,7 +855,7 @@ async function createStudyBot() {
       if (!Array.isArray(items)) continue;
 
       items.forEach(item => {
-        const itemName = item.display_name || item.filename || item.name;
+        const itemName = item.display_name || item.filename || item.name || item.title;
         if (itemName && blobMap.has(itemName)) {
           item.blob = blobMap.get(itemName);
           attachedCount++;
@@ -863,11 +863,69 @@ async function createStudyBot() {
         }
       });
     }
-    console.log(`✅ Attached ${attachedCount} blobs to materials structure`);
+
+    // ALSO attach blobs to module items (files within modules)
+    if (materialsToProcess.modules && Array.isArray(materialsToProcess.modules)) {
+      materialsToProcess.modules.forEach((module, moduleIdx) => {
+        if (module.items && Array.isArray(module.items)) {
+          module.items.forEach((item, itemIdx) => {
+            const itemName = item.title || item.name || item.display_name;
+            if (itemName && blobMap.has(itemName)) {
+              item.blob = blobMap.get(itemName);
+              attachedCount++;
+              console.log(`  ✅ Attached blob to module item: ${itemName} (module ${moduleIdx}, item ${itemIdx})`);
+            }
+          });
+        }
+      });
+    }
+
+    console.log(`✅ Attached ${attachedCount} blobs to materials structure (out of ${downloadedFiles.length} downloaded)`);
 
     updateProgress('Opening study assistant...', PROGRESS_PERCENT.COMPLETE);
 
-    // Save course metadata and materials for chat interface (NOW WITH BLOBS!)
+    // Convert blobs to base64 for storage (chrome.storage doesn't support Blob objects)
+    console.log('🔄 Converting blobs to base64 for storage...');
+    const convertBlobsToBase64 = async (materials) => {
+      const blobToBase64 = (blob) => {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+      };
+
+      // Convert blobs in all categories
+      for (const [category, items] of Object.entries(materials)) {
+        if (!Array.isArray(items)) continue;
+        for (const item of items) {
+          if (item.blob) {
+            item.blobData = await blobToBase64(item.blob);
+            delete item.blob; // Remove blob object, keep base64
+          }
+        }
+      }
+
+      // Convert blobs in module items
+      if (materials.modules && Array.isArray(materials.modules)) {
+        for (const module of materials.modules) {
+          if (module.items && Array.isArray(module.items)) {
+            for (const item of module.items) {
+              if (item.blob) {
+                item.blobData = await blobToBase64(item.blob);
+                delete item.blob; // Remove blob object, keep base64
+              }
+            }
+          }
+        }
+      }
+    };
+
+    await convertBlobsToBase64(materialsToProcess);
+    console.log('✅ Converted blobs to base64');
+
+    // Save course metadata and materials for chat interface (NOW WITH BASE64 BLOB DATA!)
     const storageKey = `course_materials_${currentCourse.id}`;
     await chrome.storage.local.set({
       [storageKey]: {

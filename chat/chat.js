@@ -102,6 +102,49 @@ async function loadMaterials() {
 
     console.log('Loaded materials:', processedMaterials);
 
+    // Convert base64 blobData back to Blob objects
+    console.log('🔄 Converting base64 data back to Blobs...');
+    const base64ToBlob = (base64Data) => {
+      const arr = base64Data.split(',');
+      const mime = arr[0].match(/:(.*?);/)[1];
+      const bstr = atob(arr[1]);
+      let n = bstr.length;
+      const u8arr = new Uint8Array(n);
+      while (n--) {
+        u8arr[n] = bstr.charCodeAt(n);
+      }
+      return new Blob([u8arr], { type: mime });
+    };
+
+    let blobsRestored = 0;
+    // Restore blobs in all categories
+    for (const items of Object.values(processedMaterials)) {
+      if (!Array.isArray(items)) continue;
+      for (const item of items) {
+        if (item.blobData) {
+          item.blob = base64ToBlob(item.blobData);
+          delete item.blobData; // Clean up base64 data
+          blobsRestored++;
+        }
+      }
+    }
+
+    // Restore blobs in module items
+    if (processedMaterials.modules && Array.isArray(processedMaterials.modules)) {
+      for (const module of processedMaterials.modules) {
+        if (module.items && Array.isArray(module.items)) {
+          for (const item of module.items) {
+            if (item.blobData) {
+              item.blob = base64ToBlob(item.blobData);
+              delete item.blobData; // Clean up base64 data
+              blobsRestored++;
+            }
+          }
+        }
+      }
+    }
+    console.log(`✅ Restored ${blobsRestored} blobs from base64 data`);
+
     // Update UI
     elements.courseName.textContent = courseName;
     elements.welcomeCourseName.textContent = courseName;
