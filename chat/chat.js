@@ -84,28 +84,36 @@ async function init() {
 
 async function loadMaterials() {
   try {
-    // Load course materials from chrome.storage
-    const key = `course_materials_${courseId}`;
-    const stored = await new Promise((resolve) => {
-      chrome.storage.local.get([key], (result) => {
-        resolve(result[key]);
-      });
-    });
-
-    if (!stored) {
-      showError('No materials found for this course. Please go back and scan materials first.');
-      return;
-    }
-
-    // Load full materials from IndexedDB (includes Blob objects)
+    // Try loading from IndexedDB first (new storage method)
     console.log('📂 Loading materials from IndexedDB...');
     const materialsDB = new MaterialsDB();
-    const materialsData = await materialsDB.loadMaterials(courseId);
+    let materialsData = await materialsDB.loadMaterials(courseId);
     await materialsDB.close();
 
+    // Fallback to chrome.storage if IndexedDB is empty (old data)
     if (!materialsData) {
-      showError('No materials found in database. Please go back and scan materials first.');
-      return;
+      console.log('⚠️ No data in IndexedDB, checking chrome.storage (legacy)...');
+      const key = `course_materials_${courseId}`;
+      const stored = await new Promise((resolve) => {
+        chrome.storage.local.get([key], (result) => {
+          resolve(result[key]);
+        });
+      });
+
+      if (!stored || !stored.materials) {
+        showError('No materials found for this course. Please go back and scan materials first.');
+        return;
+      }
+
+      // Use legacy data from chrome.storage
+      materialsData = {
+        courseName: stored.courseName,
+        courseId: stored.courseId,
+        materials: stored.materials
+      };
+      console.log('✅ Loaded materials from chrome.storage (legacy)');
+    } else {
+      console.log('✅ Loaded materials from IndexedDB');
     }
 
     courseName = materialsData.courseName;
