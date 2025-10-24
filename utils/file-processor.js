@@ -5,19 +5,17 @@
 
 class FileProcessor {
   constructor() {
-    this.categories = {
-      syllabus: [],
-      lectures: [],
-      readings: [],
-      assignments: [],
-      pages: [],
-      other: []
+    // Store materials by type (matches Canvas structure)
+    this.materials = {
+      modules: [],
+      files: []
     };
 
     // File extensions we want to include
     this.allowedExtensions = [
       'pdf', 'doc', 'docx', 'ppt', 'pptx', 'txt', 'md',
-      'xls', 'xlsx', 'odt', 'odp', 'ods', 'rtf'
+      'xls', 'xlsx', 'odt', 'odp', 'ods', 'rtf',
+      'png', 'jpg', 'jpeg', 'gif', 'webp', 'csv', 'rtf'
     ];
 
     // Keywords to exclude
@@ -25,11 +23,6 @@ class FileProcessor {
       'grade', 'grades', 'submission', 'calendar', 'export',
       'student_submissions', 'gradebook'
     ];
-
-    // Keywords for categorization
-    this.syllabusKeywords = ['syllabus', 'course outline', 'course plan'];
-    this.lectureKeywords = ['lecture', 'slides', 'presentation', 'notes', 'week', 'chapter', 'lesson'];
-    this.readingKeywords = ['reading', 'textbook', 'article', 'chapter', 'book'];
   }
 
   /**
@@ -52,41 +45,6 @@ class FileProcessor {
     return this.excludeKeywords.some(keyword => lowerName.includes(keyword));
   }
 
-  /**
-   * Categorize file based on name and metadata
-   */
-  categorizeFile(name, type = 'file') {
-    if (!name) return 'other';
-
-    const lowerName = name.toLowerCase();
-
-    // Check for syllabus
-    if (this.syllabusKeywords.some(keyword => lowerName.includes(keyword))) {
-      return 'syllabus';
-    }
-
-    // Check for lectures
-    if (this.lectureKeywords.some(keyword => lowerName.includes(keyword))) {
-      return 'lectures';
-    }
-
-    // Check for readings
-    if (this.readingKeywords.some(keyword => lowerName.includes(keyword))) {
-      return 'readings';
-    }
-
-    // Assignments
-    if (type === 'assignment') {
-      return 'assignments';
-    }
-
-    // Pages
-    if (type === 'page') {
-      return 'pages';
-    }
-
-    return 'other';
-  }
 
   /**
    * Process and filter course materials
@@ -94,95 +52,141 @@ class FileProcessor {
   processMaterials(materials, preferences) {
     console.log('Processing materials with preferences:', preferences);
 
-    this.categories = {
-      syllabus: [],
-      lectures: [],
-      readings: [],
-      assignments: [],
+    this.materials = {
+      modules: [],
+      files: [],
       pages: [],
-      other: []
+      assignments: []
     };
 
-    // Process files
-    if (materials.files && materials.files.length > 0) {
-      materials.files.forEach(file => {
-        if (!file.display_name || this.shouldExclude(file.display_name)) {
-          return;
-        }
-
-        if (this.isAllowedFile(file.display_name)) {
-          const category = this.categorizeFile(file.display_name, 'file');
-
-          const processedFile = {
-            id: file.id,
-            name: file.display_name,
-            url: file.url,
-            size: file.size || 0,
-            type: 'file',
-            category: category,
-            mimeType: file['content-type'] || 'application/octet-stream'
-          };
-
-          this.categories[category].push(processedFile);
-        }
-      });
-    }
-
-    // Process assignments
-    if (materials.assignments && materials.assignments.length > 0 && preferences.includeAssignments) {
-      materials.assignments.forEach(assignment => {
-        if (!assignment.name || this.shouldExclude(assignment.name)) {
-          return;
-        }
-
-        const processedAssignment = {
-          id: assignment.id,
-          name: assignment.name,
-          url: assignment.html_url,
-          description: assignment.description || '',
-          type: 'assignment',
-          category: 'assignments',
-          dueDate: assignment.due_at
+    // Process modules (keep Canvas structure as-is)
+    if (materials.modules && materials.modules.length > 0) {
+      materials.modules.forEach(module => {
+        // Filter module items to only include allowed file types
+        const processedModule = {
+          id: module.id,
+          name: module.name,
+          position: module.position,
+          items: []
         };
 
-        this.categories.assignments.push(processedAssignment);
+        if (module.items && module.items.length > 0) {
+          module.items.forEach(item => {
+            // Only include File type items with allowed extensions
+            if (item.type === 'File' && item.title && this.isAllowedFile(item.title)) {
+              if (this.shouldExclude(item.title)) {
+                return;
+              }
+
+              processedModule.items.push({
+                id: item.id,
+                content_id: item.content_id,
+                title: item.title,
+                url: item.url,
+                type: item.type,
+                position: item.position
+              });
+            }
+          });
+        }
+
+        // Only add module if it has file items
+        if (processedModule.items.length > 0) {
+          this.materials.modules.push(processedModule);
+        }
       });
     }
 
-    // Process pages
-    if (materials.pages && materials.pages.length > 0 && preferences.includePages) {
+    // Process standalone files (not in modules)
+    if (materials.files && materials.files.length > 0) {
+      console.log(`🔍 Processing ${materials.files.length} raw files from Canvas API`);
+
+      let excluded = 0;
+      let notAllowed = 0;
+      let processed = 0;
+
+      materials.files.forEach(file => {
+        if (!file.display_name) {
+          excluded++;
+          return;
+        }
+
+        if (this.shouldExclude(file.display_name)) {
+          console.log(`  ❌ Excluded: ${file.display_name} (matches exclude keywords)`);
+          excluded++;
+          return;
+        }
+
+        if (!this.isAllowedFile(file.display_name)) {
+          console.log(`  ⚠️ Not allowed: ${file.display_name} (file type not supported)`);
+          notAllowed++;
+          return;
+        }
+
+        const processedFile = {
+          id: file.id,
+          name: file.display_name,
+          display_name: file.display_name,
+          url: file.url,
+          size: file.size || 0,
+          type: 'file',
+          mimeType: file['content-type'] || 'application/octet-stream'
+        };
+
+        this.materials.files.push(processedFile);
+        processed++;
+      });
+
+      console.log(`  ✓ Processed: ${processed}`);
+      console.log(`  ❌ Excluded: ${excluded}`);
+      console.log(`  ⚠️ Not allowed: ${notAllowed}`);
+    }
+
+    // Process pages (HTML content that can be useful for context)
+    if (materials.pages && materials.pages.length > 0) {
+      console.log(`📄 Processing ${materials.pages.length} pages from Canvas`);
+
       materials.pages.forEach(page => {
         if (!page.title || this.shouldExclude(page.title)) {
           return;
         }
 
-        const category = this.categorizeFile(page.title, 'page');
-
-        const processedPage = {
+        this.materials.pages.push({
           id: page.page_id,
-          name: page.title,
+          title: page.title,
           url: page.url,
-          type: 'page',
-          category: category
-        };
-
-        this.categories[category].push(processedPage);
+          html_url: page.html_url,
+          type: 'page'
+        });
       });
+
+      console.log(`  ✓ Processed ${this.materials.pages.length} pages`);
     }
 
-    // Filter by preferences
-    if (!preferences.includeSyllabus) {
-      this.categories.syllabus = [];
-    }
-    if (!preferences.includeLectures) {
-      this.categories.lectures = [];
-    }
-    if (!preferences.includeReadings) {
-      this.categories.readings = [];
+    // Process assignments (descriptions can provide context)
+    if (materials.assignments && materials.assignments.length > 0) {
+      console.log(`📋 Processing ${materials.assignments.length} assignments from Canvas`);
+
+      materials.assignments.forEach(assignment => {
+        if (!assignment.name || this.shouldExclude(assignment.name)) {
+          return;
+        }
+
+        this.materials.assignments.push({
+          id: assignment.id,
+          name: assignment.name,
+          description: assignment.description || '',
+          html_url: assignment.html_url,
+          due_at: assignment.due_at,
+          type: 'assignment'
+        });
+      });
+
+      console.log(`  ✓ Processed ${this.materials.assignments.length} assignments`);
     }
 
-    console.log('Categorized materials:', this.categories);
-    return this.categories;
+    console.log('Processed materials:', this.materials);
+    return this.materials;
   }
 
   /**
@@ -191,14 +195,39 @@ class FileProcessor {
   getSummary() {
     const summary = {
       total: 0,
-      byCategory: {}
+      modules: 0,
+      moduleFiles: 0,
+      standaloneFiles: 0,
+      pages: 0,
+      assignments: 0
     };
 
-    Object.keys(this.categories).forEach(category => {
-      const count = this.categories[category].length;
-      summary.byCategory[category] = count;
-      summary.total += count;
-    });
+    // Count modules and files in modules
+    if (this.materials.modules) {
+      summary.modules = this.materials.modules.length;
+      this.materials.modules.forEach(module => {
+        if (module.items) {
+          summary.moduleFiles += module.items.length;
+        }
+      });
+    }
+
+    // Count standalone files
+    if (this.materials.files) {
+      summary.standaloneFiles = this.materials.files.length;
+    }
+
+    // Count pages
+    if (this.materials.pages) {
+      summary.pages = this.materials.pages.length;
+    }
+
+    // Count assignments
+    if (this.materials.assignments) {
+      summary.assignments = this.materials.assignments.length;
+    }
+
+    summary.total = summary.moduleFiles + summary.standaloneFiles + summary.pages + summary.assignments;
 
     return summary;
   }
@@ -209,13 +238,17 @@ class FileProcessor {
   getTotalSize() {
     let totalSize = 0;
 
-    Object.keys(this.categories).forEach(category => {
-      this.categories[category].forEach(item => {
-        if (item.size) {
-          totalSize += item.size;
+    // Add size from standalone files
+    if (this.materials.files) {
+      this.materials.files.forEach(file => {
+        if (file.size) {
+          totalSize += file.size;
         }
       });
-    });
+    }
+
+    // Note: Module items from Canvas API don't include file size
+    // Size is only available for standalone files
 
     return totalSize;
   }
@@ -287,41 +320,53 @@ class FileProcessor {
       let processed = 0;
       let total = this.getSummary().total;
 
-      // Process each category
-      for (const [categoryName, items] of Object.entries(this.categories)) {
-        if (items.length === 0) continue;
+      // Process modules
+      if (this.materials.modules && this.materials.modules.length > 0) {
+        for (const module of this.materials.modules) {
+          if (!module.items || module.items.length === 0) continue;
 
-        const categoryFolder = courseFolder.folder(categoryName);
+          const moduleFolder = courseFolder.folder(this.sanitizeFilename(module.name));
 
-        for (const item of items) {
+          for (const item of module.items) {
+            try {
+              if (progressCallback) {
+                progressCallback(`Downloading ${item.title} (${processed + 1}/${total})`,
+                               (processed / total) * 100);
+              }
+
+              if (item.type === 'File' && item.url) {
+                // Download actual file
+                const blob = await canvasAPI.downloadFile(item.url);
+                moduleFolder.file(this.sanitizeFilename(item.title), blob);
+              }
+
+              processed++;
+            } catch (error) {
+              console.error(`Error processing ${item.title}:`, error);
+              // Continue with other files
+            }
+          }
+        }
+      }
+
+      // Process standalone files
+      if (this.materials.files && this.materials.files.length > 0) {
+        const filesFolder = courseFolder.folder('Course Files');
+
+        for (const file of this.materials.files) {
           try {
             if (progressCallback) {
-              progressCallback(`Downloading ${item.name} (${processed + 1}/${total})`,
+              progressCallback(`Downloading ${file.name} (${processed + 1}/${total})`,
                              (processed / total) * 100);
             }
 
-            if (item.type === 'file') {
-              // Download actual file
-              const blob = await canvasAPI.downloadFile(item.url);
-              categoryFolder.file(this.sanitizeFilename(item.name), blob);
-            } else if (item.type === 'assignment') {
-              // Create text file with assignment details
-              const content = `Assignment: ${item.name}\n\n` +
-                            `Description:\n${item.description}\n\n` +
-                            `Due Date: ${item.dueDate || 'Not specified'}\n\n` +
-                            `URL: ${item.url}`;
-              categoryFolder.file(`${this.sanitizeFilename(item.name)}.txt`, content);
-            } else if (item.type === 'page') {
-              // Create text file with page URL
-              const content = `Page: ${item.name}\n\n` +
-                            `URL: ${item.url}\n\n` +
-                            `Note: Please visit the URL above to view the full page content.`;
-              categoryFolder.file(`${this.sanitizeFilename(item.name)}.txt`, content);
-            }
+            // Download actual file
+            const blob = await canvasAPI.downloadFile(file.url);
+            filesFolder.file(this.sanitizeFilename(file.name), blob);
 
             processed++;
           } catch (error) {
-            console.error(`Error processing ${item.name}:`, error);
+            console.error(`Error processing ${file.name}:`, error);
             // Continue with other files
           }
         }
@@ -354,9 +399,21 @@ class FileProcessor {
    */
   getAllItems() {
     const allItems = [];
-    Object.values(this.categories).forEach(items => {
-      allItems.push(...items);
-    });
+
+    // Add all module items
+    if (this.materials.modules) {
+      this.materials.modules.forEach(module => {
+        if (module.items) {
+          allItems.push(...module.items);
+        }
+      });
+    }
+
+    // Add all standalone files
+    if (this.materials.files) {
+      allItems.push(...this.materials.files);
+    }
+
     return allItems;
   }
 }

@@ -35,7 +35,22 @@
 
       <div class="sidebar-content">
         <div class="materials-section">
-          <h3>Course Materials</h3>
+          <div class="materials-header">
+            <h3>Course Materials</h3>
+            <div class="materials-controls">
+              <button id="select-all-materials" class="materials-control-btn" title="Select all">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                  <rect x="2" y="2" width="12" height="12" rx="1" stroke="currentColor" stroke-width="1.5"/>
+                  <path d="M5 8L7 10L11 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
+              <button id="deselect-all-materials" class="materials-control-btn" title="Deselect all">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                  <rect x="2" y="2" width="12" height="12" rx="1" stroke="currentColor" stroke-width="1.5"/>
+                </svg>
+              </button>
+            </div>
+          </div>
           <div id="materials-list" class="materials-list">
             <div class="loading-skeleton">
               <div class="skeleton-item"></div>
@@ -70,6 +85,11 @@
           <span class="status-indicator" id="api-status-indicator"></span>
           <span id="api-status-text">Checking API...</span>
         </div>
+      </div>
+
+      <!-- Resize Handle -->
+      <div class="sidebar-resize-handle" id="sidebar-resize-handle" title="Drag to resize">
+        <div class="resize-handle-line"></div>
       </div>
     </aside>
 
@@ -232,6 +252,17 @@
               Get your API key from <a href="https://console.anthropic.com/settings/keys" target="_blank">Anthropic Console</a>
             </small>
             <div id="api-key-status" class="status-message"></div>
+          </div>
+
+          <div class="setting-group">
+            <label class="toggle-label">
+              <input type="checkbox" id="web-search-toggle" class="toggle-checkbox">
+              <span class="toggle-switch"></span>
+              <span class="toggle-text">Enable Web Search</span>
+            </label>
+            <small class="help-text">
+              Allow the AI to search the web for up-to-date information when needed
+            </small>
           </div>
 
           <div class="setting-group">

@@ -42,54 +42,39 @@ async function init() {
 
   fileProcessor = new FileProcessor();
 
-  // Check if user has any authentication configured
-  const authMethod = await StorageManager.getAuthMethod();
+  // Always use session auth - no other options
+  currentAuthMethod = 'session';
 
-  if (authMethod) {
-    currentAuthMethod = authMethod;
+  // Check if user has session configured
+  const url = await StorageManager.getCanvasUrl();
 
-    // Special handling for session auth
-    if (authMethod === 'session') {
-      const url = await StorageManager.getCanvasUrl();
-      if (url) {
-        try {
-          const sessionAuth = new SessionAuth(url);
-          const isValid = await sessionAuth.testSession();
+  if (url) {
+    try {
+      const sessionAuth = new SessionAuth(url);
+      const isValid = await sessionAuth.testSession();
 
-          if (isValid) {
-            // Session is valid, go to main screen
-            await loadMainScreen();
-          } else {
-            // Session invalid, show session setup screen with continue button
-            showScreen('sessionSetup');
-            document.getElementById('session-canvas-url').value = url.replace('https://', '').replace('http://', '');
-            document.getElementById('session-login-btn').classList.add('hidden');
-            document.getElementById('session-continue-btn').classList.remove('hidden');
-          }
-        } catch (error) {
-          console.error('Session check failed:', error);
-          showAuthMethodScreen();
-        }
-      } else {
-        showAuthMethodScreen();
-      }
-    } else {
-      // For OAuth and token methods, use existing logic
-      const hasAuth = await StorageManager.hasAnyAuth();
-
-      if (hasAuth) {
+      if (isValid) {
+        // Session is valid, go to main screen
         await loadMainScreen();
       } else {
-        showAuthMethodScreen();
+        // Session invalid, show session setup screen with continue button
+        showScreen('sessionSetup');
+        document.getElementById('session-canvas-url').value = url.replace('https://', '').replace('http://', '');
+        document.getElementById('session-login-btn').classList.add('hidden');
+        document.getElementById('session-continue-btn').classList.remove('hidden');
       }
+    } catch (error) {
+      console.error('Session check failed:', error);
+      showScreen('sessionSetup');
     }
   } else {
-    showAuthMethodScreen();
+    // No URL configured, show session setup
+    showScreen('sessionSetup');
   }
 
   setupEventListeners();
 
-  // Display extension ID for OAuth setup
+  // Display extension ID for OAuth setup (still needed for reference)
   document.getElementById('extension-id-display').textContent = chrome.runtime.id;
   document.getElementById('redirect-uri-display').textContent = `https://${chrome.runtime.id}.chromiumapp.org/`;
 }
@@ -108,10 +93,7 @@ function setupEventListeners() {
     showScreen('tokenSetup');
   });
 
-  // Back buttons
-  document.getElementById('back-to-auth-method').addEventListener('click', () => showScreen('authMethod'));
-  document.getElementById('oauth-back-btn').addEventListener('click', () => showScreen('authMethod'));
-  document.getElementById('token-back-btn').addEventListener('click', () => showScreen('authMethod'));
+  // Back buttons - removed since we only have session auth now
 
   // Session auth
   document.getElementById('session-login-btn').addEventListener('click', handleSessionLogin);
@@ -140,10 +122,7 @@ function setupEventListeners() {
   document.getElementById('change-auth-btn').addEventListener('click', changeAuthMethod);
   document.getElementById('clear-data-btn').addEventListener('click', clearAllData);
 
-  // Checkboxes
-  ['include-syllabus', 'include-lectures', 'include-readings', 'include-assignments', 'include-pages'].forEach(id => {
-    document.getElementById(id).addEventListener('change', updateMaterialSummary);
-  });
+  // No checkboxes needed anymore - materials are always included
 
   // Detailed view toggle
   document.getElementById('toggle-detailed-view').addEventListener('click', toggleDetailedView);
@@ -155,7 +134,8 @@ function showScreen(screenName) {
 }
 
 function showAuthMethodScreen() {
-  showScreen('authMethod');
+  // Always go to session setup now
+  showScreen('sessionSetup');
 }
 
 function showError(element, message) {
@@ -574,21 +554,16 @@ function updateMaterialSummary() {
   document.getElementById('total-count').textContent = summary.total;
   document.getElementById('total-size').textContent = fileProcessor.formatBytes(totalSize);
 
-  document.getElementById('syllabus-count').textContent = summary.byCategory.syllabus || 0;
-  document.getElementById('lectures-count').textContent = summary.byCategory.lectures || 0;
-  document.getElementById('readings-count').textContent = summary.byCategory.readings || 0;
-  document.getElementById('assignments-count').textContent = summary.byCategory.assignments || 0;
-  document.getElementById('pages-count').textContent = summary.byCategory.pages || 0;
+  document.getElementById('modules-count').textContent = summary.modules || 0;
+  document.getElementById('module-files-count').textContent = summary.moduleFiles || 0;
+  document.getElementById('standalone-files-count').textContent = summary.standaloneFiles || 0;
+  document.getElementById('pages-count').textContent = summary.pages || 0;
+  document.getElementById('assignments-count').textContent = summary.assignments || 0;
 }
 
 function getPreferencesFromUI() {
-  return {
-    includeSyllabus: document.getElementById('include-syllabus').checked,
-    includeLectures: document.getElementById('include-lectures').checked,
-    includeReadings: document.getElementById('include-readings').checked,
-    includeAssignments: document.getElementById('include-assignments').checked,
-    includePages: document.getElementById('include-pages').checked
-  };
+  // No preferences needed anymore - we include all modules and files
+  return {};
 }
 
 async function downloadMaterials() {
@@ -883,50 +858,28 @@ async function createStudyBot() {
 }
 
 /**
- * Filter materials by simple view preferences (category checkboxes)
+ * Filter materials - now simplified to just pass through all content types
+ * No more keyword-based filtering
  */
 function filterMaterialsByPreferences(materials, preferences) {
   const filtered = {
-    modules: [],
-    files: [],
-    pages: [],
-    assignments: [],
+    modules: materials.modules || [],
+    files: materials.files || [],
+    pages: materials.pages || [],
+    assignments: materials.assignments || [],
     errors: materials.errors || []
   };
 
-  // Process files based on categorization
-  if (materials.files && materials.files.length > 0) {
-    materials.files.forEach(file => {
-      const fileName = (file.display_name || file.name || '').toLowerCase();
-
-      // Categorize and check if included
-      if (preferences.includeSyllabus && fileName.includes('syllabus')) {
-        filtered.files.push(file);
-      } else if (preferences.includeLectures && (fileName.includes('lecture') || fileName.includes('slides') || fileName.includes('chapter'))) {
-        filtered.files.push(file);
-      } else if (preferences.includeReadings && (fileName.includes('reading') || fileName.includes('textbook'))) {
-        filtered.files.push(file);
-      } else if (preferences.includeLectures || preferences.includeReadings) {
-        // Include other files if either lectures or readings is checked
-        filtered.files.push(file);
-      }
-    });
-  }
-
-  // Assignments
-  if (preferences.includeAssignments && materials.assignments) {
-    filtered.assignments = materials.assignments;
-  }
-
-  // Pages
-  if (preferences.includePages && materials.pages) {
-    filtered.pages = materials.pages;
-  }
-
-  // Modules - always include if they exist
-  if (materials.modules) {
-    filtered.modules = materials.modules;
-  }
+  console.log('Filtering materials:', {
+    inputModules: materials.modules?.length || 0,
+    inputFiles: materials.files?.length || 0,
+    inputPages: materials.pages?.length || 0,
+    inputAssignments: materials.assignments?.length || 0,
+    outputModules: filtered.modules.length,
+    outputFiles: filtered.files.length,
+    outputPages: filtered.pages.length,
+    outputAssignments: filtered.assignments.length
+  });
 
   return filtered;
 }
@@ -969,17 +922,14 @@ async function loadSettingsScreen() {
 }
 
 async function changeAuthMethod() {
-  if (confirm('This will clear your current authentication. Continue?')) {
-    await StorageManager.clearAll();
-    showAuthMethodScreen();
-  }
+  // Session auth only - just clear and restart
+  await StorageManager.clearAll();
+  showScreen('sessionSetup');
 }
 
 async function clearAllData() {
-  if (confirm('Are you sure you want to clear all data? This will remove all authentication and settings.')) {
-    await StorageManager.clearAll();
-    showAuthMethodScreen();
-  }
+  await StorageManager.clearAll();
+  showScreen('sessionSetup');
 }
 
 // ========== DETAILED FILE LIST VIEW ==========

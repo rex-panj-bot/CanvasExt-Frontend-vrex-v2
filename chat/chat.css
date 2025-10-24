@@ -74,12 +74,15 @@ body {
 
 .sidebar {
   width: var(--sidebar-width);
+  min-width: 200px;
+  max-width: 600px;
   background: var(--surface);
   border-radius: 24px;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  position: relative;
 }
 
 .sidebar-header {
@@ -238,25 +241,59 @@ body {
   padding: 20px;
 }
 
+.materials-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
 .materials-section h3 {
   font-size: 14px;
   font-weight: 600;
   color: var(--text-secondary);
-  margin-bottom: 12px;
+  margin: 0;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 
-.materials-list {
-  margin-bottom: 20px;
-}
-
 .materials-controls {
   display: flex;
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: 6px;
+  align-items: center;
+}
+
+.materials-control-btn {
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: var(--text-secondary);
   padding: 0;
-  justify-content: space-between;
+}
+
+.materials-control-btn:hover {
+  background: var(--border);
+  color: var(--text-primary);
+  transform: translateY(-1px);
+}
+
+.materials-control-btn:active {
+  transform: translateY(0);
+}
+
+.materials-control-btn svg {
+  pointer-events: none;
+}
+
+.materials-list {
+  margin-bottom: 20px;
 }
 
 .btn-text {
@@ -556,6 +593,47 @@ body {
   background: var(--error);
 }
 
+/* Sidebar Resize Handle */
+.sidebar-resize-handle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: ew-resize;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s ease;
+}
+
+.sidebar-resize-handle:hover {
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.resize-handle-line {
+  width: 2px;
+  height: 40px;
+  background: var(--border);
+  border-radius: 2px;
+  transition: all 0.2s ease;
+}
+
+.sidebar-resize-handle:hover .resize-handle-line {
+  background: var(--blue-primary);
+  height: 60px;
+}
+
+.sidebar-resize-handle:active .resize-handle-line {
+  background: var(--blue-hover);
+}
+
+.sidebar.resizing {
+  user-select: none;
+  transition: none;
+}
+
 /* Loading Skeleton */
 .loading-skeleton {
   display: flex;
@@ -853,21 +931,34 @@ body {
   background: rgba(241, 245, 249, 1);
 }
 
+/* Typing Status - Container for text and dots */
+.typing-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: 16px;
+  margin: 4px 0;
+}
+
+.typing-text {
+  font-size: 13px;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
 /* Typing Indicator - 3 Dot Pulsating Animation */
 .typing-indicator {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 18px 24px;
-  background: rgba(59, 130, 246, 0.1);
-  border: 1px solid rgba(59, 130, 246, 0.2);
-  border-radius: 20px;
-  margin: 8px 0;
+  gap: 6px;
 }
 
 .typing-dot {
-  width: 12px;
-  height: 12px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: var(--blue-primary);
   animation: typingPulse 1.4s ease-in-out infinite;
@@ -1293,6 +1384,53 @@ body {
 .status-message.error {
   background: #fee2e2;
   color: #991b1b;
+}
+
+/* Toggle Switch */
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggle-checkbox {
+  display: none;
+}
+
+.toggle-switch {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  background: var(--border);
+  border-radius: 12px;
+  transition: background 0.3s;
+}
+
+.toggle-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  background: white;
+  border-radius: 50%;
+  transition: transform 0.3s;
+}
+
+.toggle-checkbox:checked + .toggle-switch {
+  background: var(--blue-primary);
+}
+
+.toggle-checkbox:checked + .toggle-switch::after {
+  transform: translateX(20px);
+}
+
+.toggle-text {
+  font-weight: 500;
+  color: var(--text-primary);
 }
 
 .usage-stats {
@@ -1873,55 +2011,6 @@ body {
 @keyframes spin {
   to {
     transform: rotate(360deg);
-  }
-}
-
-/* ========== Thinking Indicator Styles ========== */
-.thinking-indicator {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  background: var(--surface-hover);
-  border-radius: 12px;
-  font-size: 14px;
-  color: var(--text-secondary);
-  margin: 8px 0;
-}
-
-.thinking-dots {
-  display: flex;
-  gap: 4px;
-}
-
-.thinking-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--blue-primary);
-  animation: thinkingDot 1.4s ease-in-out infinite;
-}
-
-.thinking-dot:nth-child(1) {
-  animation-delay: 0s;
-}
-
-.thinking-dot:nth-child(2) {
-  animation-delay: 0.2s;
-}
-
-.thinking-dot:nth-child(3) {
-  animation-delay: 0.4s;
-}
-
-@keyframes thinkingDot {
-  0%, 80%, 100% {
-    transform: scale(0.8);
-    opacity: 0.5;
-  }
-  40% {
-    transform: scale(1.2);
-    opacity: 1;
   }
 }
 

@@ -135,15 +135,6 @@ function displayMaterials() {
 
   materialsList.innerHTML = '';
 
-  // Add select all/deselect all controls
-  const controlsDiv = document.createElement('div');
-  controlsDiv.className = 'materials-controls';
-  controlsDiv.innerHTML = `
-    <button id="select-all-materials" class="btn-text">Select All</button>
-    <button id="deselect-all-materials" class="btn-text">Deselect All</button>
-  `;
-  materialsList.appendChild(controlsDiv);
-
   // Track files shown in modules to avoid duplicates
   const filesShownInModules = new Set();
 
@@ -239,11 +230,24 @@ function displayMaterials() {
 
   // 2. Display standalone Files (not in modules)
   if (processedMaterials.files && processedMaterials.files.length > 0) {
+    console.log(`📁 Processing ${processedMaterials.files.length} standalone files`);
+    console.log('Files shown in modules (content_ids):', Array.from(filesShownInModules));
+
     // Filter out files already shown in modules
     const standaloneFiles = processedMaterials.files.filter(file => {
       const fileId = file.id?.toString() || file.content_id?.toString();
-      return !filesShownInModules.has(fileId);
+      const isDuplicate = filesShownInModules.has(fileId);
+
+      if (isDuplicate) {
+        console.log(`  ⏭️  Skipping duplicate: ${file.display_name || file.name} (id: ${fileId})`);
+      } else {
+        console.log(`  ✓ Including: ${file.display_name || file.name} (id: ${fileId})`);
+      }
+
+      return !isDuplicate;
     });
+
+    console.log(`📋 ${standaloneFiles.length} standalone files after filtering duplicates`);
 
     if (standaloneFiles.length > 0) {
       const filesSection = document.createElement('div');
@@ -274,97 +278,87 @@ function displayMaterials() {
 
       filesSection.appendChild(filesDiv);
       materialsList.appendChild(filesSection);
+    } else {
+      console.log('⚠️ No standalone files to display after filtering');
     }
+  } else {
+    console.log('⚠️ No files in processedMaterials.files');
   }
 
-  // 3. Display other categories (syllabus, lectures, readings, assignments, pages, etc.)
-  const otherCategories = {
-    syllabus: { name: 'Syllabus' },
-    lectures: { name: 'Lectures' },
-    readings: { name: 'Readings' },
-    assignments: { name: 'Assignments' },
-    pages: { name: 'Pages' },
-    other: { name: 'Other' }
-  };
+  // 3. Display Pages (HTML content from Canvas)
+  if (processedMaterials.pages && processedMaterials.pages.length > 0) {
+    console.log(`📄 Displaying ${processedMaterials.pages.length} pages`);
 
-  let displayedCategories = 0;
-
-  Object.entries(processedMaterials).forEach(([key, items]) => {
-    if (key === 'modules' || key === 'files') return; // Already handled
-    if (!Array.isArray(items) || items.length === 0) return;
-
-    const category = otherCategories[key];
-    if (!category) return;
-
-    displayedCategories++;
-
-    const categoryDiv = document.createElement('div');
-    categoryDiv.className = 'material-category';
-    categoryDiv.innerHTML = `
-      <div class="category-header" data-category="${key}">
-        <input type="checkbox" class="category-checkbox" id="category-${key}" checked>
-        <span class="category-name">${category.name}</span>
-        <span class="category-count">${items.length}</span>
-      </div>
-      <div class="category-items" data-category-items="${key}">
-        ${items.map((item, index) => `
-          <div class="material-item" data-category="${key}" data-index="${index}">
-            <input type="checkbox" class="material-checkbox" id="material-${key}-${index}" data-category="${key}" data-index="${index}" checked>
-            <label class="material-label" title="${item.name || item.display_name}">
-              ${item.name || item.display_name}
-            </label>
-            <button class="delete-material-btn" title="Remove from AI memory">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M3 6H5H21" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M8 6V4C8 3.46957 8.21071 2.96086 8.58579 2.58579C8.96086 2.21071 9.46957 2 10 2H14C14.5304 2 15.0391 2.21071 15.4142 2.58579C15.7893 2.96086 16 3.46957 16 4V6M19 6V20C19 20.5304 18.7893 21.0391 18.4142 21.4142C18.0391 21.7893 17.5304 22 17 22H7C6.46957 22 5.96086 21.7893 5.58579 21.4142C5.21071 21.0391 5 20.5304 5 20V6H19Z" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M10 11V17" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M14 11V17" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </button>
-          </div>
-        `).join('')}
+    const pagesSection = document.createElement('div');
+    pagesSection.className = 'materials-section';
+    pagesSection.innerHTML = `
+      <div class="section-header">
+        <span class="section-title">Course Pages</span>
+        <span class="section-count">${processedMaterials.pages.length}</span>
       </div>
     `;
 
-    materialsList.appendChild(categoryDiv);
+    const pagesDiv = document.createElement('div');
+    pagesDiv.className = 'section-items';
+    pagesDiv.innerHTML = processedMaterials.pages.map((page, pageIdx) => `
+      <div class="material-item" data-category="pages" data-index="${pageIdx}">
+        <input type="checkbox"
+               class="material-checkbox"
+               id="page-${pageIdx}"
+               data-category="pages"
+               data-index="${pageIdx}"
+               checked>
+        <label class="material-label" title="${page.title}">
+          ${page.title}
+        </label>
+      </div>
+    `).join('');
 
-    // Toggle category visibility
-    const header = categoryDiv.querySelector('.category-header');
-    const itemsDiv = categoryDiv.querySelector('.category-items');
-    const categoryCheckbox = categoryDiv.querySelector('.category-checkbox');
+    pagesSection.appendChild(pagesDiv);
+    materialsList.appendChild(pagesSection);
+  }
 
-    header.addEventListener('click', (e) => {
-      if (e.target !== categoryCheckbox) {
-        itemsDiv.classList.toggle('collapsed');
-      }
-    });
+  // 4. Display Assignments (descriptions and details)
+  if (processedMaterials.assignments && processedMaterials.assignments.length > 0) {
+    console.log(`📋 Displaying ${processedMaterials.assignments.length} assignments`);
 
-    // Category checkbox selects/deselects all items
-    categoryCheckbox.addEventListener('change', (e) => {
-      e.stopPropagation();
-      const checkboxes = itemsDiv.querySelectorAll('.material-checkbox');
-      checkboxes.forEach(cb => cb.checked = categoryCheckbox.checked);
-    });
+    const assignmentsSection = document.createElement('div');
+    assignmentsSection.className = 'materials-section';
+    assignmentsSection.innerHTML = `
+      <div class="section-header">
+        <span class="section-title">Assignments</span>
+        <span class="section-count">${processedMaterials.assignments.length}</span>
+      </div>
+    `;
 
-    // Update category checkbox when individual items change
-    const itemCheckboxes = itemsDiv.querySelectorAll('.material-checkbox');
-    itemCheckboxes.forEach(cb => {
-      cb.addEventListener('change', () => {
-        const allChecked = Array.from(itemCheckboxes).every(icb => icb.checked);
-        const noneChecked = Array.from(itemCheckboxes).every(icb => !icb.checked);
-        categoryCheckbox.checked = allChecked;
-        categoryCheckbox.indeterminate = !allChecked && !noneChecked;
-      });
-    });
-  });
+    const assignmentsDiv = document.createElement('div');
+    assignmentsDiv.className = 'section-items';
+    assignmentsDiv.innerHTML = processedMaterials.assignments.map((assignment, assignmentIdx) => `
+      <div class="material-item" data-category="assignments" data-index="${assignmentIdx}">
+        <input type="checkbox"
+               class="material-checkbox"
+               id="assignment-${assignmentIdx}"
+               data-category="assignments"
+               data-index="${assignmentIdx}"
+               checked>
+        <label class="material-label" title="${assignment.name}">
+          ${assignment.name}
+        </label>
+      </div>
+    `).join('');
+
+    assignmentsSection.appendChild(assignmentsDiv);
+    materialsList.appendChild(assignmentsSection);
+  }
+
 
   // Setup select all/deselect all buttons
   document.getElementById('select-all-materials')?.addEventListener('click', () => {
-    document.querySelectorAll('.material-checkbox, .category-checkbox').forEach(cb => cb.checked = true);
+    document.querySelectorAll('.material-checkbox, .module-checkbox').forEach(cb => cb.checked = true);
   });
 
   document.getElementById('deselect-all-materials')?.addEventListener('click', () => {
-    document.querySelectorAll('.material-checkbox, .category-checkbox').forEach(cb => cb.checked = false);
+    document.querySelectorAll('.material-checkbox, .module-checkbox').forEach(cb => cb.checked = false);
   });
 
   // Setup delete button handlers using event delegation
@@ -382,17 +376,15 @@ function displayMaterials() {
         const material = processedMaterials[category][index];
         const materialName = material.name || material.display_name;
 
-        if (confirm(`Remove "${materialName}" from AI memory?\n\nThis will permanently delete this file from the chat context.`)) {
-          processedMaterials[category].splice(index, 1);
+        processedMaterials[category].splice(index, 1);
 
-          chrome.storage.local.set({
-            [`course_materials_${courseId}`]: processedMaterials
-          }, () => {
-            console.log(`Deleted material: ${materialName}`);
-            displayMaterials();
-            showTemporaryMessage(`Removed "${materialName}" from AI memory`);
-          });
-        }
+        chrome.storage.local.set({
+          [`course_materials_${courseId}`]: processedMaterials
+        }, () => {
+          console.log(`Deleted material: ${materialName}`);
+          displayMaterials();
+          showTemporaryMessage(`Removed "${materialName}" from AI memory`);
+        });
       }
     }
 
@@ -403,24 +395,46 @@ function displayMaterials() {
       e.stopPropagation();
 
       const materialItem = label.closest('.material-item');
+      const moduleIdx = materialItem.getAttribute('data-module-idx');
+      const fileIdx = materialItem.getAttribute('data-file-idx');
       const category = materialItem.getAttribute('data-category');
-      const index = parseInt(materialItem.getAttribute('data-index'));
+      const index = materialItem.getAttribute('data-index');
 
-      if (processedMaterials && processedMaterials[category]) {
-        const material = processedMaterials[category][index];
+      let fileUrl = null;
+      let fileName = null;
 
-        // Open file URL in new tab if available
-        if (material.url) {
-          chrome.tabs.create({ url: material.url });
-          console.log(`Opening file in new tab: ${material.name || material.display_name}`);
-        } else {
-          console.warn('No URL available for this material');
+      // Handle module files
+      if (moduleIdx !== null && fileIdx !== null) {
+        const module = processedMaterials.modules?.[parseInt(moduleIdx)];
+        if (module && module.items) {
+          const moduleFiles = module.items.filter(item => item.type === 'File' && item.url);
+          const file = moduleFiles[parseInt(fileIdx)];
+          if (file) {
+            fileUrl = file.url;
+            fileName = file.title || file.name;
+          }
         }
+      }
+      // Handle standalone files
+      else if (category && index !== null) {
+        const material = processedMaterials[category]?.[parseInt(index)];
+        if (material) {
+          fileUrl = material.url;
+          fileName = material.name || material.display_name;
+        }
+      }
+
+      // Open file URL in new tab if available
+      if (fileUrl) {
+        chrome.tabs.create({ url: fileUrl });
+        console.log(`Opening file in new tab: ${fileName}`);
+      } else {
+        console.warn('No URL available for this material');
       }
     }
   });
 
-  console.log(`displayMaterials complete - displayed ${displayedCategories} categories`);
+  console.log('displayMaterials complete');
 }
 
 /**
@@ -483,7 +497,9 @@ function getSelectedDocIds() {
   const docIds = [];
   const checkedBoxes = document.querySelectorAll('.material-checkbox:checked');
 
-  checkedBoxes.forEach(checkbox => {
+  console.log(`🔍 Found ${checkedBoxes.length} checked material checkboxes`);
+
+  checkedBoxes.forEach((checkbox, idx) => {
     const moduleIdx = checkbox.dataset.moduleIdx;
     const fileIdx = checkbox.dataset.fileIdx;
     const category = checkbox.dataset.category;
@@ -499,14 +515,16 @@ function getSelectedDocIds() {
         const file = moduleFiles[parseInt(fileIdx)];
         if (file) {
           materialName = file.title || file.name;
+          console.log(`  ✓ Module file ${idx + 1}: ${materialName}`);
         }
       }
     }
-    // Handle standalone files and other categories
+    // Handle standalone files
     else if (category && index !== undefined) {
       const item = processedMaterials[category]?.[parseInt(index)];
       if (item) {
         materialName = item.name || item.display_name || item.title;
+        console.log(`  ✓ Standalone file ${idx + 1}: ${materialName}`);
       }
     }
 
@@ -517,6 +535,9 @@ function getSelectedDocIds() {
       docIds.push(docId);
     }
   });
+
+  console.log(`📋 Total document IDs selected: ${docIds.length}`);
+  console.log('Document IDs:', docIds);
 
   return docIds;
 }
@@ -552,19 +573,33 @@ async function uploadMaterialsToBackend() {
   try {
     console.log('📤 Uploading materials to backend...');
 
-    // Collect all PDF files from materials
+    // Collect all files from materials
     const filesToUpload = [];
 
-    for (const category in processedMaterials) {
-      const items = processedMaterials[category];
-      if (Array.isArray(items)) {
-        for (const item of items) {
-          if (item.blob && (item.name || item.display_name)) {
-            filesToUpload.push({
-              blob: item.blob,
-              name: item.name || item.display_name
-            });
+    // Collect from modules
+    if (processedMaterials.modules && Array.isArray(processedMaterials.modules)) {
+      for (const module of processedMaterials.modules) {
+        if (module.items && Array.isArray(module.items)) {
+          for (const item of module.items) {
+            if (item.blob && item.title) {
+              filesToUpload.push({
+                blob: item.blob,
+                name: item.title
+              });
+            }
           }
+        }
+      }
+    }
+
+    // Collect from standalone files
+    if (processedMaterials.files && Array.isArray(processedMaterials.files)) {
+      for (const file of processedMaterials.files) {
+        if (file.blob && (file.name || file.display_name)) {
+          filesToUpload.push({
+            blob: file.blob,
+            name: file.name || file.display_name
+          });
         }
       }
     }
@@ -674,31 +709,37 @@ function setupEventListeners() {
 
   // New chat
   elements.newChatBtn.addEventListener('click', () => {
-    if (confirm('Start a new chat? Current conversation will be saved.')) {
-      // Generate new session ID
-      currentSessionId = `session_${courseId}_${Date.now()}`;
-      conversationHistory = [];
-      elements.messagesContainer.innerHTML = '';
-      elements.messagesContainer.appendChild(createWelcomeMessage());
-      // Refresh recent chats
-      loadRecentChats();
-    }
+    // Generate new session ID
+    currentSessionId = `session_${courseId}_${Date.now()}`;
+    conversationHistory = [];
+    elements.messagesContainer.innerHTML = '';
+    elements.messagesContainer.appendChild(createWelcomeMessage());
+    // Refresh recent chats
+    loadRecentChats();
   });
 
   // Settings
   elements.settingsBtn.addEventListener('click', showSettingsModal);
   elements.closeSettings.addEventListener('click', hideSettingsModal);
 
+  // Save settings
+  document.getElementById('save-settings-btn')?.addEventListener('click', async () => {
+    const webSearchToggle = document.getElementById('web-search-toggle');
+    await chrome.storage.local.set({
+      enable_web_search: webSearchToggle.checked
+    });
+    console.log('Web search setting saved:', webSearchToggle.checked);
+    hideSettingsModal();
+  });
+
   // Export chat
   elements.exportChatBtn.addEventListener('click', exportChat);
 
   // Clear chat
   elements.clearChatBtn.addEventListener('click', () => {
-    if (confirm('Clear all messages?')) {
-      conversationHistory = [];
-      elements.messagesContainer.innerHTML = '';
-      elements.messagesContainer.appendChild(createWelcomeMessage());
-    }
+    conversationHistory = [];
+    elements.messagesContainer.innerHTML = '';
+    elements.messagesContainer.appendChild(createWelcomeMessage());
   });
 
   // Recent chats panel toggle
@@ -735,6 +776,22 @@ function setupEventListeners() {
   elements.messageInput.addEventListener('input', () => {
     elements.sendBtn.disabled = !elements.messageInput.value.trim();
   });
+
+  // Citation links - use event delegation on messages container
+  elements.messagesContainer.addEventListener('click', (e) => {
+    const citationLink = e.target.closest('.citation-link');
+    if (citationLink) {
+      e.preventDefault();
+      const docName = citationLink.dataset.docName;
+      const page = citationLink.dataset.page;
+      if (docName && page) {
+        openCitedDocument(docName, parseInt(page));
+      }
+    }
+  });
+
+  // Sidebar resize
+  setupSidebarResize();
 }
 
 function setupTextareaResize() {
@@ -742,6 +799,63 @@ function setupTextareaResize() {
     this.style.height = 'auto';
     this.style.height = Math.min(this.scrollHeight, 150) + 'px';
   });
+}
+
+function setupSidebarResize() {
+  const sidebar = document.querySelector('.sidebar');
+  const resizeHandle = document.getElementById('sidebar-resize-handle');
+
+  if (!sidebar || !resizeHandle) return;
+
+  let isResizing = false;
+  let startX = 0;
+  let startWidth = 0;
+
+  resizeHandle.addEventListener('mousedown', (e) => {
+    isResizing = true;
+    startX = e.clientX;
+    startWidth = sidebar.offsetWidth;
+    sidebar.classList.add('resizing');
+    document.body.style.cursor = 'ew-resize';
+    document.body.style.userSelect = 'none';
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!isResizing) return;
+
+    const deltaX = e.clientX - startX;
+    const newWidth = startWidth + deltaX;
+
+    // Constrain between min and max width
+    const minWidth = 200;
+    const maxWidth = 600;
+    const constrainedWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
+
+    sidebar.style.width = `${constrainedWidth}px`;
+
+    // Update CSS variable for consistency
+    document.documentElement.style.setProperty('--sidebar-width', `${constrainedWidth}px`);
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (isResizing) {
+      isResizing = false;
+      sidebar.classList.remove('resizing');
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+
+      // Save the new width to localStorage
+      const newWidth = sidebar.offsetWidth;
+      localStorage.setItem('sidebar-width', newWidth);
+    }
+  });
+
+  // Load saved width on init
+  const savedWidth = localStorage.getItem('sidebar-width');
+  if (savedWidth) {
+    sidebar.style.width = `${savedWidth}px`;
+    document.documentElement.style.setProperty('--sidebar-width', `${savedWidth}px`);
+  }
 }
 
 /**
@@ -760,42 +874,6 @@ function showLoadingBanner(message) {
 function hideLoadingBanner() {
   if (elements.loadingBanner) {
     elements.loadingBanner.classList.add('hidden');
-  }
-}
-
-/**
- * Add thinking indicator to typing message
- */
-function addThinkingIndicator(typingId) {
-  const messageDiv = document.getElementById(typingId);
-  if (messageDiv) {
-    const textDiv = messageDiv.querySelector('.message-text');
-    if (textDiv && !textDiv.querySelector('.thinking-indicator')) {
-      const thinkingDiv = document.createElement('div');
-      thinkingDiv.className = 'thinking-indicator';
-      thinkingDiv.innerHTML = `
-        🤔 Thinking
-        <div class="thinking-dots">
-          <div class="thinking-dot"></div>
-          <div class="thinking-dot"></div>
-          <div class="thinking-dot"></div>
-        </div>
-      `;
-      textDiv.insertBefore(thinkingDiv, textDiv.firstChild);
-    }
-  }
-}
-
-/**
- * Remove thinking indicator from typing message
- */
-function removeThinkingIndicator(typingId) {
-  const messageDiv = document.getElementById(typingId);
-  if (messageDiv) {
-    const thinkingIndicator = messageDiv.querySelector('.thinking-indicator');
-    if (thinkingIndicator) {
-      thinkingIndicator.remove();
-    }
   }
 }
 
@@ -825,7 +903,6 @@ async function sendMessage() {
   try {
     let assistantMessage = '';
     let hasReceivedChunks = false;
-    let thinkingTimeout = null;
 
     console.log('📤 Sending message to Python backend');
 
@@ -842,12 +919,7 @@ async function sendMessage() {
     console.log(`API Key: ${apiKey ? 'User-provided' : 'Default (backend)'}`);
     console.log(`Web Search: ${enableWebSearch ? 'Enabled' : 'Disabled'}`);
 
-    // Show thinking indicator after 2 seconds if no response
-    thinkingTimeout = setTimeout(() => {
-      if (!hasReceivedChunks) {
-        addThinkingIndicator(typingId);
-      }
-    }, 2000);
+    // Thinking indicator is already shown in typing indicator
 
     await wsClient.sendQuery(
       message,
@@ -868,8 +940,6 @@ async function sendMessage() {
         // First actual content chunk received
         if (!hasReceivedChunks) {
           hasReceivedChunks = true;
-          clearTimeout(thinkingTimeout);
-          removeThinkingIndicator(typingId);
           hideLoadingBanner();
         }
 
@@ -879,15 +949,11 @@ async function sendMessage() {
       // onComplete callback
       () => {
         console.log('✅ Response complete, length:', assistantMessage.length);
-        clearTimeout(thinkingTimeout);
-        removeThinkingIndicator(typingId);
         hideLoadingBanner();
       },
       // onError callback
       (error) => {
         console.error('❌ Backend error:', error);
-        clearTimeout(thinkingTimeout);
-        removeThinkingIndicator(typingId);
         hideLoadingBanner();
         throw error;
       }
@@ -929,11 +995,73 @@ function parseCitations(content) {
     // Clean up document name (trim whitespace)
     const cleanDocName = docName.trim();
 
-    // Create clickable citation link
-    const pdfUrl = `https://web-production-9aaba7.up.railway.app/pdfs/${courseId}/${encodeURIComponent(cleanDocName)}#page=${pageNum}`;
-
-    return `<a href="${pdfUrl}" class="citation-link" target="_blank" title="Open ${cleanDocName} at page ${pageNum}">📄 ${cleanDocName}, p.${pageNum}</a>`;
+    // Create citation link that will open the local file
+    return `<a href="#" class="citation-link" data-doc-name="${cleanDocName}" data-page="${pageNum}" title="Open ${cleanDocName} at page ${pageNum}">📄 ${cleanDocName}, p.${pageNum}</a>`;
   });
+}
+
+/**
+ * Open a cited document from local storage
+ */
+async function openCitedDocument(docName, pageNum) {
+  try {
+    console.log(`📄 Opening citation: ${docName}, page ${pageNum}`);
+
+    // Find the file in processedMaterials
+    let fileItem = null;
+
+    // Check modules
+    if (processedMaterials.modules) {
+      for (const module of processedMaterials.modules) {
+        if (module.items) {
+          for (const item of module.items) {
+            if (item.type === 'File' && item.title && item.title.includes(docName)) {
+              fileItem = item;
+              break;
+            }
+          }
+        }
+        if (fileItem) break;
+      }
+    }
+
+    // Check standalone files
+    if (!fileItem && processedMaterials.files) {
+      for (const file of processedMaterials.files) {
+        const fileName = file.name || file.display_name || '';
+        if (fileName.includes(docName)) {
+          fileItem = file;
+          break;
+        }
+      }
+    }
+
+    if (!fileItem) {
+      console.warn(`Could not find file: ${docName}`);
+      showError(`File not found: ${docName}`);
+      return;
+    }
+
+    // Get the blob
+    const blob = fileItem.blob;
+    if (!blob) {
+      console.warn(`No blob available for: ${docName}`);
+      showError(`File data not available: ${docName}`);
+      return;
+    }
+
+    // Create object URL from blob
+    const blobUrl = URL.createObjectURL(blob);
+
+    // Open in new tab with page anchor (works for PDFs)
+    const finalUrl = `${blobUrl}#page=${pageNum}`;
+    window.open(finalUrl, '_blank');
+
+    console.log(`✅ Opened ${docName} at page ${pageNum}`);
+  } catch (error) {
+    console.error('Error opening cited document:', error);
+    showError(`Error opening document: ${error.message}`);
+  }
 }
 
 function addMessage(role, content) {
@@ -996,10 +1124,13 @@ function addTypingIndicator() {
         <span class="message-role">AI Assistant</span>
       </div>
       <div class="message-text">
-        <div class="typing-indicator">
-          <div class="typing-dot"></div>
-          <div class="typing-dot"></div>
-          <div class="typing-dot"></div>
+        <div class="typing-status">
+          <span class="typing-text">Thinking</span>
+          <div class="typing-indicator">
+            <div class="typing-dot"></div>
+            <div class="typing-dot"></div>
+            <div class="typing-dot"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -1153,10 +1284,7 @@ async function loadRecentChats() {
       btn.addEventListener('click', async (e) => {
         e.stopPropagation();
         const sessionId = btn.dataset.sessionId;
-
-        if (confirm('Delete this chat? This cannot be undone.')) {
-          await deleteChatSession(sessionId);
-        }
+        await deleteChatSession(sessionId);
       });
     });
 
@@ -1310,10 +1438,8 @@ function populateCourseSwitcher() {
  */
 async function switchCourse(newCourseId) {
   try {
-    if (confirm('Switch to a different course? Your current chat will be saved.')) {
-      // Reload page with new course ID
-      window.location.href = `chat.html?courseId=${newCourseId}`;
-    }
+    // Reload page with new course ID
+    window.location.href = `chat.html?courseId=${newCourseId}`;
   } catch (error) {
     console.error('Error switching course:', error);
     showError('Failed to switch course: ' + error.message);
@@ -1345,8 +1471,15 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
-function showSettingsModal() {
+async function showSettingsModal() {
   elements.settingsModal.classList.remove('hidden');
+
+  // Load current settings
+  const settings = await chrome.storage.local.get(['enable_web_search']);
+  const webSearchToggle = document.getElementById('web-search-toggle');
+  if (webSearchToggle) {
+    webSearchToggle.checked = settings.enable_web_search || false;
+  }
 }
 
 function hideSettingsModal() {
@@ -1480,11 +1613,9 @@ function updateAgentStep(stepId, message, result) {
 }
 
 function clearMaterials() {
-  if (confirm('This will clear all cached materials. You will need to re-import from Canvas. Continue?')) {
-    localStorage.removeItem('canvasMaterials');
-    localStorage.removeItem('canvasCourseName');
-    location.reload();
-  }
+  localStorage.removeItem('canvasMaterials');
+  localStorage.removeItem('canvasCourseName');
+  location.reload();
 }
 
 // Theme Management
