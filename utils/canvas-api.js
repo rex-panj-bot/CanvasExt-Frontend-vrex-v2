@@ -329,10 +329,11 @@ class CanvasAPI {
     const headers = this.getAuthHeaders();
     const fetchOptions = { headers };
 
-    // Include credentials for session-based auth
-    if (this.authMode === 'session') {
-      fetchOptions.credentials = 'include';
-    }
+    // IMPORTANT: Use 'omit' credentials mode to avoid CORS issues with Canvas CDN
+    // Canvas redirects file downloads to CDN (cdn.inst-fs-*.inscloudgate.net)
+    // The CDN returns Access-Control-Allow-Origin: *, which conflicts with credentials: 'include'
+    // Using 'omit' allows the redirect to work properly
+    fetchOptions.credentials = 'omit';
 
     try {
       const response = await fetch(fileUrl, fetchOptions);
