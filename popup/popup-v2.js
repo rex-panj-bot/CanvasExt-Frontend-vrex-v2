@@ -773,7 +773,11 @@ async function createStudyBot() {
     // ALWAYS download files locally (even if backend has them)
     // This ensures we have blobs for opening files from the sidebar
     updateProgress(`Downloading ${allFilesToDownload.length} files locally...`, PROGRESS_PERCENT.DOWNLOADING_START);
-    console.log(`📥 Downloading ${allFilesToDownload.length} files for local blob storage...`);
+    console.log(`📥 [Popup] Downloading ${allFilesToDownload.length} files for local blob storage...`);
+    console.log(`  File types:`, allFilesToDownload.reduce((acc, f) => {
+      acc[f.type] = (acc[f.type] || 0) + 1;
+      return acc;
+    }, {}));
 
     const downloadedFiles = [];
     let completed = 0;
@@ -782,6 +786,7 @@ async function createStudyBot() {
 
       // Download single file
       const downloadFile = async (file) => {
+        console.log(`📥 [Popup] Downloading: ${file.name} (${file.type})...`);
         try {
           const blob = await canvasAPI.downloadFile(file.url);
           downloadedFiles.push({ blob, name: file.name });
@@ -792,8 +797,8 @@ async function createStudyBot() {
           const progress = PROGRESS_PERCENT.DOWNLOADING_START + ((completed / total) * downloadProgressRange);
           updateProgress(`Downloading files: ${completed}/${total}`, progress);
 
-          console.log(`✅ Downloaded ${file.name} (${completed}/${total})`);
-          return { success: true, name: file.name };
+          console.log(`✅ [Popup] Downloaded ${file.name} (${blob.size} bytes, ${completed}/${total})`);
+          return { success: true, name: file.name, size: blob.size };
         } catch (error) {
           completed++;
 
@@ -802,7 +807,7 @@ async function createStudyBot() {
           const progress = PROGRESS_PERCENT.DOWNLOADING_START + ((completed / total) * downloadProgressRange);
           updateProgress(`Downloading files: ${completed}/${total}`, progress);
 
-          console.warn(`❌ Failed to download ${file.name}:`, error);
+          console.error(`❌ [Popup] Failed to download ${file.name}:`, error);
           return { success: false, name: file.name, error };
         }
       };
@@ -823,7 +828,8 @@ async function createStudyBot() {
       await downloadBatch(batch);
     }
 
-    console.log(`📦 Downloaded ${downloadedFiles.length}/${total} files successfully`);
+    console.log(`📦 [Popup] Downloaded ${downloadedFiles.length}/${total} files successfully`);
+    console.log(`  Total size: ${downloadedFiles.reduce((sum, f) => sum + (f.blob?.size || 0), 0).toLocaleString()} bytes`);
 
     // Upload to backend ONLY files that are new (not in backend cache)
     if (filesToUploadToBackend.length > 0) {
@@ -834,38 +840,47 @@ async function createStudyBot() {
         filesToUploadToBackend.some(f => f.name === df.name)
       );
 
+      console.log(`📤 [Popup] Uploading ${blobsToUpload.length} new files to backend...`);
       await backendClient.uploadPDFs(currentCourse.id, blobsToUpload);
-      console.log(`✅ Uploaded ${blobsToUpload.length} new files to backend`);
+      console.log(`✅ [Popup] Uploaded ${blobsToUpload.length} new files to backend`);
     } else {
-      console.log(`✅ All files already on backend, skipping upload`);
+      console.log(`✅ [Popup] All files already on backend, skipping upload`);
     }
 
     // ALWAYS attach downloaded blobs to materialsToProcess (regardless of backend upload)
     // This is CRITICAL for opening files from blob URLs and citation links
-    console.log(`🔗 Attaching ${downloadedFiles.length} blobs to materials...`);
+    console.log(`🔗 [Popup] Attaching ${downloadedFiles.length} blobs to materials structure...`);
     const blobMap = new Map();
     downloadedFiles.forEach(df => {
       blobMap.set(df.name, df.blob);
-      console.log(`  📎 Mapped blob: ${df.name}`);
     });
+    console.log(`  Created blob map with ${blobMap.size} entries`);
 
     // Attach blobs to all matching items in materialsToProcess
     let attachedCount = 0;
+    let notFoundCount = 0;
+    const notFoundItems = [];
+
     for (const [category, items] of Object.entries(materialsToProcess)) {
       if (!Array.isArray(items)) continue;
 
-      items.forEach(item => {
+      items.forEach((item, idx) => {
         const itemName = item.display_name || item.filename || item.name || item.title;
         if (itemName && blobMap.has(itemName)) {
           item.blob = blobMap.get(itemName);
           attachedCount++;
-          console.log(`  ✅ Attached blob to: ${itemName} (${category})`);
+          console.log(`  ✅ [${category}] Attached blob to: ${itemName} (${item.blob.size} bytes)`);
+        } else if (itemName) {
+          notFoundCount++;
+          notFoundItems.push({ category, name: itemName });
+          console.warn(`  ⚠️  [${category}] No blob found for: ${itemName}`);
         }
       });
     }
 
     // ALSO attach blobs to module items (files within modules)
     if (materialsToProcess.modules && Array.isArray(materialsToProcess.modules)) {
+      console.log(`  Attaching blobs to ${materialsToProcess.modules.length} modules...`);
       materialsToProcess.modules.forEach((module, moduleIdx) => {
         if (module.items && Array.isArray(module.items)) {
           module.items.forEach((item, itemIdx) => {
@@ -873,34 +888,38 @@ async function createStudyBot() {
             if (itemName && blobMap.has(itemName)) {
               item.blob = blobMap.get(itemName);
               attachedCount++;
-              console.log(`  ✅ Attached blob to module item: ${itemName} (module ${moduleIdx}, item ${itemIdx})`);
+              console.log(`  ✅ [module: ${module.name}] Attached blob to: ${itemName} (${item.blob.size} bytes)`);
+            } else if (itemName) {
+              notFoundCount++;
+              notFoundItems.push({ category: 'module', moduleName: module.name, name: itemName });
+              console.warn(`  ⚠️  [module: ${module.name}] No blob found for: ${itemName}`);
             }
           });
         }
       });
     }
 
-    console.log(`✅ Attached ${attachedCount} blobs to materials structure (out of ${downloadedFiles.length} downloaded)`);
+    console.log(`📊 [Popup] Blob attachment summary:`);
+    console.log(`  Downloaded blobs: ${downloadedFiles.length}`);
+    console.log(`  Blobs attached: ${attachedCount}`);
+    console.log(`  Items without blobs: ${notFoundCount}`);
+
+    if (notFoundCount > 0) {
+      console.warn(`⚠️  [Popup] ${notFoundCount} items did not get blobs attached:`, notFoundItems);
+    }
+
+    if (attachedCount !== downloadedFiles.length) {
+      console.warn(`⚠️  [Popup] Mismatch: Downloaded ${downloadedFiles.length} files but only attached ${attachedCount} blobs`);
+    }
 
     updateProgress('Saving materials to database...', PROGRESS_PERCENT.COMPLETE);
 
     // Save to IndexedDB (supports Blob objects directly, no size limit!)
-    console.log('💾 Saving materials with blobs to IndexedDB...');
+    console.log('💾 [Popup] Saving materials with blobs to IndexedDB...');
     const materialsDB = new MaterialsDB();
     await materialsDB.saveMaterials(currentCourse.id, currentCourse.name, materialsToProcess);
     await materialsDB.close();
-    console.log('✅ Materials saved to IndexedDB');
-
-    // Also save lightweight metadata to chrome.storage for quick access
-    const storageKey = `course_materials_${currentCourse.id}`;
-    await chrome.storage.local.set({
-      [storageKey]: {
-        courseName: currentCourse.name,
-        courseId: currentCourse.id,
-        lastUpdated: Date.now(),
-        fileCount: downloadedFiles.length
-      }
-    });
+    console.log('✅ [Popup] Materials saved to IndexedDB successfully');
 
     // Open chat interface
     const chatUrl = chrome.runtime.getURL(`chat/chat.html?courseId=${currentCourse.id}`);

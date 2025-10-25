@@ -84,44 +84,20 @@ async function init() {
 
 async function loadMaterials() {
   try {
-    // Try loading from IndexedDB first (new storage method)
-    console.log('📂 Loading materials from IndexedDB...');
+    // Load from IndexedDB (single source of truth)
+    console.log('📂 [Chat] Loading materials from IndexedDB...');
     const materialsDB = new MaterialsDB();
     let materialsData = await materialsDB.loadMaterials(courseId);
     await materialsDB.close();
 
-    // Fallback to chrome.storage if IndexedDB is empty (old data)
+    // If no data found, show clear error message
     if (!materialsData) {
-      console.log('⚠️ No data in IndexedDB, checking chrome.storage (legacy)...');
-      const key = `course_materials_${courseId}`;
-      console.log(`   Looking for key: ${key}`);
-
-      const stored = await new Promise((resolve) => {
-        chrome.storage.local.get([key], (result) => {
-          console.log(`   chrome.storage result:`, result);
-          resolve(result[key]);
-        });
-      });
-
-      console.log(`   Stored data:`, stored);
-      console.log(`   Has materials:`, stored && stored.materials);
-
-      if (!stored || !stored.materials) {
-        console.error('❌ No materials in chrome.storage either!');
-        showError('No materials found for this course. Please go back and scan materials first.');
-        return;
-      }
-
-      // Use legacy data from chrome.storage
-      materialsData = {
-        courseName: stored.courseName,
-        courseId: stored.courseId,
-        materials: stored.materials
-      };
-      console.log('✅ Loaded materials from chrome.storage (legacy)');
-    } else {
-      console.log('✅ Loaded materials from IndexedDB');
+      console.error('❌ [Chat] No materials found in IndexedDB for course:', courseId);
+      showError('No materials found for this course. Please go back and scan materials first.');
+      return;
     }
+
+    console.log('✅ [Chat] Loaded materials from IndexedDB');
 
     courseName = materialsData.courseName;
     // Ensure processedMaterials always has a valid structure
@@ -134,26 +110,55 @@ async function loadMaterials() {
       errors: []
     };
 
-    // Count blobs
+    // Count blobs and items for detailed logging
     let blobCount = 0;
-    for (const items of Object.values(processedMaterials)) {
-      if (!Array.isArray(items)) continue;
+    let totalItems = 0;
+    let itemsWithoutBlobs = [];
+
+    // Count standalone items (files, pages, assignments)
+    for (const [category, items] of Object.entries(processedMaterials)) {
+      if (!Array.isArray(items) || category === 'modules') continue;
+
+      totalItems += items.length;
       for (const item of items) {
-        if (item.blob) blobCount++;
+        const itemName = item.name || item.display_name || item.title || 'unnamed';
+        if (item.blob) {
+          blobCount++;
+          console.log(`  ✅ [${category}] ${itemName} has blob (${item.blob.size} bytes)`);
+        } else {
+          itemsWithoutBlobs.push({ category, name: itemName });
+          console.log(`  ⚠️  [${category}] ${itemName} MISSING blob`);
+        }
       }
     }
+
+    // Count module items
     if (processedMaterials.modules && Array.isArray(processedMaterials.modules)) {
       for (const module of processedMaterials.modules) {
         if (module.items && Array.isArray(module.items)) {
+          totalItems += module.items.length;
           for (const item of module.items) {
-            if (item.blob) blobCount++;
+            const itemName = item.title || item.name || 'unnamed';
+            if (item.blob) {
+              blobCount++;
+              console.log(`  ✅ [module: ${module.name}] ${itemName} has blob (${item.blob.size} bytes)`);
+            } else {
+              itemsWithoutBlobs.push({ category: 'module', moduleName: module.name, name: itemName });
+              console.log(`  ⚠️  [module: ${module.name}] ${itemName} MISSING blob`);
+            }
           }
         }
       }
     }
 
-    console.log(`✅ Loaded materials from IndexedDB with ${blobCount} file blobs`);
-    console.log('Materials:', processedMaterials);
+    console.log(`📊 [Chat] Materials summary:`);
+    console.log(`  Total items: ${totalItems}`);
+    console.log(`  Items with blobs: ${blobCount}`);
+    console.log(`  Items without blobs: ${itemsWithoutBlobs.length}`);
+
+    if (itemsWithoutBlobs.length > 0) {
+      console.warn(`⚠️  [Chat] ${itemsWithoutBlobs.length} items are missing blobs:`, itemsWithoutBlobs);
+    }
 
     // Update UI
     elements.courseName.textContent = courseName;
@@ -202,13 +207,20 @@ function displayMaterials() {
     `;
 
     processedMaterials.modules.forEach((module, moduleIdx) => {
-      // Filter module items to only show Files (downloadable content)
-      const moduleFiles = module.items ? module.items.filter(item => item.type === 'File' && item.url) : [];
+      // Get module items that are Files with original indices
+      const moduleFilesWithIndices = [];
+      if (module.items) {
+        module.items.forEach((item, originalItemIdx) => {
+          if (item.type === 'File' && item.url) {
+            moduleFilesWithIndices.push({ file: item, originalItemIdx });
+          }
+        });
+      }
 
-      if (moduleFiles.length === 0) return; // Skip modules with no files
+      if (moduleFilesWithIndices.length === 0) return; // Skip modules with no files
 
       // Track these files
-      moduleFiles.forEach(file => {
+      moduleFilesWithIndices.forEach(({ file }) => {
         if (file.content_id) {
           filesShownInModules.add(file.content_id.toString());
         }
@@ -223,16 +235,16 @@ function displayMaterials() {
             <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
           <span class="module-name">${module.name || `Module ${moduleIdx + 1}`}</span>
-          <span class="module-count">${moduleFiles.length}</span>
+          <span class="module-count">${moduleFilesWithIndices.length}</span>
         </div>
         <div class="module-items">
-          ${moduleFiles.map((file, fileIdx) => `
-            <div class="material-item" data-module-idx="${moduleIdx}" data-file-idx="${fileIdx}">
+          ${moduleFilesWithIndices.map(({ file, originalItemIdx }) => `
+            <div class="material-item" data-module-idx="${moduleIdx}" data-item-idx="${originalItemIdx}">
               <input type="checkbox"
                      class="material-checkbox"
-                     id="module-${moduleIdx}-file-${fileIdx}"
+                     id="module-${moduleIdx}-item-${originalItemIdx}"
                      data-module-idx="${moduleIdx}"
-                     data-file-idx="${fileIdx}"
+                     data-item-idx="${originalItemIdx}"
                      data-file-url="${file.url || ''}"
                      checked>
               <label class="material-label" title="${file.title || file.name}">
@@ -286,8 +298,9 @@ function displayMaterials() {
     console.log(`📁 Processing ${processedMaterials.files.length} standalone files`);
     console.log('Files shown in modules (content_ids):', Array.from(filesShownInModules));
 
-    // Filter out files already shown in modules
-    const standaloneFiles = processedMaterials.files.filter(file => {
+    // Filter out files already shown in modules and keep track of original indices
+    const standaloneFilesWithIndices = [];
+    processedMaterials.files.forEach((file, originalIndex) => {
       const fileId = file.id?.toString() || file.content_id?.toString();
       const isDuplicate = filesShownInModules.has(fileId);
 
@@ -295,32 +308,31 @@ function displayMaterials() {
         console.log(`  ⏭️  Skipping duplicate: ${file.display_name || file.name} (id: ${fileId})`);
       } else {
         console.log(`  ✓ Including: ${file.display_name || file.name} (id: ${fileId})`);
+        standaloneFilesWithIndices.push({ file, originalIndex });
       }
-
-      return !isDuplicate;
     });
 
-    console.log(`📋 ${standaloneFiles.length} standalone files after filtering duplicates`);
+    console.log(`📋 ${standaloneFilesWithIndices.length} standalone files after filtering duplicates`);
 
-    if (standaloneFiles.length > 0) {
+    if (standaloneFilesWithIndices.length > 0) {
       const filesSection = document.createElement('div');
       filesSection.className = 'materials-section';
       filesSection.innerHTML = `
         <div class="section-header">
           <span class="section-title">Course Files</span>
-          <span class="section-count">${standaloneFiles.length}</span>
+          <span class="section-count">${standaloneFilesWithIndices.length}</span>
         </div>
       `;
 
       const filesDiv = document.createElement('div');
       filesDiv.className = 'section-items';
-      filesDiv.innerHTML = standaloneFiles.map((file, fileIdx) => `
-        <div class="material-item" data-category="files" data-index="${fileIdx}">
+      filesDiv.innerHTML = standaloneFilesWithIndices.map(({ file, originalIndex }) => `
+        <div class="material-item" data-category="files" data-index="${originalIndex}">
           <input type="checkbox"
                  class="material-checkbox"
-                 id="file-${fileIdx}"
+                 id="file-${originalIndex}"
                  data-category="files"
-                 data-index="${fileIdx}"
+                 data-index="${originalIndex}"
                  data-file-url="${file.url || ''}"
                  checked>
           <label class="material-label" title="${file.display_name || file.name}">
@@ -449,48 +461,54 @@ function displayMaterials() {
 
       const materialItem = label.closest('.material-item');
       const moduleIdx = materialItem.getAttribute('data-module-idx');
-      const fileIdx = materialItem.getAttribute('data-file-idx');
+      const itemIdx = materialItem.getAttribute('data-item-idx');
       const category = materialItem.getAttribute('data-category');
       const index = materialItem.getAttribute('data-index');
 
       let fileName = null;
       let fileItem = null;
 
-      // Handle module files
-      if (moduleIdx !== null && fileIdx !== null) {
+      // Handle module items
+      if (moduleIdx !== null && itemIdx !== null) {
         const module = processedMaterials.modules?.[parseInt(moduleIdx)];
         if (module && module.items) {
-          const moduleFiles = module.items.filter(item => item.type === 'File' && item.url);
-          fileItem = moduleFiles[parseInt(fileIdx)];
+          fileItem = module.items[parseInt(itemIdx)];
           if (fileItem) {
             fileName = fileItem.title || fileItem.name;
           }
         }
       }
-      // Handle standalone files
+      // Handle standalone files, pages, assignments
       else if (category && index !== null) {
         fileItem = processedMaterials[category]?.[parseInt(index)];
         if (fileItem) {
-          fileName = fileItem.name || fileItem.display_name;
+          fileName = fileItem.name || fileItem.display_name || fileItem.title;
         }
       }
 
-      // Open file - prefer blob, fallback to URL
+      // Open file from blob
       if (fileItem) {
+        console.log(`📂 [Chat] Opening file: ${fileName}`);
+        console.log(`  File item:`, { hasBlob: !!fileItem.blob, blobSize: fileItem.blob?.size, category, index: moduleIdx || index });
+
         if (fileItem.blob) {
           // Open from local blob (FAST, works offline)
           const blobUrl = URL.createObjectURL(fileItem.blob);
           chrome.tabs.create({ url: blobUrl });
-          console.log(`✅ Opening file from blob: ${fileName}`);
+          console.log(`✅ [Chat] Opened file from blob: ${fileName} (${fileItem.blob.size} bytes)`);
         } else {
           // No blob available - show clear error message
-          console.error(`❌ No blob data available for ${fileName}`);
-          console.error(`   This means the file was not properly downloaded when materials were scanned.`);
-          console.error(`   File item:`, fileItem);
+          console.error(`❌ [Chat] No blob data available for ${fileName}`);
+          console.error(`   Category: ${category || 'module'}`);
+          console.error(`   Module: ${moduleIdx !== null ? processedMaterials.modules?.[parseInt(moduleIdx)]?.name : 'N/A'}`);
+          console.error(`   This file was not properly downloaded when materials were scanned.`);
+          console.error(`   File item details:`, fileItem);
           showTemporaryMessage(`Cannot open "${fileName}" - file data not available. Please re-scan course materials.`);
         }
       } else {
-        console.warn('No file item found for this material');
+        console.error(`❌ [Chat] File item not found in materials list`);
+        console.error(`   Category: ${category || 'module'}`);
+        console.error(`   Index: ${moduleIdx || index}`);
         showTemporaryMessage('File not found in materials list');
       }
     }
@@ -563,30 +581,29 @@ function getSelectedDocIds() {
 
   checkedBoxes.forEach((checkbox, idx) => {
     const moduleIdx = checkbox.dataset.moduleIdx;
-    const fileIdx = checkbox.dataset.fileIdx;
+    const itemIdx = checkbox.dataset.itemIdx;
     const category = checkbox.dataset.category;
     const index = checkbox.dataset.index;
 
     let materialName = null;
 
-    // Handle module files
-    if (moduleIdx !== undefined && fileIdx !== undefined) {
+    // Handle module items
+    if (moduleIdx !== undefined && itemIdx !== undefined) {
       const module = processedMaterials.modules?.[parseInt(moduleIdx)];
       if (module && module.items) {
-        const moduleFiles = module.items.filter(item => item.type === 'File' && item.url);
-        const file = moduleFiles[parseInt(fileIdx)];
-        if (file) {
-          materialName = file.title || file.name;
-          console.log(`  ✓ Module file ${idx + 1}: ${materialName}`);
+        const item = module.items[parseInt(itemIdx)];
+        if (item) {
+          materialName = item.title || item.name;
+          console.log(`  ✓ Module item ${idx + 1}: ${materialName}`);
         }
       }
     }
-    // Handle standalone files
+    // Handle standalone files, pages, assignments
     else if (category && index !== undefined) {
       const item = processedMaterials[category]?.[parseInt(index)];
       if (item) {
         materialName = item.name || item.display_name || item.title;
-        console.log(`  ✓ Standalone file ${idx + 1}: ${materialName}`);
+        console.log(`  ✓ Standalone item ${idx + 1}: ${materialName}`);
       }
     }
 
@@ -1473,34 +1490,45 @@ async function deleteChatSession(sessionId) {
 // ========== COURSE SWITCHER ==========
 
 /**
- * Load available courses from storage
+ * Load available courses from IndexedDB
  */
 async function loadAvailableCourses() {
   try {
-    // Get all keys from storage that match course_materials_* pattern
-    const allStorage = await new Promise((resolve) => {
-      chrome.storage.local.get(null, resolve);
-    });
+    console.log('📚 [Chat] Loading available courses from IndexedDB...');
+    const materialsDB = new MaterialsDB();
+    await materialsDB.open();
+
+    // Get all course IDs from IndexedDB
+    const courseIds = await materialsDB.listCourses();
+    console.log(`  Found ${courseIds.length} courses in IndexedDB`);
 
     availableCourses = [];
 
-    for (const key in allStorage) {
-      if (key.startsWith('course_materials_')) {
-        const data = allStorage[key];
-        if (data && data.courseId && data.courseName) {
+    // Load each course's metadata
+    for (const courseId of courseIds) {
+      try {
+        const courseData = await materialsDB.loadMaterials(courseId);
+        if (courseData && courseData.courseId && courseData.courseName) {
           availableCourses.push({
-            id: data.courseId,
-            name: data.courseName
+            id: courseData.courseId,
+            name: courseData.courseName
           });
+          console.log(`  ✅ Loaded course: ${courseData.courseName} (${courseData.courseId})`);
         }
+      } catch (error) {
+        console.warn(`  ⚠️  Failed to load course ${courseId}:`, error);
       }
     }
+
+    await materialsDB.close();
+
+    console.log(`✅ [Chat] Loaded ${availableCourses.length} available courses`);
 
     // Populate course switcher dropdown
     populateCourseSwitcher();
 
   } catch (error) {
-    console.error('Error loading available courses:', error);
+    console.error('❌ [Chat] Error loading available courses:', error);
   }
 }
 
