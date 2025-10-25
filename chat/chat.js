@@ -741,19 +741,20 @@ async function loadAPIKey() {
       return;
     }
 
-    // Check if backend has files for this course
+    // Check if backend has files for this course (no upload - that's done in popup)
     try {
       const status = await backendClient.getCollectionStatus(courseId);
-      console.log('Backend collection status:', status);
+      console.log('✅ Backend collection status:', status);
 
-      // If backend has no files, upload them
-      if (!status.files || status.files.length === 0) {
-        console.log('⚠️ Backend has no files for this course, uploading...');
-        await uploadMaterialsToBackend();
+      if (status.files && status.files.length > 0) {
+        console.log(`✅ Backend has ${status.files.length} files for this course`);
+      } else {
+        console.warn('⚠️  Backend reports no files - they should have been uploaded during popup scan');
       }
     } catch (error) {
-      console.warn('Could not check collection status, will upload files:', error);
-      await uploadMaterialsToBackend();
+      console.warn('⚠️  Could not check backend collection status:', error);
+      console.log('   This may be a CORS issue or backend connectivity problem');
+      console.log('   Files were uploaded during popup scan, so this should not affect functionality');
     }
 
     // Connect WebSocket
