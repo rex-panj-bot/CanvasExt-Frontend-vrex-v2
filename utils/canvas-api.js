@@ -336,6 +336,41 @@ class CanvasAPI {
     };
 
     try {
+      // Check if this is a Canvas API file endpoint that returns JSON metadata
+      // Example: /api/v1/courses/123/files/456
+      if (fileUrl.includes('/api/v1/') && fileUrl.includes('/files/')) {
+        console.log(`📥 Fetching file metadata from API: ${fileUrl.substring(0, 80)}...`);
+
+        // First, get the file metadata which includes the actual download URL
+        const metadataResponse = await fetch(fileUrl, fetchOptions);
+
+        if (!metadataResponse.ok) {
+          throw new Error(`Failed to fetch file metadata: ${metadataResponse.status}`);
+        }
+
+        const metadata = await metadataResponse.json();
+
+        // Use the download URL from metadata, or construct one with download_frd=1
+        const downloadUrl = metadata.url || `${fileUrl.replace('/api/v1/courses/', '/courses/').replace('/files/', '/files/')}/download?download_frd=1`;
+
+        console.log(`📥 Downloading file from: ${downloadUrl.substring(0, 80)}...`);
+
+        // Now download the actual file content
+        const response = await fetch(downloadUrl, {
+          ...fetchOptions,
+          credentials: 'same-origin' // Don't send credentials for CDN URLs
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to download file: ${response.status} ${response.statusText}`);
+        }
+
+        const blob = await response.blob();
+        this.concurrentRequests--;
+        return blob;
+      }
+
+      // Direct download URL (already has token or is a public URL)
       const response = await fetch(fileUrl, fetchOptions);
 
       if (!response.ok) {
