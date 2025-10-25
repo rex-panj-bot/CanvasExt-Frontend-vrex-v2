@@ -445,6 +445,8 @@ async function loadCourses() {
 async function handleCourseChange() {
   const courseId = document.getElementById('course-select').value;
 
+  console.log('🎯 [Popup] Course selected:', courseId);
+
   if (!courseId) {
     document.getElementById('material-section').classList.add('hidden');
     return;
@@ -452,6 +454,8 @@ async function handleCourseChange() {
 
   const courseName = document.getElementById('course-select').options[document.getElementById('course-select').selectedIndex].text;
   currentCourse = { id: courseId, name: courseName };
+
+  console.log('📌 [Popup] Set currentCourse:', currentCourse);
 
   await scanCourseMaterials(courseId, courseName);
 }
@@ -673,6 +677,9 @@ async function downloadPDFsInParallel(pdfFiles, canvasAPI, progressCallback, con
  */
 async function createStudyBot() {
   try {
+    console.log('🚀 [Popup] Create Study Bot started');
+    console.log('   Current course:', currentCourse);
+
     document.getElementById('study-bot-btn').disabled = true;
     document.getElementById('study-bot-progress').classList.remove('hidden');
 
@@ -916,13 +923,38 @@ async function createStudyBot() {
 
     // Save to IndexedDB (supports Blob objects directly, no size limit!)
     console.log('💾 [Popup] Saving materials with blobs to IndexedDB...');
+    console.log('   Course ID being saved:', currentCourse.id);
+    console.log('   Course name being saved:', currentCourse.name);
+    console.log('   Materials structure:', {
+      modules: materialsToProcess.modules?.length || 0,
+      files: materialsToProcess.files?.length || 0,
+      pages: materialsToProcess.pages?.length || 0,
+      assignments: materialsToProcess.assignments?.length || 0
+    });
+
     const materialsDB = new MaterialsDB();
     await materialsDB.saveMaterials(currentCourse.id, currentCourse.name, materialsToProcess);
     await materialsDB.close();
     console.log('✅ [Popup] Materials saved to IndexedDB successfully');
 
+    // Verify the save worked
+    console.log('🔍 [Popup] Verifying save...');
+    const verifyDB = new MaterialsDB();
+    const savedData = await verifyDB.loadMaterials(currentCourse.id);
+    await verifyDB.close();
+
+    if (savedData) {
+      console.log('✅ [Popup] Verification successful - data found in IndexedDB');
+      console.log('   Verified course ID:', savedData.courseId);
+      console.log('   Verified course name:', savedData.courseName);
+    } else {
+      console.error('❌ [Popup] Verification FAILED - data NOT found in IndexedDB after save!');
+      throw new Error('Failed to save materials to IndexedDB');
+    }
+
     // Open chat interface
     const chatUrl = chrome.runtime.getURL(`chat/chat.html?courseId=${currentCourse.id}`);
+    console.log('🌐 [Popup] Opening chat URL:', chatUrl);
     chrome.tabs.create({ url: chatUrl });
 
     // Reset UI

@@ -55,6 +55,9 @@ async function init() {
   const urlParams = new URLSearchParams(window.location.search);
   courseId = urlParams.get('courseId');
 
+  console.log('🌐 [Chat] URL parameters:', window.location.search);
+  console.log('🎯 [Chat] Course ID from URL:', courseId);
+
   if (!courseId) {
     showError('No course selected. Please go back and select a course.');
     return;
@@ -62,6 +65,7 @@ async function init() {
 
   // Generate session ID for this chat
   currentSessionId = `session_${courseId}_${Date.now()}`;
+  console.log('📝 [Chat] Session ID:', currentSessionId);
 
   // Load materials from storage
   await loadMaterials();
@@ -86,6 +90,7 @@ async function loadMaterials() {
   try {
     // Load from IndexedDB (single source of truth)
     console.log('📂 [Chat] Loading materials from IndexedDB...');
+    console.log('   Looking for course ID:', courseId);
     const materialsDB = new MaterialsDB();
     let materialsData = await materialsDB.loadMaterials(courseId);
 
