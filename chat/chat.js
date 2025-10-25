@@ -540,7 +540,12 @@ function getSelectedDocIds() {
     if (materialName) {
       // Remove file extension for document ID
       const cleanName = materialName.replace(/\.(pdf|docx?|txt|xlsx?|pptx?|csv|md|rtf|png|jpe?g|gif|webp|bmp)$/i, '');
-      const docId = `${courseId}_${cleanName}`;
+
+      // Sanitize: replace forward slashes (GCS doesn't allow them in blob names)
+      // Must match backend sanitization in storage_manager.py
+      const sanitizedName = cleanName.replace(/\//g, '-');
+
+      const docId = `${courseId}_${sanitizedName}`;
       docIds.push(docId);
       console.log(`📄 Selected: "${materialName}" → ID: "${docId}"`);
     }
