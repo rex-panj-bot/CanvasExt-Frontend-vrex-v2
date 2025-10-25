@@ -665,7 +665,7 @@ async function createStudyBot() {
       'xlsx', 'xls', 'csv',          // Spreadsheets
       'pptx', 'ppt',                 // Presentations
       'md', 'rtf',                   // Text formats
-      'png', 'jpg', 'jpeg', 'gif'    // Images (for vision)
+      'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'    // Images (for vision)
     ];
 
     // Collect ALL files for local download + determine which need backend upload
@@ -685,30 +685,30 @@ async function createStudyBot() {
         ext = itemName.split('.').pop().toLowerCase();
       }
 
-      // If no extension or not supported, still add to download list
-      if (!ext || !supportedExtensions.includes(ext)) {
-        allFilesToDownload.push({
-          url: item.url,
-          name: itemName,
-          type: ext || 'unknown'
-        });
-        return;
-      }
-
       const fileInfo = {
         url: item.url,
         name: itemName,
-        type: ext
+        type: ext || 'unknown'
       };
 
       // ALWAYS add to download list (for local blobs - needed to open files)
       allFilesToDownload.push(fileInfo);
 
-      // Check backend cache ONLY for upload decision (not download)
-      const fileNameWithoutExt = itemName.substring(0, itemName.lastIndexOf('.')) || itemName;
-      const fileId = `${currentCourse.id}_${fileNameWithoutExt}`;
-      if (!uploadedFileIds.has(fileId)) {
-        filesToUploadToBackend.push(fileInfo);
+      // Check if supported and should be uploaded to backend
+      const isSupported = ext && supportedExtensions.includes(ext);
+
+      if (isSupported) {
+        // Check backend cache ONLY for upload decision (not download)
+        const fileNameWithoutExt = itemName.substring(0, itemName.lastIndexOf('.')) || itemName;
+        const fileId = `${currentCourse.id}_${fileNameWithoutExt}`;
+        if (!uploadedFileIds.has(fileId)) {
+          filesToUploadToBackend.push(fileInfo);
+          console.log(`Will upload ${itemName} (${ext}) to backend`);
+        } else {
+          console.log(`Skipping ${itemName} (${ext}) - already on backend`);
+        }
+      } else {
+        console.log(`Skipping ${itemName} (${ext || 'no extension'}) - unsupported format`);
       }
     };
 
@@ -735,6 +735,13 @@ async function createStudyBot() {
       });
     }
 
+    // Log summary of what will be uploaded
+    const uploadSummary = {};
+    filesToUploadToBackend.forEach(f => {
+      uploadSummary[f.type] = (uploadSummary[f.type] || 0) + 1;
+    });
+    console.log(`📊 Files to upload to backend: ${filesToUploadToBackend.length}`, uploadSummary);
+
     // ALWAYS download files locally (even if backend has them)
     // This ensures we have blobs for opening files from the sidebar
     updateProgress(`Downloading ${allFilesToDownload.length} files locally...`, PROGRESS_PERCENT.DOWNLOADING_START);
@@ -748,7 +755,36 @@ async function createStudyBot() {
       const downloadFile = async (file) => {
         try {
           const blob = await canvasAPI.downloadFile(file.url);
-          downloadedFiles.push({ blob, name: file.name });
+
+          // Ensure filename has an extension based on blob type
+          let fileName = file.name;
+          if (!fileName.includes('.')) {
+            // No extension - detect from blob MIME type
+            const mimeToExt = {
+              'application/pdf': '.pdf',
+              'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
+              'application/vnd.ms-powerpoint': '.ppt',
+              'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+              'application/msword': '.doc',
+              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+              'application/vnd.ms-excel': '.xls',
+              'text/plain': '.txt',
+              'text/markdown': '.md',
+              'text/csv': '.csv',
+              'image/png': '.png',
+              'image/jpeg': '.jpg',
+              'image/gif': '.gif',
+              'image/webp': '.webp',
+              'image/bmp': '.bmp'
+            };
+            const ext = mimeToExt[blob.type];
+            if (ext) {
+              fileName = fileName + ext;
+              console.log(`  ✓ Added extension: "${file.name}" → "${fileName}" (${blob.type})`);
+            }
+          }
+
+          downloadedFiles.push({ blob, name: fileName });
           completed++;
 
           // Update progress
@@ -786,22 +822,32 @@ async function createStudyBot() {
       await downloadBatch(batch);
     }
 
-    // Upload to backend ONLY files that are new (not in backend cache)
-    if (filesToUploadToBackend.length > 0) {
-      updateProgress(`Uploading ${filesToUploadToBackend.length} new files to backend...`, PROGRESS_PERCENT.UPLOADING);
+    // Upload ALL downloaded files to backend (not just filtered ones)
+    if (downloadedFiles.length > 0) {
+      updateProgress(`Uploading ${downloadedFiles.length} files to backend...`, PROGRESS_PERCENT.UPLOADING);
 
-      // Filter downloaded files to only include ones that need backend upload
-      const blobsToUpload = downloadedFiles.filter(df =>
-        filesToUploadToBackend.some(f => f.name === df.name)
-      );
+      // Upload ALL files that were successfully downloaded
+      console.log(`📤 Uploading ALL ${downloadedFiles.length} downloaded files to backend (including PPTX, images, etc.)`);
 
-      await backendClient.uploadPDFs(currentCourse.id, blobsToUpload);
+      // Log file types being uploaded
+      const uploadTypes = {};
+      downloadedFiles.forEach(f => {
+        const ext = f.name.split('.').pop().toLowerCase();
+        uploadTypes[ext] = (uploadTypes[ext] || 0) + 1;
+      });
+      console.log(`📊 File types being uploaded:`, uploadTypes);
+
+      await backendClient.uploadPDFs(currentCourse.id, downloadedFiles);
+      console.log(`✅ Successfully uploaded all ${downloadedFiles.length} files to backend`);
     }
 
     // Attach blobs to materials
     const blobMap = new Map();
     downloadedFiles.forEach(df => {
       blobMap.set(df.name, df.blob);
+      // Also store without extension for matching
+      const nameWithoutExt = df.name.replace(/\.(pdf|docx?|txt|xlsx?|pptx?|csv|md|rtf|png|jpe?g|gif|webp|bmp)$/i, '');
+      blobMap.set(nameWithoutExt, df.blob);
     });
 
     // Attach blobs to all matching items in materialsToProcess
@@ -809,9 +855,19 @@ async function createStudyBot() {
       if (!Array.isArray(items)) continue;
 
       items.forEach((item) => {
-        const itemName = item.display_name || item.filename || item.name || item.title;
-        if (itemName && blobMap.has(itemName)) {
-          item.blob = blobMap.get(itemName);
+        let itemName = item.display_name || item.filename || item.name || item.title;
+        if (itemName) {
+          // Try exact match first
+          if (blobMap.has(itemName)) {
+            item.blob = blobMap.get(itemName);
+            // Update the stored name to include extension
+            for (const [fileName, blob] of blobMap) {
+              if (blob === item.blob && fileName.includes('.')) {
+                item.stored_name = fileName;
+                break;
+              }
+            }
+          }
         }
       });
     }
@@ -821,9 +877,19 @@ async function createStudyBot() {
       materialsToProcess.modules.forEach((module) => {
         if (module.items && Array.isArray(module.items)) {
           module.items.forEach((item) => {
-            const itemName = item.title || item.name || item.display_name;
-            if (itemName && blobMap.has(itemName)) {
-              item.blob = blobMap.get(itemName);
+            let itemName = item.title || item.name || item.display_name;
+            if (itemName) {
+              // Try exact match first
+              if (blobMap.has(itemName)) {
+                item.blob = blobMap.get(itemName);
+                // Update the stored name to include extension
+                for (const [fileName, blob] of blobMap) {
+                  if (blob === item.blob && fileName.includes('.')) {
+                    item.stored_name = fileName;
+                    break;
+                  }
+                }
+              }
             }
           });
         }

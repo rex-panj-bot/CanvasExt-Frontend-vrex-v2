@@ -162,20 +162,28 @@ class BackendClient {
   }
 
   /**
-   * Upload PDFs to backend for processing
+   * Upload files to backend for processing (PDFs, PPTX, images, etc.)
    */
   async uploadPDFs(courseId, files) {
     const formData = new FormData();
 
     // Add files to form data, validating that blob exists
     let validFileCount = 0;
+    const fileTypes = {};
+
     for (const file of files) {
       // Validate that blob is actually a Blob object
       if (file.blob && file.blob instanceof Blob) {
         formData.append('files', file.blob, file.name);
         validFileCount++;
+
+        // Track file types
+        const ext = file.name.split('.').pop().toLowerCase();
+        fileTypes[ext] = (fileTypes[ext] || 0) + 1;
+
+        console.log(`  ✓ Adding ${file.name} (${ext}, ${file.blob.size} bytes, type: ${file.blob.type})`);
       } else {
-        console.warn(`⚠️ Skipping ${file.name} - not a valid Blob (type: ${typeof file.blob})`);
+        console.warn(`  ⚠️ Skipping ${file.name} - not a valid Blob (type: ${typeof file.blob})`);
       }
     }
 
@@ -183,7 +191,13 @@ class BackendClient {
       throw new Error('No valid files to upload. All files were skipped due to missing or invalid blobs.');
     }
 
-    console.log(`📤 Uploading ${validFileCount} files to backend...`);
+    console.log(`📤 Uploading ${validFileCount} files to backend:`, fileTypes);
+    console.log(`📤 File names being uploaded:`);
+    for (const file of files.slice(0, 10)) {  // Show first 10
+      if (file.blob) {
+        console.log(`   - "${file.name}"`);
+      }
+    }
 
     try {
       const response = await fetch(`${this.backendUrl}/upload_pdfs?course_id=${courseId}`, {
@@ -192,11 +206,12 @@ class BackendClient {
       });
 
       if (!response.ok) {
-        throw new Error(`Upload failed: ${response.statusText}`);
+        const errorText = await response.text();
+        throw new Error(`Upload failed (${response.status}): ${errorText}`);
       }
 
       const result = await response.json();
-      console.log('✅ PDFs uploaded:', result);
+      console.log('✅ Files uploaded successfully:', result);
       return result;
     } catch (error) {
       console.error('❌ Upload error:', error);

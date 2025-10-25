@@ -523,7 +523,8 @@ function getSelectedDocIds() {
       if (module && module.items) {
         const item = module.items[parseInt(itemIdx)];
         if (item) {
-          materialName = item.title || item.name;
+          // Use stored_name if available (has correct extension), otherwise use title
+          materialName = item.stored_name || item.title || item.name;
         }
       }
     }
@@ -531,18 +532,21 @@ function getSelectedDocIds() {
     else if (category && index !== undefined) {
       const item = processedMaterials[category]?.[parseInt(index)];
       if (item) {
-        materialName = item.name || item.display_name || item.title;
+        // Use stored_name if available (has correct extension), otherwise use name
+        materialName = item.stored_name || item.name || item.display_name || item.title;
       }
     }
 
     if (materialName) {
       // Remove file extension for document ID
-      const cleanName = materialName.replace(/\.(pdf|docx?|txt|xlsx?|pptx?|csv|md|rtf|png|jpe?g|gif|webp)$/i, '');
+      const cleanName = materialName.replace(/\.(pdf|docx?|txt|xlsx?|pptx?|csv|md|rtf|png|jpe?g|gif|webp|bmp)$/i, '');
       const docId = `${courseId}_${cleanName}`;
       docIds.push(docId);
+      console.log(`📄 Selected: "${materialName}" → ID: "${docId}"`);
     }
   });
 
+  console.log(`📋 Total selected document IDs: ${docIds.length}`, docIds);
   return docIds;
 }
 
@@ -897,10 +901,17 @@ async function sendMessage() {
     const selectedDocIds = getSelectedDocIds();
     const syllabusId = getSyllabusId();
 
+    console.log(`🚀 Sending query to backend:`);
+    console.log(`   Selected docs: ${selectedDocIds.length}`, selectedDocIds);
+    console.log(`   Syllabus ID: ${syllabusId || 'none'}`);
+
     // Load user settings
     const settings = await chrome.storage.local.get(['gemini_api_key', 'enable_web_search']);
     const apiKey = settings.gemini_api_key || null;
     const enableWebSearch = settings.enable_web_search || false;
+
+    console.log(`   Web search: ${enableWebSearch ? 'enabled' : 'disabled'}`);
+    console.log(`   API key: ${apiKey ? 'user-provided' : 'default'}`);
 
     await wsClient.sendQuery(
       message,
