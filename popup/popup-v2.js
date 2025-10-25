@@ -736,39 +736,76 @@ async function createStudyBot() {
     const allFilesToDownload = []; // For local blob storage (ALWAYS download)
     const filesToUploadToBackend = []; // For backend AI processing (only if new)
 
-    for (const [category, items] of Object.entries(materialsToProcess)) {
-      if (!Array.isArray(items)) continue;
+    // Helper function to process a single item
+    const processItem = (item, sourceCategory) => {
+      const itemName = item.display_name || item.filename || item.name || item.title;
+      if (!itemName || !item.url) {
+        console.log(`⏭️  Skipping item without name or URL:`, item);
+        return;
+      }
 
-      for (const item of items) {
-        const itemName = item.display_name || item.filename || item.name;
-        if (!itemName || !item.url) continue;
+      // Try to determine file extension from name, or fetch to get content-type
+      let ext = null;
+      if (itemName.includes('.')) {
+        ext = itemName.split('.').pop().toLowerCase();
+      }
 
-        // Check if file extension is supported
-        const ext = itemName.split('.').pop().toLowerCase();
-        if (!supportedExtensions.includes(ext)) {
-          console.log(`⏭️  Skipping ${itemName} (unsupported type: ${ext})`);
-          continue;
-        }
-
-        const fileInfo = {
+      // If no extension or not supported, skip for now (Canvas sometimes uses titles without extensions)
+      if (!ext || !supportedExtensions.includes(ext)) {
+        console.log(`⏭️  Skipping ${itemName} from ${sourceCategory} (no valid extension, will try to fetch)`);
+        // Still add to download list - we'll try to download and see what we get
+        allFilesToDownload.push({
           url: item.url,
           name: itemName,
-          type: ext
-        };
-
-        // ALWAYS add to download list (for local blobs - needed to open files)
-        allFilesToDownload.push(fileInfo);
-
-        // Check backend cache ONLY for upload decision (not download)
-        const fileNameWithoutExt = itemName.substring(0, itemName.lastIndexOf('.')) || itemName;
-        const fileId = `${currentCourse.id}_${fileNameWithoutExt}`;
-        if (!uploadedFileIds.has(fileId)) {
-          filesToUploadToBackend.push(fileInfo);
-          console.log(`📤 Will upload to backend: ${itemName}`);
-        } else {
-          console.log(`✅ Already on backend (will still download locally): ${itemName}`);
-        }
+          type: ext || 'unknown'
+        });
+        return;
       }
+
+      const fileInfo = {
+        url: item.url,
+        name: itemName,
+        type: ext
+      };
+
+      // ALWAYS add to download list (for local blobs - needed to open files)
+      allFilesToDownload.push(fileInfo);
+
+      // Check backend cache ONLY for upload decision (not download)
+      const fileNameWithoutExt = itemName.substring(0, itemName.lastIndexOf('.')) || itemName;
+      const fileId = `${currentCourse.id}_${fileNameWithoutExt}`;
+      if (!uploadedFileIds.has(fileId)) {
+        filesToUploadToBackend.push(fileInfo);
+        console.log(`📤 Will upload to backend: ${itemName} (from ${sourceCategory})`);
+      } else {
+        console.log(`✅ Already on backend (will still download locally): ${itemName}`);
+      }
+    };
+
+    // Process standalone files, pages, assignments
+    for (const [category, items] of Object.entries(materialsToProcess)) {
+      if (category === 'modules' || !Array.isArray(items)) continue;
+
+      console.log(`📂 Processing ${category}: ${items.length} items`);
+      for (const item of items) {
+        processItem(item, category);
+      }
+    }
+
+    // Process module items (files within modules)
+    if (materialsToProcess.modules && Array.isArray(materialsToProcess.modules)) {
+      console.log(`📦 Processing ${materialsToProcess.modules.length} modules`);
+      materialsToProcess.modules.forEach((module, moduleIdx) => {
+        if (!module.items || !Array.isArray(module.items)) return;
+
+        console.log(`  📦 Module "${module.name}": ${module.items.length} items`);
+        module.items.forEach(item => {
+          // Only process File type items from modules
+          if (item.type === 'File' && item.url) {
+            processItem(item, `module: ${module.name}`);
+          }
+        });
+      });
     }
 
     console.log(`📊 Total files: ${allFilesToDownload.length}, New files for backend: ${filesToUploadToBackend.length}`);
