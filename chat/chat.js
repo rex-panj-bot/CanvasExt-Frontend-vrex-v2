@@ -509,10 +509,29 @@ function displayMaterials() {
         console.log(`  File item:`, { hasBlob: !!fileItem.blob, blobSize: fileItem.blob?.size, category, index: moduleIdx || index });
 
         if (fileItem.blob) {
-          // Open from local blob (FAST, works offline)
+          // Create blob URL and trigger download to user's filesystem
           const blobUrl = URL.createObjectURL(fileItem.blob);
-          chrome.tabs.create({ url: blobUrl });
-          console.log(`✅ [Chat] Opened file from blob: ${fileName} (${fileItem.blob.size} bytes)`);
+
+          // Option 1: Download to filesystem (goes to Downloads folder)
+          chrome.downloads.download({
+            url: blobUrl,
+            filename: fileName,
+            saveAs: false  // Set to true to prompt user for location
+          }, (downloadId) => {
+            if (chrome.runtime.lastError) {
+              console.error('Download failed:', chrome.runtime.lastError);
+              // Fallback: open in new tab
+              chrome.tabs.create({ url: blobUrl });
+            } else {
+              console.log(`✅ [Chat] Downloaded file to filesystem: ${fileName} (${fileItem.blob.size} bytes)`);
+              // Clean up blob URL after download starts
+              setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+            }
+          });
+
+          // Option 2: Just open in new tab (current behavior)
+          // chrome.tabs.create({ url: blobUrl });
+          // console.log(`✅ [Chat] Opened file from blob: ${fileName} (${fileItem.blob.size} bytes)`);
         } else {
           // No blob available - show clear error message
           console.error(`❌ [Chat] No blob data available for ${fileName}`);
