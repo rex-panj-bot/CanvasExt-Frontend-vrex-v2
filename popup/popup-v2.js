@@ -35,8 +35,6 @@ const screens = {
 document.addEventListener('DOMContentLoaded', init);
 
 async function init() {
-  console.log('Popup V2 initializing...');
-
   // Initialize theme
   initTheme();
 
@@ -474,63 +472,6 @@ async function scanCourseMaterials(courseId, courseName) {
 
     scannedMaterials = materials;
 
-    // Debug: Log detailed material structure
-    console.log('📊 SCANNED MATERIALS DETAIL:');
-    console.log('  Total categories:', Object.keys(materials).length);
-
-    // Log modules in detail
-    if (materials.modules && materials.modules.length > 0) {
-      console.log('\n📦 MODULES:', materials.modules.length);
-      materials.modules.forEach((module, idx) => {
-        console.log(`\n  Module ${idx + 1}: "${module.name}"`);
-        if (module.items && module.items.length > 0) {
-          console.log(`    Items: ${module.items.length}`);
-          module.items.forEach((item, itemIdx) => {
-            console.log(`      ${itemIdx + 1}. [${item.type}] ${item.title}`);
-            if (item.type === 'File') {
-              console.log(`         - content_id: ${item.content_id}`);
-              console.log(`         - url: ${item.url ? item.url.substring(0, 50) + '...' : 'none'}`);
-            } else if (item.type === 'ExternalUrl') {
-              console.log(`         - external_url: ${item.external_url}`);
-            } else if (item.type === 'Page') {
-              console.log(`         - page_url: ${item.page_url}`);
-            }
-          });
-        }
-      });
-    }
-
-    // Log files
-    if (materials.files && materials.files.length > 0) {
-      console.log('\n📄 FILES:', materials.files.length);
-      const filesByType = {};
-      materials.files.forEach(file => {
-        const ext = file.display_name ? file.display_name.split('.').pop().toLowerCase() : 'unknown';
-        filesByType[ext] = (filesByType[ext] || 0) + 1;
-      });
-      console.log('  By type:', filesByType);
-      // Show first few files
-      materials.files.slice(0, 5).forEach((file, idx) => {
-        console.log(`    ${idx + 1}. ${file.display_name} (${(file.size / 1024).toFixed(1)}KB)`);
-      });
-    }
-
-    // Log pages
-    if (materials.pages && materials.pages.length > 0) {
-      console.log('\n📝 PAGES:', materials.pages.length);
-      materials.pages.slice(0, 5).forEach((page, idx) => {
-        console.log(`    ${idx + 1}. ${page.title}`);
-      });
-    }
-
-    // Log assignments
-    if (materials.assignments && materials.assignments.length > 0) {
-      console.log('\n📋 ASSIGNMENTS:', materials.assignments.length);
-      materials.assignments.slice(0, 5).forEach((assignment, idx) => {
-        console.log(`    ${idx + 1}. ${assignment.name}`);
-      });
-    }
-
     const preferences = getPreferencesFromUI();
     fileProcessor.processMaterials(materials, preferences);
 
@@ -677,9 +618,6 @@ async function downloadPDFsInParallel(pdfFiles, canvasAPI, progressCallback, con
  */
 async function createStudyBot() {
   try {
-    console.log('🚀 [Popup] Create Study Bot started');
-    console.log('   Current course:', currentCourse);
-
     document.getElementById('study-bot-btn').disabled = true;
     document.getElementById('study-bot-progress').classList.remove('hidden');
 
@@ -699,11 +637,9 @@ async function createStudyBot() {
     let materialsToProcess;
     if (detailedViewVisible && selectedFiles.size > 0) {
       materialsToProcess = filterSelectedMaterials(scannedMaterials, selectedFiles);
-      console.log('Using selected files:', selectedFiles.size, 'items');
     } else {
       const preferences = getPreferencesFromUI();
       materialsToProcess = filterMaterialsByPreferences(scannedMaterials, preferences);
-      console.log('Using preferences:', preferences);
     }
 
     updateProgress('Checking backend...', PROGRESS_PERCENT.BACKEND_CHECK);
@@ -737,10 +673,9 @@ async function createStudyBot() {
     const filesToUploadToBackend = []; // For backend AI processing (only if new)
 
     // Helper function to process a single item
-    const processItem = (item, sourceCategory) => {
+    const processItem = (item) => {
       const itemName = item.display_name || item.filename || item.name || item.title;
       if (!itemName || !item.url) {
-        console.log(`⏭️  Skipping item without name or URL:`, item);
         return;
       }
 
@@ -750,10 +685,8 @@ async function createStudyBot() {
         ext = itemName.split('.').pop().toLowerCase();
       }
 
-      // If no extension or not supported, skip for now (Canvas sometimes uses titles without extensions)
+      // If no extension or not supported, still add to download list
       if (!ext || !supportedExtensions.includes(ext)) {
-        console.log(`⏭️  Skipping ${itemName} from ${sourceCategory} (no valid extension, will try to fetch)`);
-        // Still add to download list - we'll try to download and see what we get
         allFilesToDownload.push({
           url: item.url,
           name: itemName,
@@ -776,9 +709,6 @@ async function createStudyBot() {
       const fileId = `${currentCourse.id}_${fileNameWithoutExt}`;
       if (!uploadedFileIds.has(fileId)) {
         filesToUploadToBackend.push(fileInfo);
-        console.log(`📤 Will upload to backend: ${itemName} (from ${sourceCategory})`);
-      } else {
-        console.log(`✅ Already on backend (will still download locally): ${itemName}`);
       }
     };
 
@@ -786,42 +716,28 @@ async function createStudyBot() {
     for (const [category, items] of Object.entries(materialsToProcess)) {
       if (category === 'modules' || !Array.isArray(items)) continue;
 
-      console.log(`📂 Processing ${category}: ${items.length} items`);
       for (const item of items) {
-        processItem(item, category);
+        processItem(item);
       }
     }
 
     // Process module items (files within modules)
     if (materialsToProcess.modules && Array.isArray(materialsToProcess.modules)) {
-      console.log(`📦 Processing ${materialsToProcess.modules.length} modules`);
-      materialsToProcess.modules.forEach((module, moduleIdx) => {
+      materialsToProcess.modules.forEach((module) => {
         if (!module.items || !Array.isArray(module.items)) return;
 
-        console.log(`  📦 Module "${module.name}": ${module.items.length} items`);
         module.items.forEach(item => {
           // Only process File type items from modules
           if (item.type === 'File' && item.url) {
-            processItem(item, `module: ${module.name}`);
+            processItem(item);
           }
         });
       });
     }
 
-    console.log(`📊 Total files: ${allFilesToDownload.length}, New files for backend: ${filesToUploadToBackend.length}`);
-    console.log(`📊 File type breakdown:`, allFilesToDownload.reduce((acc, f) => {
-      acc[f.type] = (acc[f.type] || 0) + 1;
-      return acc;
-    }, {}));
-
     // ALWAYS download files locally (even if backend has them)
     // This ensures we have blobs for opening files from the sidebar
     updateProgress(`Downloading ${allFilesToDownload.length} files locally...`, PROGRESS_PERCENT.DOWNLOADING_START);
-    console.log(`📥 [Popup] Downloading ${allFilesToDownload.length} files for local blob storage...`);
-    console.log(`  File types:`, allFilesToDownload.reduce((acc, f) => {
-      acc[f.type] = (acc[f.type] || 0) + 1;
-      return acc;
-    }, {}));
 
     const downloadedFiles = [];
     let completed = 0;
@@ -830,7 +746,6 @@ async function createStudyBot() {
 
       // Download single file
       const downloadFile = async (file) => {
-        console.log(`📥 [Popup] Downloading: ${file.name} (${file.type})...`);
         try {
           const blob = await canvasAPI.downloadFile(file.url);
           downloadedFiles.push({ blob, name: file.name });
@@ -841,7 +756,6 @@ async function createStudyBot() {
           const progress = PROGRESS_PERCENT.DOWNLOADING_START + ((completed / total) * downloadProgressRange);
           updateProgress(`Downloading files: ${completed}/${total}`, progress);
 
-          console.log(`✅ [Popup] Downloaded ${file.name} (type: ${blob.type}, size: ${blob.size} bytes, ${completed}/${total})`);
           return { success: true, name: file.name, size: blob.size };
         } catch (error) {
           completed++;
@@ -851,7 +765,7 @@ async function createStudyBot() {
           const progress = PROGRESS_PERCENT.DOWNLOADING_START + ((completed / total) * downloadProgressRange);
           updateProgress(`Downloading files: ${completed}/${total}`, progress);
 
-          console.error(`❌ [Popup] Failed to download ${file.name}:`, error);
+          console.error(`Failed to download ${file.name}:`, error);
           return { success: false, name: file.name, error };
         }
       };
@@ -872,9 +786,6 @@ async function createStudyBot() {
       await downloadBatch(batch);
     }
 
-    console.log(`📦 [Popup] Downloaded ${downloadedFiles.length}/${total} files successfully`);
-    console.log(`  Total size: ${downloadedFiles.reduce((sum, f) => sum + (f.blob?.size || 0), 0).toLocaleString()} bytes`);
-
     // Upload to backend ONLY files that are new (not in backend cache)
     if (filesToUploadToBackend.length > 0) {
       updateProgress(`Uploading ${filesToUploadToBackend.length} new files to backend...`, PROGRESS_PERCENT.UPLOADING);
@@ -884,113 +795,60 @@ async function createStudyBot() {
         filesToUploadToBackend.some(f => f.name === df.name)
       );
 
-      console.log(`📤 [Popup] Uploading ${blobsToUpload.length} new files to backend...`);
       await backendClient.uploadPDFs(currentCourse.id, blobsToUpload);
-      console.log(`✅ [Popup] Uploaded ${blobsToUpload.length} new files to backend`);
-    } else {
-      console.log(`✅ [Popup] All files already on backend, skipping upload`);
     }
 
     // Attach blobs to materials
-    console.log(`🔗 [Popup] Attaching ${downloadedFiles.length} blobs to materials structure...`);
     const blobMap = new Map();
     downloadedFiles.forEach(df => {
       blobMap.set(df.name, df.blob);
     });
-    console.log(`  Created blob map with ${blobMap.size} entries`);
 
     // Attach blobs to all matching items in materialsToProcess
-    let attachedCount = 0;
-    let notFoundCount = 0;
-    const notFoundItems = [];
-
-    for (const [category, items] of Object.entries(materialsToProcess)) {
+    for (const items of Object.values(materialsToProcess)) {
       if (!Array.isArray(items)) continue;
 
       items.forEach((item) => {
         const itemName = item.display_name || item.filename || item.name || item.title;
         if (itemName && blobMap.has(itemName)) {
           item.blob = blobMap.get(itemName);
-          attachedCount++;
-          console.log(`  ✅ [${category}] Attached blob to: ${itemName} (type: ${item.blob.type}, ${item.blob.size} bytes)`);
-        } else if (itemName) {
-          notFoundCount++;
-          notFoundItems.push({ category, name: itemName });
-          console.warn(`  ⚠️  [${category}] No blob found for: ${itemName}`);
         }
       });
     }
 
     // ALSO attach blobs to module items
     if (materialsToProcess.modules && Array.isArray(materialsToProcess.modules)) {
-      console.log(`  Attaching blobs to ${materialsToProcess.modules.length} modules...`);
       materialsToProcess.modules.forEach((module) => {
         if (module.items && Array.isArray(module.items)) {
           module.items.forEach((item) => {
             const itemName = item.title || item.name || item.display_name;
             if (itemName && blobMap.has(itemName)) {
               item.blob = blobMap.get(itemName);
-              attachedCount++;
-              console.log(`  ✅ [module: ${module.name}] Attached blob to: ${itemName} (type: ${item.blob.type}, ${item.blob.size} bytes)`);
-            } else if (itemName) {
-              notFoundCount++;
-              notFoundItems.push({ category: 'module', moduleName: module.name, name: itemName });
-              console.warn(`  ⚠️  [module: ${module.name}] No blob found for: ${itemName}`);
             }
           });
         }
       });
     }
 
-    console.log(`📊 [Popup] Blob attachment summary:`);
-    console.log(`  Downloaded blobs: ${downloadedFiles.length}`);
-    console.log(`  Blobs attached: ${attachedCount}`);
-    console.log(`  Items without blobs: ${notFoundCount}`);
-
-    if (notFoundCount > 0) {
-      console.warn(`⚠️  [Popup] ${notFoundCount} items did not get blobs attached:`, notFoundItems);
-    }
-
-    if (attachedCount !== downloadedFiles.length) {
-      console.warn(`⚠️  [Popup] Mismatch: Downloaded ${downloadedFiles.length} files but only attached ${attachedCount} blobs`);
-    }
-
     updateProgress('Saving materials to database...', PROGRESS_PERCENT.COMPLETE);
 
     // Save to IndexedDB (supports Blob objects directly, no size limit!)
-    console.log('💾 [Popup] Saving materials with blobs to IndexedDB...');
-    console.log('   Course ID being saved:', currentCourse.id);
-    console.log('   Course name being saved:', currentCourse.name);
-    console.log('   Materials structure:', {
-      modules: materialsToProcess.modules?.length || 0,
-      files: materialsToProcess.files?.length || 0,
-      pages: materialsToProcess.pages?.length || 0,
-      assignments: materialsToProcess.assignments?.length || 0
-    });
-
     const materialsDB = new MaterialsDB();
     await materialsDB.saveMaterials(currentCourse.id, currentCourse.name, materialsToProcess);
     await materialsDB.close();
-    console.log('✅ [Popup] Materials saved to IndexedDB successfully');
 
     // Verify the save worked
-    console.log('🔍 [Popup] Verifying save...');
     const verifyDB = new MaterialsDB();
     const savedData = await verifyDB.loadMaterials(currentCourse.id);
     await verifyDB.close();
 
-    if (savedData) {
-      console.log('✅ [Popup] Verification successful - data found in IndexedDB');
-      console.log('   Verified course ID:', savedData.courseId);
-      console.log('   Verified course name:', savedData.courseName);
-    } else {
-      console.error('❌ [Popup] Verification FAILED - data NOT found in IndexedDB after save!');
+    if (!savedData) {
+      console.error('Verification FAILED - data NOT found in IndexedDB after save!');
       throw new Error('Failed to save materials to IndexedDB');
     }
 
     // Open chat interface
     const chatUrl = chrome.runtime.getURL(`chat/chat.html?courseId=${currentCourse.id}`);
-    console.log('🌐 [Popup] Opening chat URL:', chatUrl);
     chrome.tabs.create({ url: chatUrl });
 
     // Reset UI

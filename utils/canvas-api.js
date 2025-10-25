@@ -76,8 +76,6 @@ class CanvasAPI {
       fetchOptions.credentials = 'include';
     }
 
-    console.log(`Canvas API Request (${this.authMode}): ${url}`);
-
     try {
       const response = await fetch(url, fetchOptions);
 
@@ -128,8 +126,6 @@ class CanvasAPI {
     if (this.authMode === 'session') {
       fetchOptions.credentials = 'include';
     }
-
-    console.log(`Canvas API Pagination Request (${this.authMode}): ${url}`);
 
     try {
       const response = await fetch(url, fetchOptions);
@@ -182,7 +178,6 @@ class CanvasAPI {
   async getCourses() {
     try {
       const courses = await this.makeRequest('/api/v1/courses?enrollment_state=active&per_page=100');
-      console.log(`Found ${courses.length} courses`);
       return courses;
     } catch (error) {
       console.error('Error fetching courses:', error);
@@ -196,7 +191,6 @@ class CanvasAPI {
   async getModules(courseId) {
     try {
       const modules = await this.makeRequest(`/api/v1/courses/${courseId}/modules?include[]=items&per_page=100`);
-      console.log(`Found ${modules.length} modules for course ${courseId}`);
       return modules;
     } catch (error) {
       console.error(`Error fetching modules for course ${courseId}:`, error);
@@ -210,7 +204,6 @@ class CanvasAPI {
   async getFiles(courseId) {
     try {
       const files = await this.makeRequest(`/api/v1/courses/${courseId}/files?per_page=100`);
-      console.log(`Found ${files.length} files for course ${courseId}`);
       return files;
     } catch (error) {
       console.error(`Error fetching files for course ${courseId}:`, error);
@@ -224,7 +217,6 @@ class CanvasAPI {
   async getPages(courseId) {
     try {
       const pages = await this.makeRequest(`/api/v1/courses/${courseId}/pages?per_page=100`);
-      console.log(`Found ${pages.length} pages for course ${courseId}`);
       return pages;
     } catch (error) {
       console.error(`Error fetching pages for course ${courseId}:`, error);
@@ -251,7 +243,6 @@ class CanvasAPI {
   async getAssignments(courseId) {
     try {
       const assignments = await this.makeRequest(`/api/v1/courses/${courseId}/assignments?per_page=100`);
-      console.log(`Found ${assignments.length} assignments for course ${courseId}`);
       return assignments;
     } catch (error) {
       console.error(`Error fetching assignments for course ${courseId}:`, error);
@@ -307,8 +298,6 @@ class CanvasAPI {
       materials.errors.push({ type: 'assignments', error: error.message });
     }
 
-    console.log('All materials fetched:', materials);
-
     // Show warning if some resources failed
     if (materials.errors.length > 0) {
       console.warn('Some resources could not be fetched:', materials.errors);
@@ -339,8 +328,6 @@ class CanvasAPI {
       // Check if this is a Canvas API file endpoint that returns JSON metadata
       // Example: /api/v1/courses/123/files/456
       if (fileUrl.includes('/api/v1/') && fileUrl.includes('/files/')) {
-        console.log(`📥 Fetching file metadata from API: ${fileUrl.substring(0, 80)}...`);
-
         // First, get the file metadata which includes the actual download URL
         const metadataResponse = await fetch(fileUrl, fetchOptions);
 
@@ -352,8 +339,6 @@ class CanvasAPI {
 
         // Use the download URL from metadata, or construct one with download_frd=1
         const downloadUrl = metadata.url || `${fileUrl.replace('/api/v1/courses/', '/courses/').replace('/files/', '/files/')}/download?download_frd=1`;
-
-        console.log(`📥 Downloading file from: ${downloadUrl.substring(0, 80)}...`);
 
         // Now download the actual file content
         const response = await fetch(downloadUrl, {
@@ -369,19 +354,16 @@ class CanvasAPI {
 
         // Verify we got actual file content, not JSON
         if (blob.type === 'application/json' && blob.size < 5000) {
-          console.warn(`⚠️  Received JSON instead of file content, trying alternative download`);
           // Try the direct download URL
           const directUrl = `${fileUrl}/download?download_frd=1`;
           const retryResponse = await fetch(directUrl, fetchOptions);
           if (retryResponse.ok) {
             const retryBlob = await retryResponse.blob();
             this.concurrentRequests--;
-            console.log(`✅ Retry successful, got ${retryBlob.type} (${retryBlob.size} bytes)`);
             return retryBlob;
           }
         }
 
-        console.log(`✅ Downloaded blob: ${blob.type} (${blob.size} bytes)`);
         this.concurrentRequests--;
         return blob;
       }

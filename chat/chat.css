@@ -1133,6 +1133,59 @@ body {
   margin-top: 12px;
   font-size: 12px;
   color: var(--text-light);
+  gap: 16px;
+}
+
+/* Web Search Toggle (Inline) */
+.web-search-toggle-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  color: var(--text-light);
+}
+
+.web-search-toggle-inline input[type="checkbox"] {
+  display: none;
+}
+
+.web-search-toggle-inline .toggle-switch {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  background: var(--border-color);
+  border-radius: 10px;
+  transition: background 0.3s;
+}
+
+.web-search-toggle-inline .toggle-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: white;
+  border-radius: 50%;
+  transition: transform 0.3s;
+}
+
+.web-search-toggle-inline input[type="checkbox"]:checked + .toggle-switch {
+  background: var(--primary-color);
+}
+
+.web-search-toggle-inline input[type="checkbox"]:checked + .toggle-switch::after {
+  transform: translateX(16px);
+}
+
+.web-search-toggle-inline .toggle-label {
+  font-weight: 500;
+}
+
+.web-search-toggle-inline:hover .toggle-switch {
+  opacity: 0.8;
 }
 
 /* Buttons */

@@ -44,7 +44,6 @@ async function init() {
   // Check for API key first (required to use the chat)
   const hasApiKey = await checkAndPromptForApiKey();
   if (!hasApiKey) {
-    console.log('Waiting for user to provide Google Gemini API key...');
     return; // Stop initialization until API key is provided
   }
 
@@ -55,9 +54,6 @@ async function init() {
   const urlParams = new URLSearchParams(window.location.search);
   courseId = urlParams.get('courseId');
 
-  console.log('🌐 [Chat] URL parameters:', window.location.search);
-  console.log('🎯 [Chat] Course ID from URL:', courseId);
-
   if (!courseId) {
     showError('No course selected. Please go back and select a course.');
     return;
@@ -65,7 +61,6 @@ async function init() {
 
   // Generate session ID for this chat
   currentSessionId = `session_${courseId}_${Date.now()}`;
-  console.log('📝 [Chat] Session ID:', currentSessionId);
 
   // Load materials from storage
   await loadMaterials();
@@ -82,6 +77,9 @@ async function init() {
   // Setup event listeners
   setupEventListeners();
 
+  // Initialize web search toggle
+  await initWebSearchToggle();
+
   // Auto-resize textarea
   setupTextareaResize();
 }
@@ -89,36 +87,28 @@ async function init() {
 async function loadMaterials() {
   try {
     // Load from IndexedDB (single source of truth)
-    console.log('📂 [Chat] Loading materials from IndexedDB...');
-    console.log('   Looking for course ID:', courseId);
     const materialsDB = new MaterialsDB();
     let materialsData = await materialsDB.loadMaterials(courseId);
 
     // If no data found, show clear error message
     if (!materialsData) {
-      console.error('❌ [Chat] No materials found in IndexedDB for course:', courseId);
+      console.error('No materials found for course:', courseId);
 
       // Check if ANY courses exist in IndexedDB
       const allCourses = await materialsDB.listCourses();
       await materialsDB.close();
 
       if (allCourses.length > 0) {
-        // Other courses exist, but not this one
-        console.error(`   Available courses in IndexedDB:`, allCourses);
         showError(`No materials found for course ${courseId}. You have scanned ${allCourses.length} other course(s). Please go back to the popup and scan this course first.`);
       } else {
-        // No courses at all
         showError('No materials found. Please go back to the popup and scan course materials first.');
       }
       return;
     }
 
     await materialsDB.close();
-    console.log('✅ [Chat] Loaded materials from IndexedDB');
 
     courseName = materialsData.courseName;
-    // Ensure processedMaterials always has a valid structure
-    // Some courses may not have modules, only files/pages/assignments
     processedMaterials = materialsData.materials || {
       modules: [],
       files: [],
@@ -126,56 +116,6 @@ async function loadMaterials() {
       assignments: [],
       errors: []
     };
-
-    // Count blobs and items for detailed logging
-    let blobCount = 0;
-    let totalItems = 0;
-    let itemsWithoutBlobs = [];
-
-    // Count standalone items (files, pages, assignments)
-    for (const [category, items] of Object.entries(processedMaterials)) {
-      if (!Array.isArray(items) || category === 'modules') continue;
-
-      totalItems += items.length;
-      for (const item of items) {
-        const itemName = item.name || item.display_name || item.title || 'unnamed';
-        if (item.blob) {
-          blobCount++;
-          console.log(`  ✅ [${category}] ${itemName} has blob (${item.blob.size} bytes)`);
-        } else {
-          itemsWithoutBlobs.push({ category, name: itemName });
-          console.log(`  ⚠️  [${category}] ${itemName} MISSING blob`);
-        }
-      }
-    }
-
-    // Count module items
-    if (processedMaterials.modules && Array.isArray(processedMaterials.modules)) {
-      for (const module of processedMaterials.modules) {
-        if (module.items && Array.isArray(module.items)) {
-          totalItems += module.items.length;
-          for (const item of module.items) {
-            const itemName = item.title || item.name || 'unnamed';
-            if (item.blob) {
-              blobCount++;
-              console.log(`  ✅ [module: ${module.name}] ${itemName} has blob (${item.blob.size} bytes)`);
-            } else {
-              itemsWithoutBlobs.push({ category: 'module', moduleName: module.name, name: itemName });
-              console.log(`  ⚠️  [module: ${module.name}] ${itemName} MISSING blob`);
-            }
-          }
-        }
-      }
-    }
-
-    console.log(`📊 [Chat] Materials summary:`);
-    console.log(`  Total items: ${totalItems}`);
-    console.log(`  Items with blobs: ${blobCount}`);
-    console.log(`  Items without blobs: ${itemsWithoutBlobs.length}`);
-
-    if (itemsWithoutBlobs.length > 0) {
-      console.warn(`⚠️  [Chat] ${itemsWithoutBlobs.length} items are missing blobs:`, itemsWithoutBlobs);
-    }
 
     // Update UI
     elements.courseName.textContent = courseName;
@@ -185,7 +125,7 @@ async function loadMaterials() {
     // Display materials in sidebar
     displayMaterials();
 
-    console.log('Materials loaded:', { courseName, materialCount: Object.keys(processedMaterials).length });
+    console.log('Materials loaded successfully');
   } catch (error) {
     console.error('Error loading materials:', error);
     showError('Failed to load course materials: ' + error.message);
@@ -312,24 +252,16 @@ function displayMaterials() {
 
   // 2. Display standalone Files (not in modules)
   if (processedMaterials.files && processedMaterials.files.length > 0) {
-    console.log(`📁 Processing ${processedMaterials.files.length} standalone files`);
-    console.log('Files shown in modules (content_ids):', Array.from(filesShownInModules));
-
     // Filter out files already shown in modules and keep track of original indices
     const standaloneFilesWithIndices = [];
     processedMaterials.files.forEach((file, originalIndex) => {
       const fileId = file.id?.toString() || file.content_id?.toString();
       const isDuplicate = filesShownInModules.has(fileId);
 
-      if (isDuplicate) {
-        console.log(`  ⏭️  Skipping duplicate: ${file.display_name || file.name} (id: ${fileId})`);
-      } else {
-        console.log(`  ✓ Including: ${file.display_name || file.name} (id: ${fileId})`);
+      if (!isDuplicate) {
         standaloneFilesWithIndices.push({ file, originalIndex });
       }
     });
-
-    console.log(`📋 ${standaloneFilesWithIndices.length} standalone files after filtering duplicates`);
 
     if (standaloneFilesWithIndices.length > 0) {
       const filesSection = document.createElement('div');
@@ -360,16 +292,11 @@ function displayMaterials() {
 
       filesSection.appendChild(filesDiv);
       materialsList.appendChild(filesSection);
-    } else {
-      console.log('⚠️ No standalone files to display after filtering');
     }
-  } else {
-    console.log('⚠️ No files in processedMaterials.files');
   }
 
   // 3. Display Pages (HTML content from Canvas)
   if (processedMaterials.pages && processedMaterials.pages.length > 0) {
-    console.log(`📄 Displaying ${processedMaterials.pages.length} pages`);
 
     const pagesSection = document.createElement('div');
     pagesSection.className = 'materials-section';
@@ -402,7 +329,6 @@ function displayMaterials() {
 
   // 4. Display Assignments (descriptions and details)
   if (processedMaterials.assignments && processedMaterials.assignments.length > 0) {
-    console.log(`📋 Displaying ${processedMaterials.assignments.length} assignments`);
 
     const assignmentsSection = document.createElement('div');
     assignmentsSection.className = 'materials-section';
@@ -505,39 +431,22 @@ function displayMaterials() {
 
       // Open file from blob
       if (fileItem) {
-        console.log(`📂 [Chat] Opening file: ${fileName}`);
-        console.log(`  File item:`, { hasBlob: !!fileItem.blob, blobSize: fileItem.blob?.size, category, index: moduleIdx || index });
-
         if (fileItem.blob) {
-          // Open from IndexedDB blob (stored locally in browser)
-          console.log(`📂 [Chat] Opening file from blob: ${fileName}`);
-          console.log(`  Blob type: ${fileItem.blob.type}, size: ${fileItem.blob.size} bytes`);
-
+          // Open from IndexedDB blob
           const blobUrl = URL.createObjectURL(fileItem.blob);
           chrome.tabs.create({ url: blobUrl });
-          console.log(`✅ [Chat] Opened file in new tab`);
 
           // Clean up blob URL after a delay
           setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
         } else {
-          // No blob available - show clear error message
-          console.error(`❌ [Chat] No blob data available for ${fileName}`);
-          console.error(`   Category: ${category || 'module'}`);
-          console.error(`   Module: ${moduleIdx !== null ? processedMaterials.modules?.[parseInt(moduleIdx)]?.name : 'N/A'}`);
-          console.error(`   This file was not properly downloaded when materials were scanned.`);
-          console.error(`   File item details:`, fileItem);
+          // No blob available
           showTemporaryMessage(`Cannot open "${fileName}" - file data not available. Please re-scan course materials.`);
         }
       } else {
-        console.error(`❌ [Chat] File item not found in materials list`);
-        console.error(`   Category: ${category || 'module'}`);
-        console.error(`   Index: ${moduleIdx || index}`);
         showTemporaryMessage('File not found in materials list');
       }
     }
   });
-
-  console.log('displayMaterials complete');
 }
 
 /**
@@ -600,8 +509,6 @@ function getSelectedDocIds() {
   const docIds = [];
   const checkedBoxes = document.querySelectorAll('.material-checkbox:checked');
 
-  console.log(`🔍 Found ${checkedBoxes.length} checked material checkboxes`);
-
   checkedBoxes.forEach((checkbox, idx) => {
     const moduleIdx = checkbox.dataset.moduleIdx;
     const itemIdx = checkbox.dataset.itemIdx;
@@ -617,7 +524,6 @@ function getSelectedDocIds() {
         const item = module.items[parseInt(itemIdx)];
         if (item) {
           materialName = item.title || item.name;
-          console.log(`  ✓ Module item ${idx + 1}: ${materialName}`);
         }
       }
     }
@@ -626,7 +532,6 @@ function getSelectedDocIds() {
       const item = processedMaterials[category]?.[parseInt(index)];
       if (item) {
         materialName = item.name || item.display_name || item.title;
-        console.log(`  ✓ Standalone item ${idx + 1}: ${materialName}`);
       }
     }
 
@@ -637,9 +542,6 @@ function getSelectedDocIds() {
       docIds.push(docId);
     }
   });
-
-  console.log(`📋 Total document IDs selected: ${docIds.length}`);
-  console.log('Document IDs:', docIds);
 
   return docIds;
 }
@@ -673,11 +575,9 @@ function getSyllabusId() {
  */
 async function uploadMaterialsToBackend() {
   try {
-    console.log('📤 Uploading materials to backend...');
-
     // Check if materials are loaded
     if (!processedMaterials) {
-      console.error('❌ No materials loaded yet, cannot upload to backend');
+      console.error('No materials loaded yet, cannot upload to backend');
       return;
     }
 
@@ -717,12 +617,9 @@ async function uploadMaterialsToBackend() {
       return;
     }
 
-    console.log(`Uploading ${filesToUpload.length} files to backend...`);
-
     // Upload using websocket client
     await backendClient.uploadPDFs(courseId, filesToUpload);
-
-    console.log('✅ Files uploaded successfully');
+    console.log('Files uploaded successfully');
   } catch (error) {
     console.error('Error uploading materials to backend:', error);
     throw error;
@@ -747,28 +644,12 @@ async function loadAPIKey() {
       return;
     }
 
-    // Check if backend has files for this course (no upload - that's done in popup)
-    try {
-      const status = await backendClient.getCollectionStatus(courseId);
-      console.log('✅ Backend collection status:', status);
-
-      if (status.files && status.files.length > 0) {
-        console.log(`✅ Backend has ${status.files.length} files for this course`);
-      } else {
-        console.warn('⚠️  Backend reports no files - they should have been uploaded during popup scan');
-      }
-    } catch (error) {
-      console.warn('⚠️  Could not check backend collection status:', error);
-      console.log('   This may be a CORS issue or backend connectivity problem');
-      console.log('   Files were uploaded during popup scan, so this should not affect functionality');
-    }
-
     // Connect WebSocket
     try {
       await wsClient.connect(courseId);
       setAPIStatus('connected', 'Backend Connected');
       elements.sendBtn.disabled = false;
-      console.log('✅ Connected to Python backend');
+      console.log('Connected to backend');
     } catch (error) {
       console.error('WebSocket connection failed:', error);
       setAPIStatus('error', 'Backend Connection Failed');
@@ -837,7 +718,6 @@ function setupEventListeners() {
     await chrome.storage.local.set({
       enable_web_search: webSearchToggle.checked
     });
-    console.log('Web search setting saved:', webSearchToggle.checked);
     hideSettingsModal();
   });
 
@@ -1013,8 +893,6 @@ async function sendMessage() {
     let assistantMessage = '';
     let hasReceivedChunks = false;
 
-    console.log('📤 Sending message to Python backend');
-
     // Get selected documents from checkboxes
     const selectedDocIds = getSelectedDocIds();
     const syllabusId = getSyllabusId();
@@ -1023,12 +901,6 @@ async function sendMessage() {
     const settings = await chrome.storage.local.get(['gemini_api_key', 'enable_web_search']);
     const apiKey = settings.gemini_api_key || null;
     const enableWebSearch = settings.enable_web_search || false;
-
-    console.log(`Selected ${selectedDocIds.length} documents`);
-    console.log(`API Key: ${apiKey ? 'User-provided' : 'Default (backend)'}`);
-    console.log(`Web Search: ${enableWebSearch ? 'Enabled' : 'Disabled'}`);
-
-    // Thinking indicator is already shown in typing indicator
 
     await wsClient.sendQuery(
       message,
@@ -1057,12 +929,11 @@ async function sendMessage() {
       },
       // onComplete callback
       () => {
-        console.log('✅ Response complete, length:', assistantMessage.length);
         hideLoadingBanner();
       },
       // onError callback
       (error) => {
-        console.error('❌ Backend error:', error);
+        console.error('Backend error:', error);
         hideLoadingBanner();
         throw error;
       }
@@ -1128,14 +999,10 @@ function normalizeFilename(name) {
  */
 async function openCitedDocument(docName, pageNum) {
   try {
-    console.log(`📄 Opening citation: "${docName}", page ${pageNum}`);
-
     const normalizedDocName = normalizeFilename(docName);
-    console.log(`  🔍 Normalized search: "${normalizedDocName}"`);
 
     // Find the file in processedMaterials
     let fileItem = null;
-    let matchedFileName = null;
 
     // Check modules
     if (processedMaterials.modules) {
@@ -1144,13 +1011,10 @@ async function openCitedDocument(docName, pageNum) {
           for (const item of module.items) {
             if (item.type === 'File' && item.title) {
               const normalizedTitle = normalizeFilename(item.title);
-              console.log(`    Checking module file: "${item.title}" → "${normalizedTitle}"`);
 
               // Try exact match first, then partial match
               if (normalizedTitle === normalizedDocName || normalizedTitle.includes(normalizedDocName) || normalizedDocName.includes(normalizedTitle)) {
                 fileItem = item;
-                matchedFileName = item.title;
-                console.log(`    ✅ MATCH FOUND in module: ${matchedFileName}`);
                 break;
               }
             }
@@ -1166,13 +1030,10 @@ async function openCitedDocument(docName, pageNum) {
         const fileName = file.name || file.display_name || '';
         if (fileName) {
           const normalizedFileName = normalizeFilename(fileName);
-          console.log(`    Checking standalone file: "${fileName}" → "${normalizedFileName}"`);
 
           // Try exact match first, then partial match
           if (normalizedFileName === normalizedDocName || normalizedFileName.includes(normalizedDocName) || normalizedDocName.includes(normalizedFileName)) {
             fileItem = file;
-            matchedFileName = fileName;
-            console.log(`    ✅ MATCH FOUND in files: ${matchedFileName}`);
             break;
           }
         }
@@ -1180,11 +1041,6 @@ async function openCitedDocument(docName, pageNum) {
     }
 
     if (!fileItem) {
-      console.error(`❌ File not found: "${docName}"`);
-      console.error(`  Searched for normalized: "${normalizedDocName}"`);
-      console.error(`  Available files:`,
-        processedMaterials.files?.map(f => f.name || f.display_name) || []
-      );
       showError(`File not found: ${docName}`);
       return;
     }
@@ -1192,7 +1048,6 @@ async function openCitedDocument(docName, pageNum) {
     // Get the blob
     const blob = fileItem.blob;
     if (!blob) {
-      console.warn(`No blob available for: ${matchedFileName}`);
       showError(`File data not available: ${docName}`);
       return;
     }
@@ -1203,8 +1058,6 @@ async function openCitedDocument(docName, pageNum) {
     // Open in new tab with page anchor (works for PDFs)
     const finalUrl = `${blobUrl}#page=${pageNum}`;
     window.open(finalUrl, '_blank');
-
-    console.log(`✅ Opened "${matchedFileName}" at page ${pageNum}`);
   } catch (error) {
     console.error('Error opening cited document:', error);
     showError(`Error opening document: ${error.message}`);
@@ -1348,7 +1201,6 @@ async function saveConversation() {
         }
       }, resolve);
     });
-    console.log('Conversation saved');
 
     // Also refresh recent chats panel after saving
     await loadRecentChats();
@@ -1473,8 +1325,6 @@ async function loadChatSession(sessionId) {
 
     // Refresh recent chats to update active state
     await loadRecentChats();
-
-    console.log(`Loaded chat session: ${sessionId}`);
   } catch (error) {
     console.error('Error loading chat session:', error);
     showError('Failed to load chat: ' + error.message);
@@ -1503,8 +1353,6 @@ async function deleteChatSession(sessionId) {
 
     // Refresh recent chats list
     await loadRecentChats();
-
-    console.log(`Deleted chat session: ${sessionId}`);
   } catch (error) {
     console.error('Error deleting chat session:', error);
     showError('Failed to delete chat: ' + error.message);
@@ -1518,13 +1366,11 @@ async function deleteChatSession(sessionId) {
  */
 async function loadAvailableCourses() {
   try {
-    console.log('📚 [Chat] Loading available courses from IndexedDB...');
     const materialsDB = new MaterialsDB();
     await materialsDB.open();
 
     // Get all course IDs from IndexedDB
     const courseIds = await materialsDB.listCourses();
-    console.log(`  Found ${courseIds.length} courses in IndexedDB`);
 
     availableCourses = [];
 
@@ -1537,22 +1383,19 @@ async function loadAvailableCourses() {
             id: courseData.courseId,
             name: courseData.courseName
           });
-          console.log(`  ✅ Loaded course: ${courseData.courseName} (${courseData.courseId})`);
         }
       } catch (error) {
-        console.warn(`  ⚠️  Failed to load course ${courseId}:`, error);
+        console.warn(`Failed to load course ${courseId}:`, error);
       }
     }
 
     await materialsDB.close();
 
-    console.log(`✅ [Chat] Loaded ${availableCourses.length} available courses`);
-
     // Populate course switcher dropdown
     populateCourseSwitcher();
 
   } catch (error) {
-    console.error('❌ [Chat] Error loading available courses:', error);
+    console.error('Error loading available courses:', error);
   }
 }
 
@@ -1814,6 +1657,45 @@ function applyTheme(theme) {
 }
 
 /**
+ * Initialize web search toggle
+ */
+async function initWebSearchToggle() {
+  const inlineToggle = document.getElementById('web-search-toggle-inline');
+  const settingsToggle = document.getElementById('web-search-toggle');
+
+  if (!inlineToggle) return;
+
+  // Load saved state
+  const settings = await chrome.storage.local.get(['enable_web_search']);
+  const isEnabled = settings.enable_web_search || false;
+
+  // Set initial state
+  inlineToggle.checked = isEnabled;
+  if (settingsToggle) {
+    settingsToggle.checked = isEnabled;
+  }
+
+  // Listen for changes on inline toggle
+  inlineToggle.addEventListener('change', async () => {
+    await chrome.storage.local.set({
+      enable_web_search: inlineToggle.checked
+    });
+
+    // Sync with settings modal toggle
+    if (settingsToggle) {
+      settingsToggle.checked = inlineToggle.checked;
+    }
+  });
+
+  // Listen for changes on settings modal toggle (to keep them in sync)
+  if (settingsToggle) {
+    settingsToggle.addEventListener('change', () => {
+      inlineToggle.checked = settingsToggle.checked;
+    });
+  }
+}
+
+/**
  * Check if user has API key, show modal if not
  */
 async function checkAndPromptForApiKey() {
@@ -1821,12 +1703,10 @@ async function checkAndPromptForApiKey() {
   const apiKey = result.gemini_api_key;
 
   if (apiKey && apiKey.trim()) {
-    console.log('✅ Google Gemini API key found');
     return true;
   }
 
   // No API key found - show modal
-  console.log('❌ No Google Gemini API key found - showing setup modal');
   showApiKeyModal();
   return false;
 }
