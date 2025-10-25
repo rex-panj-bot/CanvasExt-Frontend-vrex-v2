@@ -508,41 +508,17 @@ function displayMaterials() {
         console.log(`📂 [Chat] Opening file: ${fileName}`);
         console.log(`  File item:`, { hasBlob: !!fileItem.blob, blobSize: fileItem.blob?.size, category, index: moduleIdx || index });
 
-        if (fileItem.downloadId || fileItem.blob) {
-          // Try to open the pre-downloaded file from filesystem
-          if (fileItem.downloadId) {
-            console.log(`📂 [Chat] Opening pre-downloaded file: ${fileName} (downloadId: ${fileItem.downloadId})`);
+        if (fileItem.blob) {
+          // Open from IndexedDB blob (stored locally in browser)
+          console.log(`📂 [Chat] Opening file from blob: ${fileName}`);
+          console.log(`  Blob type: ${fileItem.blob.type}, size: ${fileItem.blob.size} bytes`);
 
-            // Show the downloaded file in the filesystem
-            chrome.downloads.show(fileItem.downloadId, () => {
-              if (chrome.runtime.lastError) {
-                console.warn(`⚠️  Could not show file in filesystem, trying to open:`, chrome.runtime.lastError);
+          const blobUrl = URL.createObjectURL(fileItem.blob);
+          chrome.tabs.create({ url: blobUrl });
+          console.log(`✅ [Chat] Opened file in new tab`);
 
-                // Try to open the file directly
-                chrome.downloads.open(fileItem.downloadId, () => {
-                  if (chrome.runtime.lastError) {
-                    console.error(`❌ Could not open file:`, chrome.runtime.lastError);
-                    // Fallback: create blob URL and open
-                    if (fileItem.blob) {
-                      const blobUrl = URL.createObjectURL(fileItem.blob);
-                      chrome.tabs.create({ url: blobUrl });
-                      console.log(`✅ [Chat] Opened from blob as fallback`);
-                    }
-                  } else {
-                    console.log(`✅ [Chat] Opened file from filesystem`);
-                  }
-                });
-              } else {
-                console.log(`✅ [Chat] Showed file in Downloads folder`);
-              }
-            });
-          } else {
-            // No downloadId, fallback to blob URL
-            console.log(`📂 [Chat] No downloadId, opening from blob: ${fileName}`);
-            const blobUrl = URL.createObjectURL(fileItem.blob);
-            chrome.tabs.create({ url: blobUrl });
-            console.log(`✅ [Chat] Opened file from blob: ${fileName} (${fileItem.blob.size} bytes)`);
-          }
+          // Clean up blob URL after a delay
+          setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
         } else {
           // No blob available - show clear error message
           console.error(`❌ [Chat] No blob data available for ${fileName}`);

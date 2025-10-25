@@ -366,6 +366,22 @@ class CanvasAPI {
         }
 
         const blob = await response.blob();
+
+        // Verify we got actual file content, not JSON
+        if (blob.type === 'application/json' && blob.size < 5000) {
+          console.warn(`⚠️  Received JSON instead of file content, trying alternative download`);
+          // Try the direct download URL
+          const directUrl = `${fileUrl}/download?download_frd=1`;
+          const retryResponse = await fetch(directUrl, fetchOptions);
+          if (retryResponse.ok) {
+            const retryBlob = await retryResponse.blob();
+            this.concurrentRequests--;
+            console.log(`✅ Retry successful, got ${retryBlob.type} (${retryBlob.size} bytes)`);
+            return retryBlob;
+          }
+        }
+
+        console.log(`✅ Downloaded blob: ${blob.type} (${blob.size} bytes)`);
         this.concurrentRequests--;
         return blob;
       }
