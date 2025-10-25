@@ -828,21 +828,55 @@ async function createStudyBot() {
     const total = allFilesToDownload.length;
     const concurrency = 8;
 
-      // Download single file
+      // Download single file to filesystem AND keep blob for backend upload
       const downloadFile = async (file) => {
         console.log(`📥 [Popup] Downloading: ${file.name} (${file.type})...`);
         try {
           const blob = await canvasAPI.downloadFile(file.url);
-          downloadedFiles.push({ blob, name: file.name });
+
+          // Create a unique folder structure for this course
+          const courseFolder = `CanvasExtension/${fileProcessor.sanitizeFilename(currentCourse.name)}`;
+          const filePath = `${courseFolder}/${file.name}`;
+
+          // Download to filesystem using Chrome downloads API
+          const blobUrl = URL.createObjectURL(blob);
+
+          const downloadId = await new Promise((resolve, reject) => {
+            chrome.downloads.download({
+              url: blobUrl,
+              filename: filePath,
+              conflictAction: 'overwrite',  // Overwrite if file exists
+              saveAs: false  // Don't prompt user
+            }, (id) => {
+              if (chrome.runtime.lastError) {
+                console.warn(`⚠️  Filesystem download failed for ${file.name}, will use blob only`);
+                resolve(null);
+              } else {
+                resolve(id);
+              }
+            });
+          });
+
+          // Store both blob (for backend upload) and download info
+          downloadedFiles.push({
+            blob,
+            name: file.name,
+            downloadId,
+            filePath
+          });
+
           completed++;
+
+          // Clean up blob URL after a delay
+          setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
 
           // Update progress
           const downloadProgressRange = PROGRESS_PERCENT.DOWNLOADING_END - PROGRESS_PERCENT.DOWNLOADING_START;
           const progress = PROGRESS_PERCENT.DOWNLOADING_START + ((completed / total) * downloadProgressRange);
           updateProgress(`Downloading files: ${completed}/${total}`, progress);
 
-          console.log(`✅ [Popup] Downloaded ${file.name} (${blob.size} bytes, ${completed}/${total})`);
-          return { success: true, name: file.name, size: blob.size };
+          console.log(`✅ [Popup] Downloaded ${file.name} to filesystem (${blob.size} bytes, ${completed}/${total})`);
+          return { success: true, name: file.name, size: blob.size, downloadId, filePath };
         } catch (error) {
           completed++;
 
@@ -891,16 +925,15 @@ async function createStudyBot() {
       console.log(`✅ [Popup] All files already on backend, skipping upload`);
     }
 
-    // ALWAYS attach downloaded blobs to materialsToProcess (regardless of backend upload)
-    // This is CRITICAL for opening files from blob URLs and citation links
-    console.log(`🔗 [Popup] Attaching ${downloadedFiles.length} blobs to materials structure...`);
-    const blobMap = new Map();
+    // Attach download info to materials (blob for backend, downloadId/filePath for opening)
+    console.log(`🔗 [Popup] Attaching ${downloadedFiles.length} file references to materials structure...`);
+    const fileMap = new Map();
     downloadedFiles.forEach(df => {
-      blobMap.set(df.name, df.blob);
+      fileMap.set(df.name, df);
     });
-    console.log(`  Created blob map with ${blobMap.size} entries`);
+    console.log(`  Created file map with ${fileMap.size} entries`);
 
-    // Attach blobs to all matching items in materialsToProcess
+    // Attach file info to all matching items in materialsToProcess
     let attachedCount = 0;
     let notFoundCount = 0;
     const notFoundItems = [];
@@ -908,35 +941,41 @@ async function createStudyBot() {
     for (const [category, items] of Object.entries(materialsToProcess)) {
       if (!Array.isArray(items)) continue;
 
-      items.forEach((item, idx) => {
+      items.forEach((item) => {
         const itemName = item.display_name || item.filename || item.name || item.title;
-        if (itemName && blobMap.has(itemName)) {
-          item.blob = blobMap.get(itemName);
+        if (itemName && fileMap.has(itemName)) {
+          const fileInfo = fileMap.get(itemName);
+          item.blob = fileInfo.blob;  // For backend upload
+          item.downloadId = fileInfo.downloadId;  // For opening from filesystem
+          item.filePath = fileInfo.filePath;  // For reference
           attachedCount++;
-          console.log(`  ✅ [${category}] Attached blob to: ${itemName} (${item.blob.size} bytes)`);
+          console.log(`  ✅ [${category}] Attached file info to: ${itemName} (${item.blob.size} bytes, path: ${fileInfo.filePath})`);
         } else if (itemName) {
           notFoundCount++;
           notFoundItems.push({ category, name: itemName });
-          console.warn(`  ⚠️  [${category}] No blob found for: ${itemName}`);
+          console.warn(`  ⚠️  [${category}] No file found for: ${itemName}`);
         }
       });
     }
 
-    // ALSO attach blobs to module items (files within modules)
+    // ALSO attach to module items (files within modules)
     if (materialsToProcess.modules && Array.isArray(materialsToProcess.modules)) {
-      console.log(`  Attaching blobs to ${materialsToProcess.modules.length} modules...`);
-      materialsToProcess.modules.forEach((module, moduleIdx) => {
+      console.log(`  Attaching file info to ${materialsToProcess.modules.length} modules...`);
+      materialsToProcess.modules.forEach((module) => {
         if (module.items && Array.isArray(module.items)) {
-          module.items.forEach((item, itemIdx) => {
+          module.items.forEach((item) => {
             const itemName = item.title || item.name || item.display_name;
-            if (itemName && blobMap.has(itemName)) {
-              item.blob = blobMap.get(itemName);
+            if (itemName && fileMap.has(itemName)) {
+              const fileInfo = fileMap.get(itemName);
+              item.blob = fileInfo.blob;  // For backend upload
+              item.downloadId = fileInfo.downloadId;  // For opening from filesystem
+              item.filePath = fileInfo.filePath;  // For reference
               attachedCount++;
-              console.log(`  ✅ [module: ${module.name}] Attached blob to: ${itemName} (${item.blob.size} bytes)`);
+              console.log(`  ✅ [module: ${module.name}] Attached file info to: ${itemName} (${item.blob.size} bytes, path: ${fileInfo.filePath})`);
             } else if (itemName) {
               notFoundCount++;
               notFoundItems.push({ category: 'module', moduleName: module.name, name: itemName });
-              console.warn(`  ⚠️  [module: ${module.name}] No blob found for: ${itemName}`);
+              console.warn(`  ⚠️  [module: ${module.name}] No file found for: ${itemName}`);
             }
           });
         }
