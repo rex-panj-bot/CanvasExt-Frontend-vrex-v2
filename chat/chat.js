@@ -88,15 +88,27 @@ async function loadMaterials() {
     console.log('📂 [Chat] Loading materials from IndexedDB...');
     const materialsDB = new MaterialsDB();
     let materialsData = await materialsDB.loadMaterials(courseId);
-    await materialsDB.close();
 
     // If no data found, show clear error message
     if (!materialsData) {
       console.error('❌ [Chat] No materials found in IndexedDB for course:', courseId);
-      showError('No materials found for this course. Please go back and scan materials first.');
+
+      // Check if ANY courses exist in IndexedDB
+      const allCourses = await materialsDB.listCourses();
+      await materialsDB.close();
+
+      if (allCourses.length > 0) {
+        // Other courses exist, but not this one
+        console.error(`   Available courses in IndexedDB:`, allCourses);
+        showError(`No materials found for course ${courseId}. You have scanned ${allCourses.length} other course(s). Please go back to the popup and scan this course first.`);
+      } else {
+        // No courses at all
+        showError('No materials found. Please go back to the popup and scan course materials first.');
+      }
       return;
     }
 
+    await materialsDB.close();
     console.log('✅ [Chat] Loaded materials from IndexedDB');
 
     courseName = materialsData.courseName;
