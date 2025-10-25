@@ -674,15 +674,38 @@ async function createStudyBot() {
 
     // Helper function to process a single item
     const processItem = (item) => {
-      const itemName = item.display_name || item.filename || item.name || item.title;
+      // Prioritize stored_name (has correct extension from previous download)
+      const itemName = item.stored_name || item.display_name || item.filename || item.name || item.title;
       if (!itemName || !item.url) {
         return;
       }
 
-      // Try to determine file extension from name, or fetch to get content-type
+      // Try to determine file extension from name
       let ext = null;
       if (itemName.includes('.')) {
         ext = itemName.split('.').pop().toLowerCase();
+      }
+
+      // If no extension but item has a blob (from previous download), detect from MIME type
+      if (!ext && item.blob && item.blob.type) {
+        const mimeToExt = {
+          'application/pdf': 'pdf',
+          'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+          'application/vnd.ms-powerpoint': 'ppt',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+          'application/msword': 'doc',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+          'application/vnd.ms-excel': 'xls',
+          'text/plain': 'txt',
+          'text/markdown': 'md',
+          'text/csv': 'csv',
+          'image/png': 'png',
+          'image/jpeg': 'jpg',
+          'image/gif': 'gif',
+          'image/webp': 'webp',
+          'image/bmp': 'bmp'
+        };
+        ext = mimeToExt[item.blob.type];
       }
 
       const fileInfo = {
