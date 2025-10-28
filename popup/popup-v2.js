@@ -782,6 +782,180 @@ function mergeCachedBlobs(scanned, cached) {
 }
 
 /**
+ * Continue loading files in background after chat opens
+ * Downloads files, uploads to backend, and updates IndexedDB
+ */
+async function continueLoadingInBackground(courseId, courseName, filesToDownload, filesToUploadToBackend, materialsToProcess, backendClient, canvasAPI) {
+  try {
+    console.log('📥 Background loading started:', filesToDownload.length, 'files to download');
+
+    // Send initial progress message
+    chrome.runtime.sendMessage({
+      type: 'MATERIALS_LOADING_PROGRESS',
+      courseId: courseId,
+      status: 'loading',
+      filesCompleted: 0,
+      filesTotal: filesToDownload.length,
+      message: `Downloading ${filesToDownload.length} files...`
+    });
+
+    // Download files in parallel
+    const downloadedFiles = [];
+    let completed = 0;
+    const concurrency = 16;
+
+    const downloadFile = async (file) => {
+      try {
+        const blob = await canvasAPI.downloadFile(file.url);
+        let fileName = file.name;
+        if (!fileName.includes('.')) {
+          const mimeToExt = {
+            'application/pdf': '.pdf',
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
+            'application/vnd.ms-powerpoint': '.ppt',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+            'application/msword': '.doc',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+            'application/vnd.ms-excel': '.xls',
+            'text/plain': '.txt',
+            'text/markdown': '.md',
+            'text/csv': '.csv',
+            'image/png': '.png',
+            'image/jpeg': '.jpg',
+            'image/gif': '.gif',
+            'image/webp': '.webp',
+            'image/bmp': '.bmp'
+          };
+          const ext = mimeToExt[blob.type];
+          if (ext) fileName = fileName + ext;
+        }
+        downloadedFiles.push({ blob, name: fileName });
+        completed++;
+
+        // Send progress update
+        chrome.runtime.sendMessage({
+          type: 'MATERIALS_LOADING_PROGRESS',
+          courseId: courseId,
+          status: 'loading',
+          filesCompleted: completed,
+          filesTotal: filesToDownload.length,
+          message: `Downloaded ${completed}/${filesToDownload.length} files`
+        });
+
+        return { success: true, name: file.name };
+      } catch (error) {
+        completed++;
+        console.error(`Failed to download ${file.name}:`, error);
+        return { success: false, name: file.name, error };
+      }
+    };
+
+    // Process in batches
+    const batches = [];
+    for (let i = 0; i < filesToDownload.length; i += concurrency) {
+      batches.push(filesToDownload.slice(i, i + concurrency));
+    }
+
+    for (const batch of batches) {
+      await Promise.all(batch.map(file => downloadFile(file)));
+    }
+
+    console.log(`📦 Downloaded ${downloadedFiles.length}/${filesToDownload.length} files`);
+
+    // Upload to backend if needed
+    if (downloadedFiles.length > 0 && filesToUploadToBackend.length > 0) {
+      chrome.runtime.sendMessage({
+        type: 'MATERIALS_LOADING_PROGRESS',
+        courseId: courseId,
+        status: 'uploading',
+        message: `Uploading ${downloadedFiles.length} files to backend...`
+      });
+
+      const uploadSet = new Set(filesToUploadToBackend.map(f => f.name));
+      const filesToActuallyUpload = downloadedFiles.filter(f => {
+        const nameWithoutExt = f.name.replace(/\.(pdf|docx?|txt|xlsx?|pptx?|csv|md|rtf|png|jpe?g|gif|webp|bmp)$/i, '');
+        return uploadSet.has(f.name) || uploadSet.has(nameWithoutExt);
+      });
+
+      if (filesToActuallyUpload.length > 0) {
+        await backendClient.uploadPDFs(courseId, filesToActuallyUpload);
+        console.log(`✅ Uploaded ${filesToActuallyUpload.length} files to backend`);
+      }
+    }
+
+    // Attach blobs to materials
+    const blobMap = new Map();
+    downloadedFiles.forEach(df => {
+      blobMap.set(df.name, df.blob);
+      const nameWithoutExt = df.name.replace(/\.(pdf|docx?|txt|xlsx?|pptx?|csv|md|rtf|png|jpe?g|gif|webp|bmp)$/i, '');
+      blobMap.set(nameWithoutExt, df.blob);
+    });
+
+    // Attach to all items
+    for (const items of Object.values(materialsToProcess)) {
+      if (!Array.isArray(items)) continue;
+      items.forEach((item) => {
+        let itemName = item.display_name || item.filename || item.name || item.title;
+        if (itemName && blobMap.has(itemName)) {
+          item.blob = blobMap.get(itemName);
+          for (const [fileName, blob] of blobMap) {
+            if (blob === item.blob && fileName.includes('.')) {
+              item.stored_name = fileName;
+              break;
+            }
+          }
+        }
+      });
+    }
+
+    // Attach to module items
+    if (materialsToProcess.modules && Array.isArray(materialsToProcess.modules)) {
+      materialsToProcess.modules.forEach((module) => {
+        if (module.items && Array.isArray(module.items)) {
+          module.items.forEach((item) => {
+            let itemName = item.title || item.name || item.display_name;
+            if (itemName && blobMap.has(itemName)) {
+              item.blob = blobMap.get(itemName);
+              for (const [fileName, blob] of blobMap) {
+                if (blob === item.blob && fileName.includes('.')) {
+                  item.stored_name = fileName;
+                  break;
+                }
+              }
+            }
+          });
+        }
+      });
+    }
+
+    // Update IndexedDB with complete materials
+    const materialsDB = new MaterialsDB();
+    await materialsDB.saveMaterials(courseId, courseName, materialsToProcess);
+    await materialsDB.close();
+
+    console.log('✅ Background loading complete');
+
+    // Send completion message
+    chrome.runtime.sendMessage({
+      type: 'MATERIALS_LOADING_COMPLETE',
+      courseId: courseId,
+      status: 'complete',
+      message: 'All materials loaded!'
+    });
+
+  } catch (error) {
+    console.error('❌ Background loading failed:', error);
+
+    chrome.runtime.sendMessage({
+      type: 'MATERIALS_LOADING_ERROR',
+      courseId: courseId,
+      status: 'error',
+      error: error.message
+    });
+  }
+}
+
+/**
  * Create Study Bot - Upload PDFs to backend and open chat interface
  *
  * This function handles the optimized upload flow:
@@ -789,9 +963,9 @@ function mergeCachedBlobs(scanned, cached) {
  * 2. Checks backend for already-uploaded files (caching)
  * 3. Downloads only NEW PDFs from Canvas
  * 4. Uploads only new files to backend
- * 5. Opens chat interface
+ * 5. Opens chat interface IMMEDIATELY (background loading if needed)
  *
- * Performance: 5-10s first time, <2s if files cached
+ * Performance: <2s to open chat (warm or cold!), loading continues in background
  */
 async function createStudyBot() {
   try {
@@ -977,10 +1151,13 @@ async function createStudyBot() {
 
     console.log(`🚀 OPTIMIZATION: ${cachedFileCount} files using cached blobs, ${allFilesToDownload.length} need downloading`);
 
-    // Download files (skip if all are cached!)
+    // OPTIMIZATION: Skip downloads in main flow - will happen in background if needed
+    // Keep blob attachment logic for files that were already downloaded from cache
     const downloadedFiles = [];
 
-    if (allFilesToDownload.length > 0) {
+    if (false) {
+      // This section disabled - downloads will happen in background function instead
+      // Kept for reference only
       updateProgress(`Downloading ${allFilesToDownload.length} new files...`, PROGRESS_PERCENT.DOWNLOADING_START);
 
       let completed = 0;
@@ -1150,33 +1327,65 @@ async function createStudyBot() {
       });
     }
 
-    updateProgress('Saving materials to database...', PROGRESS_PERCENT.COMPLETE);
+    // OPTIMIZATION: Determine if we need background loading
+    const needsBackgroundLoading = allFilesToDownload.length > 0;
 
-    // Save to IndexedDB (supports Blob objects directly, no size limit!)
-    const materialsDB = new MaterialsDB();
-    await materialsDB.saveMaterials(currentCourse.id, currentCourse.name, materialsToProcess);
-    await materialsDB.close();
+    if (needsBackgroundLoading) {
+      console.log('🚀 BACKGROUND LOADING: Opening chat immediately, will load files in background');
 
-    // Verify the save worked
-    const verifyDB = new MaterialsDB();
-    const savedData = await verifyDB.loadMaterials(currentCourse.id);
-    await verifyDB.close();
+      // Save skeleton materials to IndexedDB (with whatever blobs we already have from cache)
+      updateProgress('Preparing chat...', PROGRESS_PERCENT.COMPLETE - 5);
+      const materialsDB = new MaterialsDB();
+      await materialsDB.saveMaterials(currentCourse.id, currentCourse.name, materialsToProcess);
+      await materialsDB.close();
 
-    if (!savedData) {
-      console.error('Verification FAILED - data NOT found in IndexedDB after save!');
-      throw new Error('Failed to save materials to IndexedDB');
+      // Open chat interface IMMEDIATELY (before downloads!)
+      const chatUrl = chrome.runtime.getURL(`chat/chat.html?courseId=${currentCourse.id}&loading=true`);
+      await chrome.tabs.create({ url: chatUrl });
+
+      // Reset popup UI
+      setTimeout(() => {
+        document.getElementById('study-bot-progress').classList.add('hidden');
+        document.getElementById('study-bot-btn').disabled = false;
+        document.getElementById('study-bot-progress-fill').style.width = '0%';
+      }, 500);
+
+      // Continue loading in background (non-blocking)
+      // Pass copies of data since popup might close
+      const filesToDownloadCopy = [...allFilesToDownload];
+      const filesToUploadCopy = [...filesToUploadToBackend];
+      const materialsProcessCopy = JSON.parse(JSON.stringify(materialsToProcess)); // Deep copy
+
+      continueLoadingInBackground(
+        currentCourse.id,
+        currentCourse.name,
+        filesToDownloadCopy,
+        filesToUploadCopy,
+        materialsProcessCopy,
+        backendClient,
+        canvasAPI
+      );
+
+    } else {
+      // FAST PATH: Everything cached, no background loading needed
+      console.log('⚡ FAST PATH: All files cached, opening chat immediately');
+
+      updateProgress('Saving materials...', PROGRESS_PERCENT.COMPLETE);
+      const materialsDB = new MaterialsDB();
+      await materialsDB.saveMaterials(currentCourse.id, currentCourse.name, materialsToProcess);
+      await materialsDB.close();
+
+      // Open chat interface
+      const chatUrl = chrome.runtime.getURL(`chat/chat.html?courseId=${currentCourse.id}`);
+      chrome.tabs.create({ url: chatUrl });
+
+      // Reset UI
+      setTimeout(() => {
+        document.getElementById('study-bot-progress').classList.add('hidden');
+        document.getElementById('study-bot-btn').disabled = false;
+        document.getElementById('study-bot-progress-fill').style.width = '0%';
+      }, 500);
     }
-
-    // Open chat interface
-    const chatUrl = chrome.runtime.getURL(`chat/chat.html?courseId=${currentCourse.id}`);
-    chrome.tabs.create({ url: chatUrl });
-
-    // Reset UI
-    setTimeout(() => {
-      document.getElementById('study-bot-progress').classList.add('hidden');
-      document.getElementById('study-bot-btn').disabled = false;
-      document.getElementById('study-bot-progress-fill').style.width = '0%';
-    }, 1000);
 
   } catch (error) {
     console.error('Error creating study bot:', error);
