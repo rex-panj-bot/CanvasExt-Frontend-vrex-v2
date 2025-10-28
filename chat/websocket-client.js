@@ -85,7 +85,7 @@ class WebSocketClient {
   /**
    * Send query and receive streaming response
    */
-  async sendQuery(message, conversationHistory, selectedDocs, syllabusId, sessionId, apiKey, enableWebSearch, onChunk, onComplete, onError) {
+  async sendQuery(message, conversationHistory, selectedDocs, syllabusId, sessionId, apiKey, enableWebSearch, useSmartSelection, onChunk, onComplete, onError) {
     if (!this.isConnected) {
       console.error('WebSocket not connected');
       if (onError) onError(new Error('Not connected to backend'));
@@ -102,7 +102,8 @@ class WebSocketClient {
         syllabus_id: syllabusId || null,
         session_id: sessionId || null,  // For chat history saving
         api_key: apiKey || null,  // User's Gemini API key
-        enable_web_search: enableWebSearch || false  // Web search toggle
+        enable_web_search: enableWebSearch || false,  // Web search toggle
+        use_smart_selection: useSmartSelection || false  // Smart file selection toggle
       };
 
       // Handle incoming messages

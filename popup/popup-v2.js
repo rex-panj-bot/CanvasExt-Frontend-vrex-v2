@@ -1332,15 +1332,12 @@ async function createStudyBot() {
     // OPTIMIZATION: Determine if we need background loading
     const needsBackgroundLoading = allFilesToDownload.length > 0;
 
-    console.log(`🚀 DEBUG: needsBackgroundLoading = ${needsBackgroundLoading}`);
-    console.log(`🚀 DEBUG: About to check if statement, needsBackgroundLoading = ${needsBackgroundLoading}`);
-
-    // Debug using alert to keep popup open
-    alert(`DEBUG INFO:\nneedsBackgroundLoading: ${needsBackgroundLoading}\nallFilesToDownload.length: ${allFilesToDownload.length}\nfilesToUploadToBackend.length: ${filesToUploadToBackend.length}`);
+    console.log(`🚀 [POPUP] needsBackgroundLoading = ${needsBackgroundLoading}`);
+    console.log(`🚀 [POPUP] allFilesToDownload.length = ${allFilesToDownload.length}`);
+    console.log(`🚀 [POPUP] filesToUploadToBackend.length = ${filesToUploadToBackend.length}`);
 
     if (needsBackgroundLoading) {
       console.log('🚀 [POPUP] BACKGROUND LOADING BRANCH: Opening chat immediately, will load files in background');
-      alert('Taking BACKGROUND LOADING branch');
 
       // Save skeleton materials to IndexedDB (with whatever blobs we already have from cache)
       updateProgress('Preparing...', PROGRESS_PERCENT.COMPLETE - 5);
@@ -1348,10 +1345,8 @@ async function createStudyBot() {
       await materialsDB.saveMaterials(currentCourse.id, currentCourse.name, materialsToProcess);
       await materialsDB.close();
 
-      // CHANGED: Do downloads FIRST (before opening chat) to keep popup alive
-      updateProgress('Downloading files...', PROGRESS_PERCENT.DOWNLOADING_START);
-      document.getElementById('study-bot-btn').textContent = 'Downloading...';
-      document.getElementById('study-bot-btn').disabled = true;
+      // NEW APPROACH: Write download task to chrome.storage, service worker will handle it
+      updateProgress('Starting background downloads...', PROGRESS_PERCENT.DOWNLOADING_START);
 
       // Prepare data for background loading
       const filesToDownloadCopy = allFilesToDownload.map(f => ({
@@ -1365,137 +1360,48 @@ async function createStudyBot() {
         type: f.type
       }));
 
-      // SIMPLIFIED APPROACH: Do downloads directly in popup synchronously
-      // Then open chat when complete
-      console.log('📤 [POPUP] Starting downloads in popup');
+      // Write download task to storage for service worker
+      const downloadTask = {
+        courseId: currentCourse.id,
+        courseName: currentCourse.name,
+        filesToDownload: filesToDownloadCopy,
+        filesToUpload: filesToUploadCopy,
+        status: 'pending',
+        progress: { filesCompleted: 0, filesTotal: filesToDownloadCopy.length },
+        timestamp: Date.now()
+      };
 
-      // Do downloads synchronously (await them)
-      try {
-        console.log('📥 [POPUP] Downloading files...');
+      console.log('📤 [POPUP] Writing download task to chrome.storage:', downloadTask);
 
-          // Send initial progress message
-          chrome.runtime.sendMessage({
-            type: 'MATERIALS_LOADING_PROGRESS',
-            courseId: currentCourse.id,
-            status: 'loading',
-            filesCompleted: 0,
-            filesTotal: filesToDownloadCopy.length,
-            message: `Downloading ${filesToDownloadCopy.length} files...`
-          });
+      await new Promise((resolve) => {
+        chrome.storage.local.set({ downloadTask }, () => {
+          console.log('✅ [POPUP] Download task written to storage');
+          resolve();
+        });
+      });
 
-          // Download files using existing canvasAPI
-          const downloadedFilesBackground = [];
-          let completedBackground = 0;
+      // Open chat IMMEDIATELY - it will poll storage for progress
+      const chatUrl = chrome.runtime.getURL(`chat/chat.html?courseId=${currentCourse.id}&loading=true`);
+      await chrome.tabs.create({ url: chatUrl });
 
-          for (const file of filesToDownloadCopy) {
-            try {
-              const blob = await canvasAPI.downloadFile(file.url);
-              let fileName = file.name;
-              if (!fileName.includes('.') && blob.type) {
-                const mimeToExt = {
-                  'application/pdf': '.pdf',
-                  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
-                  'text/plain': '.txt'
-                };
-                const ext = mimeToExt[blob.type];
-                if (ext) fileName += ext;
-              }
-              downloadedFilesBackground.push({ blob, name: fileName });
-              completedBackground++;
-
-              // Send progress
-              chrome.runtime.sendMessage({
-                type: 'MATERIALS_LOADING_PROGRESS',
-                courseId: currentCourse.id,
-                status: 'loading',
-                filesCompleted: completedBackground,
-                filesTotal: filesToDownloadCopy.length,
-                message: `Downloaded ${completedBackground}/${filesToDownloadCopy.length} files`
-              });
-
-              console.log(`✅ [POPUP] Downloaded ${fileName} (${completedBackground}/${filesToDownloadCopy.length})`);
-            } catch (error) {
-              completedBackground++;
-              console.error(`❌ [POPUP] Failed to download ${file.name}:`, error);
-            }
-          }
-
-          // Upload to backend if needed
-          if (downloadedFilesBackground.length > 0 && filesToUploadCopy.length > 0) {
-            console.log('📤 [POPUP] Uploading to backend...');
-            chrome.runtime.sendMessage({
-              type: 'MATERIALS_LOADING_PROGRESS',
-              courseId: currentCourse.id,
-              status: 'uploading',
-              message: 'Uploading files to backend...'
-            });
-
-            try {
-              await backendClient.uploadPDFs(currentCourse.id, downloadedFilesBackground);
-              console.log('✅ [POPUP] Upload complete');
-            } catch (error) {
-              console.error('❌ [POPUP] Upload failed:', error);
-            }
-          }
-
-          // Update IndexedDB with downloaded files
-          console.log('💾 [POPUP] Updating IndexedDB...');
-          const blobMap = new Map();
-          downloadedFilesBackground.forEach(df => {
-            blobMap.set(df.name, df.blob);
-          });
-
-          // Attach blobs to materials
-          for (const items of Object.values(materialsToProcess)) {
-            if (!Array.isArray(items)) continue;
-            items.forEach((item) => {
-              const itemName = item.display_name || item.filename || item.name || item.title;
-              if (itemName && blobMap.has(itemName)) {
-                item.blob = blobMap.get(itemName);
-              }
-            });
-          }
-
-          // Save updated materials
-          const materialsDBBackground = new MaterialsDB();
-          await materialsDBBackground.saveMaterials(currentCourse.id, currentCourse.name, materialsToProcess);
-          await materialsDBBackground.close();
-
-          // Send completion message
-          chrome.runtime.sendMessage({
-            type: 'MATERIALS_LOADING_COMPLETE',
-            courseId: currentCourse.id,
-            status: 'complete',
-            message: 'All materials loaded!'
-          });
-
-        console.log('✅ [POPUP] Downloads complete!');
-
-        // Reset popup UI after completion
-        updateProgress('Complete! Opening chat...', 100);
-        document.getElementById('study-bot-btn').textContent = 'Create Study Bot';
+      // Reset popup UI
+      updateProgress('Chat opened! Downloads continuing in background...', 100);
+      setTimeout(() => {
+        document.getElementById('study-bot-progress').classList.add('hidden');
         document.getElementById('study-bot-btn').disabled = false;
+      }, 1000);
 
-      } catch (error) {
-        console.error('❌ [POPUP] Download error:', error);
-        alert('Download error: ' + error.message);
+      // Wake up service worker to start downloads
+      chrome.runtime.sendMessage({ type: 'START_DOWNLOADS' }, (response) => {
+        console.log('📤 [POPUP] Sent START_DOWNLOADS message:', response);
+      });
 
-        // Reset popup UI on error too
-        updateProgress('Error occurred. Try again.', 0);
-        document.getElementById('study-bot-btn').textContent = 'Create Study Bot';
-        document.getElementById('study-bot-btn').disabled = false;
-        throw error;
-      }
-
-      // NOW open chat after downloads complete
-      const chatUrl = chrome.runtime.getURL(`chat/chat.html?courseId=${currentCourse.id}`);
-      chrome.tabs.create({ url: chatUrl });
+      console.log('✅ [POPUP] Background loading initiated, chat will open immediately');
 
     } else {
       // FAST PATH: Everything cached, no background loading needed
       console.log('⚡ [POPUP] FAST PATH BRANCH: All files cached, opening chat immediately');
       console.log('⚡ [POPUP] allFilesToDownload.length was:', allFilesToDownload.length);
-      alert('Taking FAST PATH branch - all files cached');
 
       updateProgress('Saving materials...', PROGRESS_PERCENT.COMPLETE);
       const materialsDB = new MaterialsDB();

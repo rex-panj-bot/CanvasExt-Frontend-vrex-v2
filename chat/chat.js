@@ -39,46 +39,113 @@ const elements = {
 document.addEventListener('DOMContentLoaded', init);
 
 /**
- * Setup listener for background loading progress messages
+ * Setup polling for background loading progress from chrome.storage.local
  */
 function setupBackgroundLoadingListener() {
-  console.log('📡 [CHAT] Setting up background loading listener for course:', courseId);
+  console.log('📡 [CHAT] Setting up background loading polling for course:', courseId);
 
   // Show loading banner
   showLoadingBanner('Loading course materials...');
 
-  // Listen for messages from popup/service worker
-  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    console.log('📥 [CHAT] Received message:', message);
+  // Poll chrome.storage.local for download task updates
+  const pollInterval = setInterval(() => {
+    chrome.storage.local.get(['downloadTask'], async (result) => {
+      const task = result.downloadTask;
 
-    if (message.courseId && message.courseId !== courseId) {
-      console.log('📥 [CHAT] Ignoring message for different course:', message.courseId, 'vs', courseId);
-      return; // Ignore messages for other courses
-    }
+      if (!task) {
+        console.log('⚠️ [CHAT] No download task found in storage');
+        return;
+      }
 
-    if (message.type === 'MATERIALS_LOADING_PROGRESS') {
-      console.log('📥 [CHAT] Loading progress:', message);
-      const percent = message.filesTotal > 0
-        ? Math.round((message.filesCompleted / message.filesTotal) * 100)
-        : 0;
-      showLoadingBanner(`${message.message} (${percent}%)`);
+      // Check if this task is for our course
+      if (task.courseId !== courseId) {
+        console.log('📥 [CHAT] Ignoring task for different course:', task.courseId, 'vs', courseId);
+        return;
+      }
 
-    } else if (message.type === 'MATERIALS_LOADING_COMPLETE') {
-      console.log('✅ [CHAT] Loading complete!');
-      showLoadingBanner('Materials loaded!', 'success');
+      console.log('📥 [CHAT] Download task status:', task.status, task.progress);
 
-      // Reload materials from IndexedDB (now with blobs)
-      setTimeout(async () => {
-        await loadMaterials();
-        hideLoadingBanner();
-      }, 1000);
+      if (task.status === 'downloading' || task.status === 'uploading') {
+        // Show progress
+        const progress = task.progress;
+        if (progress) {
+          const percent = progress.filesTotal > 0
+            ? Math.round((progress.filesCompleted / progress.filesTotal) * 100)
+            : 0;
+          showLoadingBanner(`${progress.message} (${percent}%)`);
+        }
 
-    } else if (message.type === 'MATERIALS_LOADING_ERROR') {
-      console.error('❌ [CHAT] Loading error:', message.error);
-      showLoadingBanner(`Error: ${message.error}`, 'error');
-      setTimeout(() => hideLoadingBanner(), 5000);
-    }
-  });
+      } else if (task.status === 'complete') {
+        console.log('✅ [CHAT] Loading complete!');
+        clearInterval(pollInterval); // Stop polling
+        showLoadingBanner('Materials loaded! Updating display...', 'success');
+
+        // Update IndexedDB with downloaded files
+        try {
+          if (task.downloadedFiles && task.downloadedFiles.length > 0) {
+            console.log('💾 [CHAT] Updating IndexedDB with downloaded files...');
+
+            // Load current materials
+            const materialsDB = new MaterialsDB();
+            const materialsData = await materialsDB.loadMaterials(courseId);
+
+            if (materialsData) {
+              // Create blob map
+              const blobMap = new Map();
+              task.downloadedFiles.forEach(df => {
+                blobMap.set(df.name, df.blob);
+              });
+
+              // Attach blobs to materials
+              const materials = materialsData.materials;
+              for (const items of Object.values(materials)) {
+                if (!Array.isArray(items)) continue;
+                items.forEach((item) => {
+                  const itemName = item.display_name || item.filename || item.name || item.title;
+                  if (itemName && blobMap.has(itemName)) {
+                    item.blob = blobMap.get(itemName);
+                  }
+                });
+              }
+
+              // Save updated materials
+              await materialsDB.saveMaterials(courseId, task.courseName, materials);
+              console.log('✅ [CHAT] IndexedDB updated with blobs');
+            }
+
+            await materialsDB.close();
+          }
+
+          // Reload materials from IndexedDB (now with blobs)
+          await loadMaterials();
+
+          // Clear the download task from storage
+          chrome.storage.local.remove(['downloadTask'], () => {
+            console.log('🧹 [CHAT] Cleared download task from storage');
+          });
+
+          hideLoadingBanner();
+
+        } catch (error) {
+          console.error('❌ [CHAT] Error updating materials:', error);
+          showLoadingBanner('Materials loaded but error updating display', 'error');
+          setTimeout(() => hideLoadingBanner(), 3000);
+        }
+
+      } else if (task.status === 'error') {
+        console.error('❌ [CHAT] Loading error:', task.error);
+        clearInterval(pollInterval); // Stop polling
+        showLoadingBanner(`Error: ${task.error || 'Unknown error'}`, 'error');
+        setTimeout(() => hideLoadingBanner(), 5000);
+      }
+    });
+  }, 500); // Poll every 500ms
+
+  // Stop polling after 5 minutes (safety timeout)
+  setTimeout(() => {
+    clearInterval(pollInterval);
+    console.log('⏱️ [CHAT] Background loading poll timeout');
+  }, 5 * 60 * 1000);
 }
 
 /**
