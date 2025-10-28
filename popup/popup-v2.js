@@ -1378,16 +1378,27 @@ async function createStudyBot() {
       console.log('📤 [POPUP] Files to upload:', filesToUploadCopy.length);
       console.log('📤 [POPUP] Course ID:', currentCourse.id);
 
-      chrome.runtime.sendMessage({
+      // Get canvasUrl first (must await before using in message)
+      const canvasUrl = await StorageManager.getCanvasUrl();
+      console.log('📤 [POPUP] Canvas URL:', canvasUrl);
+
+      const messagePayload = {
         type: 'START_BACKGROUND_LOADING',
         courseId: currentCourse.id,
         courseName: currentCourse.name,
         filesToDownload: filesToDownloadCopy,
         filesToUploadToBackend: filesToUploadCopy,
-        canvasUrl: await StorageManager.getCanvasUrl(),
+        canvasUrl: canvasUrl,
         backendUrl: 'https://web-production-9aaba7.up.railway.app'
-      }, (response) => {
+      };
+
+      console.log('📤 [POPUP] About to send message:', messagePayload);
+
+      chrome.runtime.sendMessage(messagePayload, (response) => {
         console.log('📤 [POPUP] Received response from service worker:', response);
+        if (chrome.runtime.lastError) {
+          console.error('❌ [POPUP] Chrome runtime error:', chrome.runtime.lastError);
+        }
         if (response && response.success) {
           console.log('✅ [POPUP] Background loading started in service worker');
         } else {
