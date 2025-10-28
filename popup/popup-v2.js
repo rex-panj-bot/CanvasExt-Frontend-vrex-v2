@@ -1343,18 +1343,14 @@ async function createStudyBot() {
       alert('Taking BACKGROUND LOADING branch');
 
       // Save skeleton materials to IndexedDB (with whatever blobs we already have from cache)
-      updateProgress('Preparing chat...', PROGRESS_PERCENT.COMPLETE - 5);
+      updateProgress('Preparing...', PROGRESS_PERCENT.COMPLETE - 5);
       const materialsDB = new MaterialsDB();
       await materialsDB.saveMaterials(currentCourse.id, currentCourse.name, materialsToProcess);
       await materialsDB.close();
 
-      // Open chat interface IMMEDIATELY (before downloads!)
-      const chatUrl = chrome.runtime.getURL(`chat/chat.html?courseId=${currentCourse.id}&loading=true`);
-      await chrome.tabs.create({ url: chatUrl });
-
-      // Keep popup open with status message
-      updateProgress('Downloads in progress... (keep this window open!)', 80);
-      document.getElementById('study-bot-btn').textContent = 'Downloading... Please Wait';
+      // CHANGED: Do downloads FIRST (before opening chat) to keep popup alive
+      updateProgress('Downloading files...', PROGRESS_PERCENT.DOWNLOADING_START);
+      document.getElementById('study-bot-btn').textContent = 'Downloading...';
       document.getElementById('study-bot-btn').disabled = true;
 
       // Prepare data for background loading
@@ -1369,14 +1365,13 @@ async function createStudyBot() {
         type: f.type
       }));
 
-      // SIMPLIFIED APPROACH: Do downloads directly in popup, send completion message when done
-      // This is more reliable than service worker approach
-      console.log('📤 [POPUP] Starting background downloads directly in popup');
+      // SIMPLIFIED APPROACH: Do downloads directly in popup synchronously
+      // Then open chat when complete
+      console.log('📤 [POPUP] Starting downloads in popup');
 
-      // Start downloads in background (don't await - let it run)
-      (async () => {
-        try {
-          console.log('📥 [POPUP] Downloading files in background...');
+      // Do downloads synchronously (await them)
+      try {
+        console.log('📥 [POPUP] Downloading files...');
 
           // Send initial progress message
           chrome.runtime.sendMessage({
@@ -1474,28 +1469,27 @@ async function createStudyBot() {
             message: 'All materials loaded!'
           });
 
-          console.log('✅ [POPUP] Background loading complete!');
+        console.log('✅ [POPUP] Downloads complete!');
 
-          // Reset popup UI after completion
-          updateProgress('Complete! You can close this window.', 100);
-          document.getElementById('study-bot-btn').textContent = 'Create Study Bot';
-          document.getElementById('study-bot-btn').disabled = false;
+        // Reset popup UI after completion
+        updateProgress('Complete! Opening chat...', 100);
+        document.getElementById('study-bot-btn').textContent = 'Create Study Bot';
+        document.getElementById('study-bot-btn').disabled = false;
 
-        } catch (error) {
-          console.error('❌ [POPUP] Background loading error:', error);
-          chrome.runtime.sendMessage({
-            type: 'MATERIALS_LOADING_ERROR',
-            courseId: currentCourse.id,
-            status: 'error',
-            error: error.message
-          });
+      } catch (error) {
+        console.error('❌ [POPUP] Download error:', error);
+        alert('Download error: ' + error.message);
 
-          // Reset popup UI on error too
-          updateProgress('Error occurred. Try again.', 0);
-          document.getElementById('study-bot-btn').textContent = 'Create Study Bot';
-          document.getElementById('study-bot-btn').disabled = false;
-        }
-      })();
+        // Reset popup UI on error too
+        updateProgress('Error occurred. Try again.', 0);
+        document.getElementById('study-bot-btn').textContent = 'Create Study Bot';
+        document.getElementById('study-bot-btn').disabled = false;
+        throw error;
+      }
+
+      // NOW open chat after downloads complete
+      const chatUrl = chrome.runtime.getURL(`chat/chat.html?courseId=${currentCourse.id}`);
+      chrome.tabs.create({ url: chatUrl });
 
     } else {
       // FAST PATH: Everything cached, no background loading needed
