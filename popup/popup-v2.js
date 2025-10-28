@@ -563,7 +563,7 @@ async function downloadMaterials() {
  *
  * Performance: Downloads 25 PDFs in ~3-5 seconds vs 25-30 seconds sequentially
  */
-async function downloadPDFsInParallel(pdfFiles, canvasAPI, progressCallback, concurrency = 8) {
+async function downloadPDFsInParallel(pdfFiles, canvasAPI, progressCallback, concurrency = 100) {
   const filesToUpload = [];
   let completed = 0;
   const total = pdfFiles.length;
@@ -772,7 +772,7 @@ async function createStudyBot() {
     const downloadedFiles = [];
     let completed = 0;
     const total = allFilesToDownload.length;
-    const concurrency = 8;
+    const concurrency = 100;
 
       // Download single file
       const downloadFile = async (file) => {
