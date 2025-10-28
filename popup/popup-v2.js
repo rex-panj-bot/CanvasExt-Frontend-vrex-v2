@@ -1350,21 +1350,36 @@ async function createStudyBot() {
         document.getElementById('study-bot-progress-fill').style.width = '0%';
       }, 500);
 
-      // Continue loading in background (non-blocking)
-      // Pass copies of data since popup might close
-      const filesToDownloadCopy = [...allFilesToDownload];
-      const filesToUploadCopy = [...filesToUploadToBackend];
-      const materialsProcessCopy = JSON.parse(JSON.stringify(materialsToProcess)); // Deep copy
+      // Prepare data for background loading
+      const filesToDownloadCopy = allFilesToDownload.map(f => ({
+        url: f.url,
+        name: f.name,
+        type: f.type
+      }));
+      const filesToUploadCopy = filesToUploadToBackend.map(f => ({
+        url: f.url,
+        name: f.name,
+        type: f.type
+      }));
 
-      continueLoadingInBackground(
-        currentCourse.id,
-        currentCourse.name,
-        filesToDownloadCopy,
-        filesToUploadCopy,
-        materialsProcessCopy,
-        backendClient,
-        canvasAPI
-      );
+      // Send message to service worker to continue loading in background
+      // This ensures the work continues even if popup closes
+      console.log('📤 Sending START_BACKGROUND_LOADING message to service worker');
+      chrome.runtime.sendMessage({
+        type: 'START_BACKGROUND_LOADING',
+        courseId: currentCourse.id,
+        courseName: currentCourse.name,
+        filesToDownload: filesToDownloadCopy,
+        filesToUploadToBackend: filesToUploadCopy,
+        canvasUrl: await StorageManager.getCanvasUrl(),
+        backendUrl: 'https://web-production-9aaba7.up.railway.app'
+      }, (response) => {
+        if (response && response.success) {
+          console.log('✅ Background loading started in service worker');
+        } else {
+          console.error('❌ Failed to start background loading:', response?.error);
+        }
+      });
 
     } else {
       // FAST PATH: Everything cached, no background loading needed
