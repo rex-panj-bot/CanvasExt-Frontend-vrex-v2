@@ -38,6 +38,68 @@ const elements = {
 // Initialize
 document.addEventListener('DOMContentLoaded', init);
 
+/**
+ * Setup listener for background loading progress messages
+ */
+function setupBackgroundLoadingListener() {
+  console.log('📡 Setting up background loading listener');
+
+  // Show loading banner
+  showLoadingBanner('Loading course materials...');
+
+  // Listen for messages from popup
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.courseId !== courseId) return; // Ignore messages for other courses
+
+    if (message.type === 'MATERIALS_LOADING_PROGRESS') {
+      console.log('📥 Loading progress:', message);
+      const percent = message.filesTotal > 0
+        ? Math.round((message.filesCompleted / message.filesTotal) * 100)
+        : 0;
+      showLoadingBanner(`${message.message} (${percent}%)`);
+
+    } else if (message.type === 'MATERIALS_LOADING_COMPLETE') {
+      console.log('✅ Loading complete!');
+      showLoadingBanner('Materials loaded!', 'success');
+
+      // Reload materials from IndexedDB (now with blobs)
+      setTimeout(async () => {
+        await loadMaterials();
+        hideLoadingBanner();
+      }, 1000);
+
+    } else if (message.type === 'MATERIALS_LOADING_ERROR') {
+      console.error('❌ Loading error:', message.error);
+      showLoadingBanner(`Error: ${message.error}`, 'error');
+      setTimeout(() => hideLoadingBanner(), 5000);
+    }
+  });
+}
+
+/**
+ * Show loading banner at top of chat
+ */
+function showLoadingBanner(message, type = 'info') {
+  if (!elements.loadingBanner) return;
+
+  elements.loadingBanner.classList.remove('hidden');
+  elements.loadingBanner.classList.remove('success', 'error', 'info');
+  elements.loadingBanner.classList.add(type);
+
+  if (elements.loadingBannerText) {
+    elements.loadingBannerText.textContent = message;
+  }
+}
+
+/**
+ * Hide loading banner
+ */
+function hideLoadingBanner() {
+  if (elements.loadingBanner) {
+    elements.loadingBanner.classList.add('hidden');
+  }
+}
+
 async function init() {
   console.log('Chat interface initializing...');
 
@@ -61,6 +123,14 @@ async function init() {
 
   // Generate session ID for this chat
   currentSessionId = `session_${courseId}_${Date.now()}`;
+
+  // Check if we're in loading mode (background loading in progress)
+  const isLoading = urlParams.get('loading') === 'true';
+
+  // Setup background loading listener
+  if (isLoading) {
+    setupBackgroundLoadingListener();
+  }
 
   // Load materials from storage
   await loadMaterials();
@@ -915,7 +985,12 @@ async function sendMessage() {
     const apiKey = settings.gemini_api_key || null;
     const enableWebSearch = settings.enable_web_search || false;
 
+    // Check if smart file selection is enabled
+    const smartFileSelectionToggle = document.getElementById('smart-file-selection-toggle');
+    const useSmartSelection = smartFileSelectionToggle ? smartFileSelectionToggle.checked : false;
+
     console.log(`   Web search: ${enableWebSearch ? 'enabled' : 'disabled'}`);
+    console.log(`   Smart Selection: ${useSmartSelection ? 'enabled' : 'disabled'}`);
     console.log(`   API key: ${apiKey ? 'user-provided' : 'default'}`);
 
     await wsClient.sendQuery(
@@ -926,6 +1001,7 @@ async function sendMessage() {
       currentSessionId,  // Session ID for chat history
       apiKey,  // User's Gemini API key
       enableWebSearch,  // Web search toggle
+      useSmartSelection,  // Smart file selection toggle
       // onChunk callback for streaming text
       (chunk) => {
         // Check if this is a loading message (starts with 📤)
