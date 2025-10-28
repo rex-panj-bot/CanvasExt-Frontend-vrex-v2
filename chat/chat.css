@@ -685,6 +685,40 @@ body {
   color: var(--text-primary);
 }
 
+.header-logo {
+  height: 40px;
+  display: flex;
+  align-items: center;
+}
+
+.header-logo img {
+  height: 100%;
+  width: auto;
+  object-fit: contain;
+}
+
+/* Show correct logo for each theme:
+   - Dark theme: show white lines (darkmodelogo.png with class logo-dark)
+   - Light theme: show black lines (lightmodelogo.png with class logo-light) */
+
+/* Default (dark theme) - show white lines logo (darkmodelogo) */
+.logo-dark {
+  display: block;
+}
+
+.logo-light {
+  display: none;
+}
+
+/* Light theme - show black lines logo (lightmodelogo) */
+:root[data-theme="light"] .logo-dark {
+  display: none;
+}
+
+:root[data-theme="light"] .logo-light {
+  display: block;
+}
+
 .header-actions {
   display: flex;
   gap: 12px;
@@ -1156,6 +1190,7 @@ body {
   width: 36px;
   height: 20px;
   background: var(--border-color);
+  border: 2px solid var(--border);
   border-radius: 10px;
   transition: background 0.3s;
 }
@@ -1163,13 +1198,14 @@ body {
 .web-search-toggle-inline .toggle-switch::after {
   content: '';
   position: absolute;
-  top: 2px;
-  left: 2px;
+  top: 1px;
+  left: 1px;
   width: 16px;
   height: 16px;
-  background: white;
+  background: var(--text-primary);
   border-radius: 50%;
-  transition: transform 0.3s;
+  transition: left 0.3s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 
 .web-search-toggle-inline input[type="checkbox"]:checked + .toggle-switch {
@@ -1177,7 +1213,7 @@ body {
 }
 
 .web-search-toggle-inline input[type="checkbox"]:checked + .toggle-switch::after {
-  transform: translateX(16px);
+  left: 17px;
 }
 
 .web-search-toggle-inline .toggle-label {
