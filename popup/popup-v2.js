@@ -1380,21 +1380,25 @@ async function createStudyBot() {
         });
       });
 
-      // Open chat IMMEDIATELY - it will poll storage for progress
+      // Wake up service worker to start downloads BEFORE opening chat
+      // (Must be before chrome.tabs.create because that closes the popup)
+      await new Promise((resolve) => {
+        chrome.runtime.sendMessage({ type: 'START_DOWNLOADS' }, (response) => {
+          console.log('📤 [POPUP] Sent START_DOWNLOADS message, response:', response);
+          resolve();
+        });
+      });
+
+      // Now open chat - it will poll storage for progress
       const chatUrl = chrome.runtime.getURL(`chat/chat.html?courseId=${currentCourse.id}&loading=true`);
       await chrome.tabs.create({ url: chatUrl });
 
-      // Reset popup UI
+      // Reset popup UI (may not execute if popup closes)
       updateProgress('Chat opened! Downloads continuing in background...', 100);
       setTimeout(() => {
         document.getElementById('study-bot-progress').classList.add('hidden');
         document.getElementById('study-bot-btn').disabled = false;
       }, 1000);
-
-      // Wake up service worker to start downloads
-      chrome.runtime.sendMessage({ type: 'START_DOWNLOADS' }, (response) => {
-        console.log('📤 [POPUP] Sent START_DOWNLOADS message:', response);
-      });
 
       console.log('✅ [POPUP] Background loading initiated, chat will open immediately');
 

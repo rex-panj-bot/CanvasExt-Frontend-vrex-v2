@@ -39,12 +39,31 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     console.log('🚀 [SERVICE-WORKER] Received START_DOWNLOADS message');
 
     chrome.storage.local.get(['downloadTask'], (result) => {
-      if (result.downloadTask && result.downloadTask.status === 'pending') {
-        console.log('🔄 [SERVICE-WORKER] Found download task, starting downloads...');
-        handleBackgroundDownloads(result.downloadTask);
-        sendResponse({ success: true });
+      console.log('🔍 [SERVICE-WORKER] Storage check result:', result);
+
+      if (result.downloadTask) {
+        console.log('📦 [SERVICE-WORKER] Download task found:', {
+          courseId: result.downloadTask.courseId,
+          status: result.downloadTask.status,
+          filesCount: result.downloadTask.filesToDownload?.length
+        });
+
+        if (result.downloadTask.status === 'pending') {
+          console.log('🔄 [SERVICE-WORKER] Starting downloads...');
+          handleBackgroundDownloads(result.downloadTask)
+            .then(() => {
+              console.log('✅ [SERVICE-WORKER] Downloads completed successfully');
+            })
+            .catch((error) => {
+              console.error('❌ [SERVICE-WORKER] Download error:', error);
+            });
+          sendResponse({ success: true });
+        } else {
+          console.log('⚠️ [SERVICE-WORKER] Task status is not pending:', result.downloadTask.status);
+          sendResponse({ success: false, error: 'Task not pending' });
+        }
       } else {
-        console.log('⚠️ [SERVICE-WORKER] No pending download task found');
+        console.log('⚠️ [SERVICE-WORKER] No download task found in storage');
         sendResponse({ success: false, error: 'No pending download task' });
       }
     });
