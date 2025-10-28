@@ -1352,12 +1352,10 @@ async function createStudyBot() {
       const chatUrl = chrome.runtime.getURL(`chat/chat.html?courseId=${currentCourse.id}&loading=true`);
       await chrome.tabs.create({ url: chatUrl });
 
-      // Reset popup UI
-      setTimeout(() => {
-        document.getElementById('study-bot-progress').classList.add('hidden');
-        document.getElementById('study-bot-btn').disabled = false;
-        document.getElementById('study-bot-progress-fill').style.width = '0%';
-      }, 500);
+      // Keep popup open with status message
+      updateProgress('Downloads in progress... (keep this window open!)', 80);
+      document.getElementById('study-bot-btn').textContent = 'Downloading... Please Wait';
+      document.getElementById('study-bot-btn').disabled = true;
 
       // Prepare data for background loading
       const filesToDownloadCopy = allFilesToDownload.map(f => ({
@@ -1478,6 +1476,11 @@ async function createStudyBot() {
 
           console.log('✅ [POPUP] Background loading complete!');
 
+          // Reset popup UI after completion
+          updateProgress('Complete! You can close this window.', 100);
+          document.getElementById('study-bot-btn').textContent = 'Create Study Bot';
+          document.getElementById('study-bot-btn').disabled = false;
+
         } catch (error) {
           console.error('❌ [POPUP] Background loading error:', error);
           chrome.runtime.sendMessage({
@@ -1486,6 +1489,11 @@ async function createStudyBot() {
             status: 'error',
             error: error.message
           });
+
+          // Reset popup UI on error too
+          updateProgress('Error occurred. Try again.', 0);
+          document.getElementById('study-bot-btn').textContent = 'Create Study Bot';
+          document.getElementById('study-bot-btn').disabled = false;
         }
       })();
 
