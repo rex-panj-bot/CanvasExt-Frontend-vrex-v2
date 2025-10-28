@@ -42,24 +42,29 @@ document.addEventListener('DOMContentLoaded', init);
  * Setup listener for background loading progress messages
  */
 function setupBackgroundLoadingListener() {
-  console.log('📡 Setting up background loading listener');
+  console.log('📡 [CHAT] Setting up background loading listener for course:', courseId);
 
   // Show loading banner
   showLoadingBanner('Loading course materials...');
 
-  // Listen for messages from popup
+  // Listen for messages from popup/service worker
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.courseId !== courseId) return; // Ignore messages for other courses
+    console.log('📥 [CHAT] Received message:', message);
+
+    if (message.courseId && message.courseId !== courseId) {
+      console.log('📥 [CHAT] Ignoring message for different course:', message.courseId, 'vs', courseId);
+      return; // Ignore messages for other courses
+    }
 
     if (message.type === 'MATERIALS_LOADING_PROGRESS') {
-      console.log('📥 Loading progress:', message);
+      console.log('📥 [CHAT] Loading progress:', message);
       const percent = message.filesTotal > 0
         ? Math.round((message.filesCompleted / message.filesTotal) * 100)
         : 0;
       showLoadingBanner(`${message.message} (${percent}%)`);
 
     } else if (message.type === 'MATERIALS_LOADING_COMPLETE') {
-      console.log('✅ Loading complete!');
+      console.log('✅ [CHAT] Loading complete!');
       showLoadingBanner('Materials loaded!', 'success');
 
       // Reload materials from IndexedDB (now with blobs)
@@ -69,7 +74,7 @@ function setupBackgroundLoadingListener() {
       }, 1000);
 
     } else if (message.type === 'MATERIALS_LOADING_ERROR') {
-      console.error('❌ Loading error:', message.error);
+      console.error('❌ [CHAT] Loading error:', message.error);
       showLoadingBanner(`Error: ${message.error}`, 'error');
       setTimeout(() => hideLoadingBanner(), 5000);
     }

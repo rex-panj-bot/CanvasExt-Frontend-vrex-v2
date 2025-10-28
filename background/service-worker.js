@@ -28,11 +28,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     sendResponse({ success: true });
   } else if (request.type === 'START_BACKGROUND_LOADING') {
     // Handle background loading request
-    console.log('🚀 Starting background loading for course:', request.courseId);
+    console.log('🚀 [SERVICE-WORKER] Received START_BACKGROUND_LOADING message');
+    console.log('🚀 [SERVICE-WORKER] Course ID:', request.courseId);
+    console.log('🚀 [SERVICE-WORKER] Files to download:', request.filesToDownload?.length);
+    console.log('🚀 [SERVICE-WORKER] Files to upload:', request.filesToUploadToBackend?.length);
+
     handleBackgroundLoading(request).then(() => {
+      console.log('✅ [SERVICE-WORKER] Background loading completed successfully');
       sendResponse({ success: true });
     }).catch(error => {
-      console.error('Background loading error:', error);
+      console.error('❌ [SERVICE-WORKER] Background loading error:', error);
       sendResponse({ success: false, error: error.message });
     });
     return true; // Keep channel open for async response
@@ -47,9 +52,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 async function handleBackgroundLoading(request) {
   const { courseId, courseName, filesToDownload, filesToUploadToBackend, canvasUrl, backendUrl } = request;
 
-  console.log(`📥 Background loading: ${filesToDownload.length} files to download`);
+  console.log(`📥 [SERVICE-WORKER] handleBackgroundLoading started`);
+  console.log(`📥 [SERVICE-WORKER] Files to download: ${filesToDownload.length}`);
 
   // Send initial progress
+  console.log(`📤 [SERVICE-WORKER] Sending initial MATERIALS_LOADING_PROGRESS message`);
   chrome.runtime.sendMessage({
     type: 'MATERIALS_LOADING_PROGRESS',
     courseId: courseId,
@@ -57,6 +64,8 @@ async function handleBackgroundLoading(request) {
     filesCompleted: 0,
     filesTotal: filesToDownload.length,
     message: `Downloading ${filesToDownload.length} files...`
+  }, (response) => {
+    console.log(`📤 [SERVICE-WORKER] MATERIALS_LOADING_PROGRESS message sent, response:`, response);
   });
 
   // Download files

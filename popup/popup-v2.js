@@ -1364,7 +1364,11 @@ async function createStudyBot() {
 
       // Send message to service worker to continue loading in background
       // This ensures the work continues even if popup closes
-      console.log('📤 Sending START_BACKGROUND_LOADING message to service worker');
+      console.log('📤 [POPUP] Sending START_BACKGROUND_LOADING message to service worker');
+      console.log('📤 [POPUP] Files to download:', filesToDownloadCopy.length);
+      console.log('📤 [POPUP] Files to upload:', filesToUploadCopy.length);
+      console.log('📤 [POPUP] Course ID:', currentCourse.id);
+
       chrome.runtime.sendMessage({
         type: 'START_BACKGROUND_LOADING',
         courseId: currentCourse.id,
@@ -1374,10 +1378,11 @@ async function createStudyBot() {
         canvasUrl: await StorageManager.getCanvasUrl(),
         backendUrl: 'https://web-production-9aaba7.up.railway.app'
       }, (response) => {
+        console.log('📤 [POPUP] Received response from service worker:', response);
         if (response && response.success) {
-          console.log('✅ Background loading started in service worker');
+          console.log('✅ [POPUP] Background loading started in service worker');
         } else {
-          console.error('❌ Failed to start background loading:', response?.error);
+          console.error('❌ [POPUP] Failed to start background loading:', response?.error);
         }
       });
 
