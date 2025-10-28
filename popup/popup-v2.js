@@ -1335,8 +1335,12 @@ async function createStudyBot() {
     console.log(`🚀 DEBUG: needsBackgroundLoading = ${needsBackgroundLoading}`);
     console.log(`🚀 DEBUG: About to check if statement, needsBackgroundLoading = ${needsBackgroundLoading}`);
 
+    // Debug using alert to keep popup open
+    alert(`DEBUG INFO:\nneedsBackgroundLoading: ${needsBackgroundLoading}\nallFilesToDownload.length: ${allFilesToDownload.length}\nfilesToUploadToBackend.length: ${filesToUploadToBackend.length}`);
+
     if (needsBackgroundLoading) {
       console.log('🚀 [POPUP] BACKGROUND LOADING BRANCH: Opening chat immediately, will load files in background');
+      alert('Taking BACKGROUND LOADING branch');
 
       // Save skeleton materials to IndexedDB (with whatever blobs we already have from cache)
       updateProgress('Preparing chat...', PROGRESS_PERCENT.COMPLETE - 5);
@@ -1395,6 +1399,7 @@ async function createStudyBot() {
       // FAST PATH: Everything cached, no background loading needed
       console.log('⚡ [POPUP] FAST PATH BRANCH: All files cached, opening chat immediately');
       console.log('⚡ [POPUP] allFilesToDownload.length was:', allFilesToDownload.length);
+      alert('Taking FAST PATH branch - all files cached');
 
       updateProgress('Saving materials...', PROGRESS_PERCENT.COMPLETE);
       const materialsDB = new MaterialsDB();
