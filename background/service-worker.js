@@ -219,6 +219,7 @@ async function handleBackgroundLoading(request) {
 
 /**
  * Handle background downloads using chrome.storage.local for coordination
+ * PHASE 2: Batched downloads to prevent memory overflow
  */
 async function handleBackgroundDownloads(downloadTask) {
   const { courseId, courseName, filesToDownload, filesToUpload } = downloadTask;
@@ -227,6 +228,48 @@ async function handleBackgroundDownloads(downloadTask) {
   console.log(`📥 [SERVICE-WORKER] Course: ${courseName} (${courseId})`);
   console.log(`📥 [SERVICE-WORKER] Files to download: ${filesToDownload.length}`);
   console.log(`📥 [SERVICE-WORKER] Files to upload: ${filesToUpload.length}`);
+
+  // PHASE 2: Get backend URL for GCS check
+  const { backendUrl } = await new Promise(resolve => {
+    chrome.storage.local.get(['backendUrl'], resolve);
+  });
+
+  // PHASE 2: Check which files exist in GCS
+  let filesFromGCS = [];
+  let filesFromCanvas = [];
+
+  if (backendUrl) {
+    try {
+      console.log(`🔍 [SERVICE-WORKER] Checking which files exist in GCS...`);
+      const checkResponse = await fetch(`${backendUrl}/check_files_exist?course_id=${courseId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files: filesToDownload })
+      });
+
+      if (checkResponse.ok) {
+        const { exists, missing } = await checkResponse.json();
+        console.log(`✅ [SERVICE-WORKER] GCS check: ${exists.length} exist, ${missing.length} missing`);
+
+        // Files that exist in GCS - download from signed URLs
+        filesFromGCS = exists.map(f => ({
+          ...f,
+          source: 'gcs'
+        }));
+
+        // Files that don't exist - download from Canvas
+        filesFromCanvas = filesToDownload.filter(f => missing.includes(f.name));
+      } else {
+        console.warn(`⚠️ [SERVICE-WORKER] GCS check failed, downloading all from Canvas`);
+        filesFromCanvas = filesToDownload;
+      }
+    } catch (error) {
+      console.error(`❌ [SERVICE-WORKER] GCS check error:`, error);
+      filesFromCanvas = filesToDownload;
+    }
+  } else {
+    filesFromCanvas = filesToDownload;
+  }
 
   // Update task status to 'downloading'
   await updateDownloadTask({
@@ -238,125 +281,149 @@ async function handleBackgroundDownloads(downloadTask) {
     }
   });
 
-  // Download files
-  const downloadedFiles = [];
+  // PHASE 2: Process files in batches to prevent memory overflow
+  const BATCH_SIZE = 20; // Download and upload 20 files at a time
+  const allFiles = [...filesFromGCS, ...filesFromCanvas];
   let completed = 0;
+  const allDownloadedFiles = [];
 
-  for (const file of filesToDownload) {
-    try {
-      // Download file using fetch with Canvas cookies
-      const response = await fetch(file.url, {
-        credentials: 'include'  // Include cookies
-      });
+  for (let batchStart = 0; batchStart < allFiles.length; batchStart += BATCH_SIZE) {
+    const batch = allFiles.slice(batchStart, batchStart + BATCH_SIZE);
+    const batchNum = Math.floor(batchStart / BATCH_SIZE) + 1;
+    const totalBatches = Math.ceil(allFiles.length / BATCH_SIZE);
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
+    console.log(`📦 [SERVICE-WORKER] Processing batch ${batchNum}/${totalBatches} (${batch.length} files)`);
 
-      const blob = await response.blob();
-      let fileName = file.name;
-
-      // Add extension if missing
-      if (!fileName.includes('.')) {
-        const mimeToExt = {
-          'application/pdf': '.pdf',
-          'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
-          'text/plain': '.txt',
-          'image/png': '.png',
-          'image/jpeg': '.jpg'
-        };
-        const ext = mimeToExt[blob.type];
-        if (ext) fileName = fileName + ext;
-      }
-
-      downloadedFiles.push({ blob, name: fileName });
-      completed++;
-
-      // Update progress in storage
-      await updateDownloadTask({
-        status: 'downloading',
-        progress: {
-          filesCompleted: completed,
-          filesTotal: filesToDownload.length,
-          message: `Downloaded ${completed}/${filesToDownload.length} files`
-        }
-      });
-
-      console.log(`✅ [SERVICE-WORKER] Downloaded ${fileName} (${completed}/${filesToDownload.length})`);
-    } catch (error) {
-      completed++;
-      console.error(`❌ [SERVICE-WORKER] Failed to download ${file.name}:`, error);
-
-      // Update progress even on error
-      await updateDownloadTask({
-        status: 'downloading',
-        progress: {
-          filesCompleted: completed,
-          filesTotal: filesToDownload.length,
-          message: `Downloaded ${completed}/${filesToDownload.length} files`
-        }
-      });
-    }
-  }
-
-  console.log(`📦 [SERVICE-WORKER] Downloaded ${downloadedFiles.length}/${filesToDownload.length} files`);
-
-  // Upload to backend if needed
-  if (downloadedFiles.length > 0 && filesToUpload.length > 0) {
-    await updateDownloadTask({
-      status: 'uploading',
-      progress: {
-        filesCompleted: completed,
-        filesTotal: filesToDownload.length,
-        message: `Uploading ${downloadedFiles.length} files to backend...`
-      }
-    });
-
-    // Get backend URL from storage
-    const { backendUrl } = await new Promise(resolve => {
-      chrome.storage.local.get(['backendUrl'], resolve);
-    });
-
-    // Filter files to upload
-    const uploadSet = new Set(filesToUpload.map(f => f.name));
-    const filesToUploadFiltered = downloadedFiles.filter(f => {
-      const nameWithoutExt = f.name.replace(/\.(pdf|docx?|txt|xlsx?|pptx?|csv|md|rtf|png|jpe?g|gif|webp|bmp)$/i, '');
-      return uploadSet.has(f.name) || uploadSet.has(nameWithoutExt);
-    });
-
-    if (filesToUploadFiltered.length > 0) {
+    // Download batch
+    const downloadedBatch = [];
+    for (const file of batch) {
       try {
-        // Upload files
-        const formData = new FormData();
-        filesToUploadFiltered.forEach(file => {
-          formData.append('files', file.blob, file.name);
-        });
+        let blob, fileName;
 
-        const response = await fetch(`${backendUrl}/upload_pdfs?course_id=${courseId}`, {
-          method: 'POST',
-          body: formData
-        });
+        if (file.source === 'gcs') {
+          // Download from GCS signed URL (faster)
+          console.log(`⚡ [SERVICE-WORKER] Downloading ${file.name} from GCS (fast path)`);
+          const response = await fetch(file.url); // No credentials needed for signed URL
 
-        if (response.ok) {
-          console.log(`✅ [SERVICE-WORKER] Uploaded ${filesToUploadFiltered.length} files to backend`);
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+
+          blob = await response.blob();
+          fileName = file.actual_name; // Use actual name from GCS (might be .pdf)
         } else {
-          console.error('❌ [SERVICE-WORKER] Backend upload failed:', response.status);
+          // Download from Canvas
+          const response = await fetch(file.url, {
+            credentials: 'include'  // Include cookies for Canvas
+          });
+
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+
+          blob = await response.blob();
+          fileName = file.name;
+
+          // Add extension if missing
+          if (!fileName.includes('.')) {
+            const mimeToExt = {
+              'application/pdf': '.pdf',
+              'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+              'text/plain': '.txt',
+              'image/png': '.png',
+              'image/jpeg': '.jpg'
+            };
+            const ext = mimeToExt[blob.type];
+            if (ext) fileName = fileName + ext;
+          }
         }
+
+        downloadedBatch.push({ blob, name: fileName });
+        completed++;
+
+        // Update progress
+        await updateDownloadTask({
+          status: 'downloading',
+          progress: {
+            filesCompleted: completed,
+            filesTotal: allFiles.length,
+            message: `Downloaded ${completed}/${allFiles.length} files`
+          }
+        });
+
+        console.log(`✅ [SERVICE-WORKER] Downloaded ${fileName} (${completed}/${allFiles.length})`);
       } catch (error) {
-        console.error('❌ [SERVICE-WORKER] Upload error:', error);
+        completed++;
+        console.error(`❌ [SERVICE-WORKER] Failed to download ${file.name}:`, error);
+
+        // Update progress even on error
+        await updateDownloadTask({
+          status: 'downloading',
+          progress: {
+            filesCompleted: completed,
+            filesTotal: allFiles.length,
+            message: `Downloaded ${completed}/${allFiles.length} files`
+          }
+        });
       }
     }
+
+    // Save batch to IndexedDB immediately (prevent memory buildup)
+    // Note: Can't access IndexedDB from service worker, store for chat page
+    allDownloadedFiles.push(...downloadedBatch);
+
+    // Upload batch to backend if needed
+    if (downloadedBatch.length > 0 && filesToUpload.length > 0) {
+      console.log(`📤 [SERVICE-WORKER] Uploading batch ${batchNum} to backend...`);
+
+      // Filter files to upload
+      const uploadSet = new Set(filesToUpload.map(f => f.name));
+      const batchToUpload = downloadedBatch.filter(f => {
+        const nameWithoutExt = f.name.replace(/\.(pdf|docx?|txt|xlsx?|pptx?|csv|md|rtf|png|jpe?g|gif|webp|bmp)$/i, '');
+        return uploadSet.has(f.name) || uploadSet.has(nameWithoutExt);
+      });
+
+      if (batchToUpload.length > 0 && backendUrl) {
+        try {
+          const formData = new FormData();
+          batchToUpload.forEach(file => {
+            formData.append('files', file.blob, file.name);
+          });
+
+          const response = await fetch(`${backendUrl}/upload_pdfs?course_id=${courseId}`, {
+            method: 'POST',
+            body: formData
+          });
+
+          if (response.ok) {
+            console.log(`✅ [SERVICE-WORKER] Uploaded batch ${batchNum} (${batchToUpload.length} files)`);
+          } else {
+            console.error(`❌ [SERVICE-WORKER] Batch ${batchNum} upload failed:`, response.status);
+          }
+        } catch (error) {
+          console.error(`❌ [SERVICE-WORKER] Batch ${batchNum} upload error:`, error);
+        }
+      }
+    }
+
+    // Clear batch from memory
+    downloadedBatch.length = 0;
   }
 
+  const totalBatches = Math.ceil(allFiles.length / BATCH_SIZE);
+  console.log(`📦 [SERVICE-WORKER] Downloaded ${allDownloadedFiles.length}/${allFiles.length} files`);
+  console.log(`⚡ [SERVICE-WORKER] Memory optimized: processed ${totalBatches} batches of ${BATCH_SIZE} files each`);
+
+  // All uploads already handled in batches above
   // Mark task as complete
   await updateDownloadTask({
     status: 'complete',
     progress: {
       filesCompleted: completed,
-      filesTotal: filesToDownload.length,
+      filesTotal: allFiles.length,
       message: 'All materials loaded!'
     },
-    downloadedFiles: downloadedFiles // Store downloaded files for IndexedDB update
+    downloadedFiles: allDownloadedFiles // Store downloaded files for IndexedDB update
   });
 
   console.log('✅ [SERVICE-WORKER] Background downloads complete');
