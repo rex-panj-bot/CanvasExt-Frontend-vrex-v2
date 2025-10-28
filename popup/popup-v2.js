@@ -563,7 +563,7 @@ async function downloadMaterials() {
  *
  * Performance: Downloads 25 PDFs in ~3-5 seconds vs 25-30 seconds sequentially
  */
-async function downloadPDFsInParallel(pdfFiles, canvasAPI, progressCallback, concurrency = 100) {
+async function downloadPDFsInParallel(pdfFiles, canvasAPI, progressCallback, concurrency = 16) {
   const filesToUpload = [];
   let completed = 0;
   const total = pdfFiles.length;
@@ -606,15 +606,192 @@ async function downloadPDFsInParallel(pdfFiles, canvasAPI, progressCallback, con
 }
 
 /**
+ * Check if materials are cached in IndexedDB and still fresh
+ *
+ * @param {string} courseId - Course identifier
+ * @returns {Promise<Object|null>} - Cached materials or null if not found/stale
+ */
+async function checkCachedMaterials(courseId) {
+  try {
+    const materialsDB = new MaterialsDB();
+    const cached = await materialsDB.loadMaterials(courseId);
+    await materialsDB.close();
+
+    if (!cached) {
+      console.log('📭 No cached materials found');
+      return null;
+    }
+
+    // Check if cache is fresh (< 24 hours old)
+    const cacheAge = Date.now() - cached.lastUpdated;
+    const maxAge = 24 * 60 * 60 * 1000; // 24 hours
+
+    if (cacheAge > maxAge) {
+      console.log(`🕐 Cached materials too old (${Math.floor(cacheAge / (60 * 60 * 1000))} hours), will refresh`);
+      return null;
+    }
+
+    console.log(`✅ Found fresh cached materials (${Math.floor(cacheAge / (60 * 1000))} minutes old)`);
+    return cached;
+  } catch (error) {
+    console.error('Error checking cached materials:', error);
+    return null;
+  }
+}
+
+/**
+ * Compare scanned materials with cached materials to find files that need downloading
+ *
+ * @param {Object} scanned - Freshly scanned materials from Canvas API
+ * @param {Object} cached - Cached materials from IndexedDB
+ * @returns {Array} - Array of file items that need to be downloaded
+ */
+function findFilesToDownload(scanned, cached) {
+  const cachedFiles = new Map();
+
+  // Build map of cached files with blobs (key = url)
+  if (cached && cached.materials) {
+    for (const [category, items] of Object.entries(cached.materials)) {
+      if (!Array.isArray(items)) continue;
+
+      items.forEach(item => {
+        if (item.url && item.blob) {
+          cachedFiles.set(item.url, item);
+        }
+      });
+    }
+
+    // Also check module items
+    if (cached.materials.modules && Array.isArray(cached.materials.modules)) {
+      cached.materials.modules.forEach(module => {
+        if (module.items && Array.isArray(module.items)) {
+          module.items.forEach(item => {
+            if (item.url && item.blob) {
+              cachedFiles.set(item.url, item);
+            }
+          });
+        }
+      });
+    }
+  }
+
+  console.log(`📦 Found ${cachedFiles.size} cached files with blobs`);
+
+  const filesToDownload = [];
+
+  // Check all scanned files to see which ones need downloading
+  const checkItems = (items) => {
+    if (!Array.isArray(items)) return;
+
+    items.forEach(item => {
+      if (item.url) {
+        if (!cachedFiles.has(item.url)) {
+          filesToDownload.push(item);
+        }
+      }
+    });
+  };
+
+  // Check all categories
+  for (const [category, items] of Object.entries(scanned)) {
+    if (category === 'modules') {
+      // Handle module items separately
+      if (Array.isArray(items)) {
+        items.forEach(module => {
+          if (module.items && Array.isArray(module.items)) {
+            checkItems(module.items);
+          }
+        });
+      }
+    } else {
+      checkItems(items);
+    }
+  }
+
+  console.log(`🆕 ${filesToDownload.length} new files need downloading`);
+  return filesToDownload;
+}
+
+/**
+ * Merge cached blobs with scanned materials
+ *
+ * @param {Object} scanned - Freshly scanned materials
+ * @param {Object} cached - Cached materials with blobs
+ * @returns {Object} - Merged materials with cached blobs attached
+ */
+function mergeCachedBlobs(scanned, cached) {
+  if (!cached || !cached.materials) return scanned;
+
+  const blobMap = new Map();
+
+  // Build blob map from cached materials (key = url)
+  const extractBlobs = (items) => {
+    if (!Array.isArray(items)) return;
+
+    items.forEach(item => {
+      if (item.url && item.blob) {
+        blobMap.set(item.url, {
+          blob: item.blob,
+          stored_name: item.stored_name
+        });
+      }
+    });
+  };
+
+  // Extract blobs from all categories
+  for (const items of Object.values(cached.materials)) {
+    extractBlobs(items);
+  }
+
+  // Extract from modules
+  if (cached.materials.modules && Array.isArray(cached.materials.modules)) {
+    cached.materials.modules.forEach(module => {
+      if (module.items) extractBlobs(module.items);
+    });
+  }
+
+  console.log(`🔗 Built blob map with ${blobMap.size} cached blobs`);
+
+  // Attach cached blobs to scanned materials
+  const attachBlobs = (items) => {
+    if (!Array.isArray(items)) return;
+
+    items.forEach(item => {
+      if (item.url && blobMap.has(item.url)) {
+        const cached = blobMap.get(item.url);
+        item.blob = cached.blob;
+        item.stored_name = cached.stored_name;
+      }
+    });
+  };
+
+  // Attach to all categories
+  const merged = { ...scanned };
+  for (const items of Object.values(merged)) {
+    attachBlobs(items);
+  }
+
+  // Attach to modules
+  if (merged.modules && Array.isArray(merged.modules)) {
+    merged.modules.forEach(module => {
+      if (module.items) attachBlobs(module.items);
+    });
+  }
+
+  return merged;
+}
+
+/**
  * Create Study Bot - Upload PDFs to backend and open chat interface
  *
  * This function handles the optimized upload flow:
- * 1. Checks backend for already-uploaded files (caching)
- * 2. Downloads only NEW PDFs from Canvas
- * 3. Uploads only new files to backend
- * 4. Opens chat interface
+ * 1. Checks IndexedDB for cached materials (FAST PATH)
+ * 2. Checks backend for already-uploaded files (caching)
+ * 3. Downloads only NEW PDFs from Canvas
+ * 4. Uploads only new files to backend
+ * 5. Opens chat interface
  *
- * Performance: 5-10s first time, <1s if files unchanged
+ * Performance: 5-10s first time, <2s if files cached
  */
 async function createStudyBot() {
   try {
@@ -633,6 +810,10 @@ async function createStudyBot() {
       throw new Error('No materials scanned. Please scan materials first.');
     }
 
+    // OPTIMIZATION: Check IndexedDB cache first (FAST PATH)
+    updateProgress('Checking cache...', PROGRESS_PERCENT.PREPARING + 5);
+    const cachedMaterials = await checkCachedMaterials(currentCourse.id);
+
     // Get selected materials
     let materialsToProcess;
     if (detailedViewVisible && selectedFiles.size > 0) {
@@ -640,6 +821,12 @@ async function createStudyBot() {
     } else {
       const preferences = getPreferencesFromUI();
       materialsToProcess = filterMaterialsByPreferences(scannedMaterials, preferences);
+    }
+
+    // If we have cached materials, merge blobs to avoid re-downloading
+    if (cachedMaterials) {
+      console.log('🚀 FAST PATH: Using cached materials with blobs');
+      materialsToProcess = mergeCachedBlobs(materialsToProcess, cachedMaterials);
     }
 
     updateProgress('Checking backend...', PROGRESS_PERCENT.BACKEND_CHECK);
@@ -680,6 +867,9 @@ async function createStudyBot() {
         return;
       }
 
+      // OPTIMIZATION: Skip download if item already has blob from cache
+      const hasBlob = item.blob && item.blob instanceof Blob;
+
       // Try to determine file extension from name
       let ext = null;
       if (itemName.includes('.')) {
@@ -714,8 +904,10 @@ async function createStudyBot() {
         type: ext || 'unknown'
       };
 
-      // ALWAYS add to download list (for local blobs - needed to open files)
-      allFilesToDownload.push(fileInfo);
+      // Only add to download list if we don't already have the blob
+      if (!hasBlob) {
+        allFilesToDownload.push(fileInfo);
+      }
 
       // Check if supported and should be uploaded to backend
       const isSupported = ext && supportedExtensions.includes(ext);
@@ -765,14 +957,35 @@ async function createStudyBot() {
     });
     console.log(`📊 Files to upload to backend: ${filesToUploadToBackend.length}`, uploadSummary);
 
-    // ALWAYS download files locally (even if backend has them)
-    // This ensures we have blobs for opening files from the sidebar
-    updateProgress(`Downloading ${allFilesToDownload.length} files locally...`, PROGRESS_PERCENT.DOWNLOADING_START);
+    // Count how many files already have cached blobs
+    let cachedFileCount = 0;
+    const countCachedBlobs = (items) => {
+      if (!Array.isArray(items)) return;
+      items.forEach(item => {
+        if (item.blob && item.blob instanceof Blob) cachedFileCount++;
+      });
+    };
 
+    for (const items of Object.values(materialsToProcess)) {
+      countCachedBlobs(items);
+    }
+    if (materialsToProcess.modules && Array.isArray(materialsToProcess.modules)) {
+      materialsToProcess.modules.forEach(module => {
+        if (module.items) countCachedBlobs(module.items);
+      });
+    }
+
+    console.log(`🚀 OPTIMIZATION: ${cachedFileCount} files using cached blobs, ${allFilesToDownload.length} need downloading`);
+
+    // Download files (skip if all are cached!)
     const downloadedFiles = [];
-    let completed = 0;
-    const total = allFilesToDownload.length;
-    const concurrency = 100;
+
+    if (allFilesToDownload.length > 0) {
+      updateProgress(`Downloading ${allFilesToDownload.length} new files...`, PROGRESS_PERCENT.DOWNLOADING_START);
+
+      let completed = 0;
+      const total = allFilesToDownload.length;
+      const concurrency = 16;
 
       // Download single file
       const downloadFile = async (file) => {
@@ -829,39 +1042,57 @@ async function createStudyBot() {
         }
       };
 
-    // Process downloads in batches
-    const downloadBatch = async (batch) => {
-      return Promise.all(batch.map(file => downloadFile(file)));
-    };
+      // Process downloads in batches
+      const downloadBatch = async (batch) => {
+        return Promise.all(batch.map(file => downloadFile(file)));
+      };
 
-    // Split files into batches
-    const batches = [];
-    for (let i = 0; i < allFilesToDownload.length; i += concurrency) {
-      batches.push(allFilesToDownload.slice(i, i + concurrency));
+      // Split files into batches
+      const batches = [];
+      for (let i = 0; i < allFilesToDownload.length; i += concurrency) {
+        batches.push(allFilesToDownload.slice(i, i + concurrency));
+      }
+
+      // Download all batches sequentially (files within each batch in parallel)
+      for (const batch of batches) {
+        await downloadBatch(batch);
+      }
+    } else {
+      console.log('⚡ FAST PATH: Skipping downloads, all files cached!');
+      updateProgress('Using cached files...', PROGRESS_PERCENT.DOWNLOADING_END);
     }
 
-    // Download all batches sequentially (files within each batch in parallel)
-    for (const batch of batches) {
-      await downloadBatch(batch);
-    }
-
-    // Upload ALL downloaded files to backend (not just filtered ones)
-    if (downloadedFiles.length > 0) {
-      updateProgress(`Uploading ${downloadedFiles.length} files to backend...`, PROGRESS_PERCENT.UPLOADING);
-
-      // Upload ALL files that were successfully downloaded
-      console.log(`📤 Uploading ALL ${downloadedFiles.length} downloaded files to backend (including PPTX, images, etc.)`);
-
-      // Log file types being uploaded
-      const uploadTypes = {};
-      downloadedFiles.forEach(f => {
-        const ext = f.name.split('.').pop().toLowerCase();
-        uploadTypes[ext] = (uploadTypes[ext] || 0) + 1;
+    // Upload only NEW files to backend (respect backend cache)
+    if (downloadedFiles.length > 0 && filesToUploadToBackend.length > 0) {
+      // Filter downloaded files to only upload ones that backend doesn't have
+      const uploadSet = new Set(filesToUploadToBackend.map(f => f.name));
+      const filesToActuallyUpload = downloadedFiles.filter(f => {
+        // Check if this file needs uploading (match by name or without extension)
+        const nameWithoutExt = f.name.replace(/\.(pdf|docx?|txt|xlsx?|pptx?|csv|md|rtf|png|jpe?g|gif|webp|bmp)$/i, '');
+        return uploadSet.has(f.name) || uploadSet.has(nameWithoutExt);
       });
-      console.log(`📊 File types being uploaded:`, uploadTypes);
 
-      await backendClient.uploadPDFs(currentCourse.id, downloadedFiles);
-      console.log(`✅ Successfully uploaded all ${downloadedFiles.length} files to backend`);
+      if (filesToActuallyUpload.length > 0) {
+        updateProgress(`Uploading ${filesToActuallyUpload.length} new files to backend...`, PROGRESS_PERCENT.UPLOADING);
+
+        console.log(`📤 Uploading ${filesToActuallyUpload.length} new files to backend`);
+
+        // Log file types being uploaded
+        const uploadTypes = {};
+        filesToActuallyUpload.forEach(f => {
+          const ext = f.name.split('.').pop().toLowerCase();
+          uploadTypes[ext] = (uploadTypes[ext] || 0) + 1;
+        });
+        console.log(`📊 File types being uploaded:`, uploadTypes);
+
+        await backendClient.uploadPDFs(currentCourse.id, filesToActuallyUpload);
+        console.log(`✅ Successfully uploaded ${filesToActuallyUpload.length} new files to backend`);
+      } else {
+        console.log('⚡ FAST PATH: Skipping backend upload, all files already on backend!');
+      }
+    } else if (filesToUploadToBackend.length === 0) {
+      console.log('⚡ FAST PATH: Skipping backend upload, all files already cached on backend!');
+      updateProgress('All files already on backend...', PROGRESS_PERCENT.UPLOADING);
     }
 
     // Attach blobs to materials
