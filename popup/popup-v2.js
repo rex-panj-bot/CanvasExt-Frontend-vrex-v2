@@ -1371,40 +1371,123 @@ async function createStudyBot() {
         type: f.type
       }));
 
-      // Send message to service worker to continue loading in background
-      // This ensures the work continues even if popup closes
-      console.log('📤 [POPUP] Sending START_BACKGROUND_LOADING message to service worker');
-      console.log('📤 [POPUP] Files to download:', filesToDownloadCopy.length);
-      console.log('📤 [POPUP] Files to upload:', filesToUploadCopy.length);
-      console.log('📤 [POPUP] Course ID:', currentCourse.id);
+      // SIMPLIFIED APPROACH: Do downloads directly in popup, send completion message when done
+      // This is more reliable than service worker approach
+      console.log('📤 [POPUP] Starting background downloads directly in popup');
 
-      // Get canvasUrl first (must await before using in message)
-      const canvasUrl = await StorageManager.getCanvasUrl();
-      console.log('📤 [POPUP] Canvas URL:', canvasUrl);
+      // Start downloads in background (don't await - let it run)
+      (async () => {
+        try {
+          console.log('📥 [POPUP] Downloading files in background...');
 
-      const messagePayload = {
-        type: 'START_BACKGROUND_LOADING',
-        courseId: currentCourse.id,
-        courseName: currentCourse.name,
-        filesToDownload: filesToDownloadCopy,
-        filesToUploadToBackend: filesToUploadCopy,
-        canvasUrl: canvasUrl,
-        backendUrl: 'https://web-production-9aaba7.up.railway.app'
-      };
+          // Send initial progress message
+          chrome.runtime.sendMessage({
+            type: 'MATERIALS_LOADING_PROGRESS',
+            courseId: currentCourse.id,
+            status: 'loading',
+            filesCompleted: 0,
+            filesTotal: filesToDownloadCopy.length,
+            message: `Downloading ${filesToDownloadCopy.length} files...`
+          });
 
-      console.log('📤 [POPUP] About to send message:', messagePayload);
+          // Download files using existing canvasAPI
+          const downloadedFilesBackground = [];
+          let completedBackground = 0;
 
-      chrome.runtime.sendMessage(messagePayload, (response) => {
-        console.log('📤 [POPUP] Received response from service worker:', response);
-        if (chrome.runtime.lastError) {
-          console.error('❌ [POPUP] Chrome runtime error:', chrome.runtime.lastError);
+          for (const file of filesToDownloadCopy) {
+            try {
+              const blob = await canvasAPI.downloadFile(file.url);
+              let fileName = file.name;
+              if (!fileName.includes('.') && blob.type) {
+                const mimeToExt = {
+                  'application/pdf': '.pdf',
+                  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+                  'text/plain': '.txt'
+                };
+                const ext = mimeToExt[blob.type];
+                if (ext) fileName += ext;
+              }
+              downloadedFilesBackground.push({ blob, name: fileName });
+              completedBackground++;
+
+              // Send progress
+              chrome.runtime.sendMessage({
+                type: 'MATERIALS_LOADING_PROGRESS',
+                courseId: currentCourse.id,
+                status: 'loading',
+                filesCompleted: completedBackground,
+                filesTotal: filesToDownloadCopy.length,
+                message: `Downloaded ${completedBackground}/${filesToDownloadCopy.length} files`
+              });
+
+              console.log(`✅ [POPUP] Downloaded ${fileName} (${completedBackground}/${filesToDownloadCopy.length})`);
+            } catch (error) {
+              completedBackground++;
+              console.error(`❌ [POPUP] Failed to download ${file.name}:`, error);
+            }
+          }
+
+          // Upload to backend if needed
+          if (downloadedFilesBackground.length > 0 && filesToUploadCopy.length > 0) {
+            console.log('📤 [POPUP] Uploading to backend...');
+            chrome.runtime.sendMessage({
+              type: 'MATERIALS_LOADING_PROGRESS',
+              courseId: currentCourse.id,
+              status: 'uploading',
+              message: 'Uploading files to backend...'
+            });
+
+            try {
+              await backendClient.uploadPDFs(currentCourse.id, downloadedFilesBackground);
+              console.log('✅ [POPUP] Upload complete');
+            } catch (error) {
+              console.error('❌ [POPUP] Upload failed:', error);
+            }
+          }
+
+          // Update IndexedDB with downloaded files
+          console.log('💾 [POPUP] Updating IndexedDB...');
+          const blobMap = new Map();
+          downloadedFilesBackground.forEach(df => {
+            blobMap.set(df.name, df.blob);
+          });
+
+          // Attach blobs to materials
+          for (const items of Object.values(materialsToProcess)) {
+            if (!Array.isArray(items)) continue;
+            items.forEach((item) => {
+              const itemName = item.display_name || item.filename || item.name || item.title;
+              if (itemName && blobMap.has(itemName)) {
+                item.blob = blobMap.get(itemName);
+              }
+            });
+          }
+
+          // Save updated materials
+          const materialsDBBackground = new MaterialsDB();
+          await materialsDBBackground.saveMaterials(currentCourse.id, currentCourse.name, materialsToProcess);
+          await materialsDBBackground.close();
+
+          // Send completion message
+          chrome.runtime.sendMessage({
+            type: 'MATERIALS_LOADING_COMPLETE',
+            courseId: currentCourse.id,
+            status: 'complete',
+            message: 'All materials loaded!'
+          });
+
+          console.log('✅ [POPUP] Background loading complete!');
+
+        } catch (error) {
+          console.error('❌ [POPUP] Background loading error:', error);
+          chrome.runtime.sendMessage({
+            type: 'MATERIALS_LOADING_ERROR',
+            courseId: currentCourse.id,
+            status: 'error',
+            error: error.message
+          });
         }
-        if (response && response.success) {
-          console.log('✅ [POPUP] Background loading started in service worker');
-        } else {
-          console.error('❌ [POPUP] Failed to start background loading:', response?.error);
-        }
-      });
+      })();
 
     } else {
       // FAST PATH: Everything cached, no background loading needed
