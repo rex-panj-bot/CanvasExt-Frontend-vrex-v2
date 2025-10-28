@@ -1150,6 +1150,8 @@ async function createStudyBot() {
     }
 
     console.log(`🚀 OPTIMIZATION: ${cachedFileCount} files using cached blobs, ${allFilesToDownload.length} need downloading`);
+    console.log(`🚀 DEBUG: allFilesToDownload =`, allFilesToDownload);
+    console.log(`🚀 DEBUG: filesToUploadToBackend.length =`, filesToUploadToBackend.length);
 
     // OPTIMIZATION: Skip downloads in main flow - will happen in background if needed
     // Keep blob attachment logic for files that were already downloaded from cache
@@ -1330,8 +1332,11 @@ async function createStudyBot() {
     // OPTIMIZATION: Determine if we need background loading
     const needsBackgroundLoading = allFilesToDownload.length > 0;
 
+    console.log(`🚀 DEBUG: needsBackgroundLoading = ${needsBackgroundLoading}`);
+    console.log(`🚀 DEBUG: About to check if statement, needsBackgroundLoading = ${needsBackgroundLoading}`);
+
     if (needsBackgroundLoading) {
-      console.log('🚀 BACKGROUND LOADING: Opening chat immediately, will load files in background');
+      console.log('🚀 [POPUP] BACKGROUND LOADING BRANCH: Opening chat immediately, will load files in background');
 
       // Save skeleton materials to IndexedDB (with whatever blobs we already have from cache)
       updateProgress('Preparing chat...', PROGRESS_PERCENT.COMPLETE - 5);
@@ -1388,7 +1393,8 @@ async function createStudyBot() {
 
     } else {
       // FAST PATH: Everything cached, no background loading needed
-      console.log('⚡ FAST PATH: All files cached, opening chat immediately');
+      console.log('⚡ [POPUP] FAST PATH BRANCH: All files cached, opening chat immediately');
+      console.log('⚡ [POPUP] allFilesToDownload.length was:', allFilesToDownload.length);
 
       updateProgress('Saving materials...', PROGRESS_PERCENT.COMPLETE);
       const materialsDB = new MaterialsDB();
