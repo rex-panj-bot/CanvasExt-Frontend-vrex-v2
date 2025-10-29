@@ -573,10 +573,14 @@ function displayMaterials() {
 
       // Open file from blob or Canvas URL
       if (fileItem) {
-        // Check if this is an assignment (has html_url, no blob)
-        if (fileItem.type === 'assignment' && fileItem.html_url) {
-          // Open assignment in Canvas
-          chrome.tabs.create({ url: fileItem.html_url });
+        // Check if this is an assignment or page - ALWAYS open Canvas URL for these
+        if (fileItem.type === 'assignment' || fileItem.type === 'page') {
+          // Open in Canvas (assignments and pages should never open text blob)
+          if (fileItem.html_url) {
+            chrome.tabs.create({ url: fileItem.html_url });
+          } else {
+            showTemporaryMessage(`Cannot open "${fileName}" - Canvas URL not available.`);
+          }
         } else if (fileItem.blob) {
           // Open from IndexedDB blob (files, pages, etc.)
           const blobUrl = URL.createObjectURL(fileItem.blob);

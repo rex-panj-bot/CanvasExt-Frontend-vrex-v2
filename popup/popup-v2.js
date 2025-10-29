@@ -1202,6 +1202,61 @@ async function createStudyBot() {
       });
     }
 
+    // Process pages: convert body content to text files for AI to read
+    if (materialsToProcess.pages && Array.isArray(materialsToProcess.pages)) {
+      console.log(`📄 Processing ${materialsToProcess.pages.length} page body content for backend upload`);
+
+      materialsToProcess.pages.forEach((page) => {
+        // Only process pages with body content
+        // Note: Canvas API list endpoint may not include body, would need individual fetch
+        if (!page.body || page.body.trim() === '') {
+          console.log(`⏭️ Skipping page "${page.title}" - no body content available`);
+          return;
+        }
+
+        // Strip HTML tags from body to get plain text
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = page.body;
+        const plainText = tempDiv.textContent || tempDiv.innerText || '';
+
+        if (plainText.trim() === '') {
+          console.log(`⏭️ Skipping page "${page.title}" - empty after HTML strip`);
+          return;
+        }
+
+        // Create text content with page metadata
+        const pageText = `Page: ${page.title}\n` +
+                        `Canvas URL: ${page.html_url}\n\n` +
+                        `Content:\n${plainText.trim()}`;
+
+        // Create text blob
+        const textBlob = new Blob([pageText], { type: 'text/plain' });
+
+        // Add blob to page object so it can be opened locally
+        page.blob = textBlob;
+
+        // Create filename: prefix with [Page] for clarity
+        const safeName = page.title.replace(/[^a-zA-Z0-9_\-\s]/g, '_');
+        const filename = `[Page] ${safeName}.txt`;
+
+        // Check if already uploaded
+        const fileId = `${currentCourse.id}_[Page] ${safeName}`;
+
+        if (!uploadedFileIds.has(fileId)) {
+          // Add to backend upload queue
+          filesToUploadToBackend.push({
+            blob: textBlob,
+            name: filename,
+            type: 'txt'
+          });
+
+          console.log(`✅ Queued page "${page.title}" for backend upload as ${filename}`);
+        } else {
+          console.log(`⏭️ Page "${page.title}" already uploaded to backend`);
+        }
+      });
+    }
+
     // Log summary of what will be uploaded
     const uploadSummary = {};
     filesToUploadToBackend.forEach(f => {
