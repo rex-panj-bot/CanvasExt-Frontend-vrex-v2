@@ -13,44 +13,24 @@
     <!-- Sidebar -->
     <aside class="sidebar">
       <div class="sidebar-header">
-        <div class="sidebar-header-top">
-          <div class="course-switcher-sidebar">
-            <button id="course-switcher-sidebar-btn" class="course-switcher-sidebar-btn">
-              <span id="sidebar-course-name">Select Course</span>
-              <svg class="dropdown-arrow" width="14" height="14" viewBox="0 0 16 16" fill="none">
-                <path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </button>
-            <div id="course-dropdown-sidebar" class="course-dropdown-sidebar hidden">
-              <div class="course-dropdown-header">
-                <span>Switch Course</span>
-              </div>
-              <div id="course-list-sidebar" class="course-list">
-                <div class="loading-courses">Loading courses...</div>
-              </div>
-            </div>
-          </div>
+        <h3>Course Materials</h3>
+        <div class="materials-controls">
+          <button id="select-all-materials" class="materials-control-btn" title="Select all">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+              <rect x="2" y="2" width="12" height="12" rx="1" stroke="currentColor" stroke-width="1.5"/>
+              <path d="M5 8L7 10L11 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+          <button id="deselect-all-materials" class="materials-control-btn" title="Deselect all">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+              <rect x="2" y="2" width="12" height="12" rx="1" stroke="currentColor" stroke-width="1.5"/>
+            </svg>
+          </button>
         </div>
       </div>
 
       <div class="sidebar-content">
         <div class="materials-section">
-          <div class="materials-header">
-            <h3>Course Materials</h3>
-            <div class="materials-controls">
-              <button id="select-all-materials" class="materials-control-btn" title="Select all">
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                  <rect x="2" y="2" width="12" height="12" rx="1" stroke="currentColor" stroke-width="1.5"/>
-                  <path d="M5 8L7 10L11 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-              </button>
-              <button id="deselect-all-materials" class="materials-control-btn" title="Deselect all">
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                  <rect x="2" y="2" width="12" height="12" rx="1" stroke="currentColor" stroke-width="1.5"/>
-                </svg>
-              </button>
-            </div>
-          </div>
           <div id="materials-list" class="materials-list">
             <div class="loading-skeleton">
               <div class="skeleton-item"></div>
@@ -97,9 +77,27 @@
     <main class="chat-main">
       <!-- Chat Header -->
       <header class="chat-header">
-        <div class="header-logo">
-          <img src="../icons/lightmodelogo.png" alt="AI Study Assistant" class="logo-light" id="header-logo-light">
-          <img src="../icons/darkmodelogo.png" alt="AI Study Assistant" class="logo-dark" id="header-logo-dark">
+        <div class="header-left">
+          <div class="header-logo">
+            <img src="../icons/lightmodelogo.png" alt="AI Study Assistant" class="logo-light" id="header-logo-light">
+            <img src="../icons/darkmodelogo.png" alt="AI Study Assistant" class="logo-dark" id="header-logo-dark">
+          </div>
+          <div class="course-switcher-header">
+            <button id="course-switcher-sidebar-btn" class="course-switcher-sidebar-btn">
+              <span id="sidebar-course-name">Select Course</span>
+              <svg class="dropdown-arrow" width="14" height="14" viewBox="0 0 16 16" fill="none">
+                <path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+            <div id="course-dropdown-sidebar" class="course-dropdown-sidebar hidden">
+              <div class="course-dropdown-header">
+                <span>Switch Course</span>
+              </div>
+              <div id="course-list-sidebar" class="course-list">
+                <div class="loading-courses">Loading courses...</div>
+              </div>
+            </div>
+          </div>
         </div>
         <div class="header-actions">
           <div class="theme-toggle" id="theme-toggle">
@@ -208,15 +206,17 @@
 
         <div class="input-footer">
           <span id="token-info" class="token-info"></span>
-          <label class="web-search-toggle-inline">
+          <label class="web-search-toggle-inline toggle-with-tooltip">
             <input type="checkbox" id="smart-file-selection-toggle">
             <span class="toggle-switch"></span>
             <span class="toggle-label">Smart File Selection</span>
+            <span class="toggle-tooltip">Automatically uses only the most relevant files for your query.</span>
           </label>
-          <label class="web-search-toggle-inline">
+          <label class="web-search-toggle-inline toggle-with-tooltip">
             <input type="checkbox" id="web-search-toggle-inline">
             <span class="toggle-switch"></span>
             <span class="toggle-label">Web Search</span>
+            <span class="toggle-tooltip">Allows the AI to search the internet if the answer isn't found in your course materials.</span>
           </label>
           <span class="powered-by">Powered by Gemini AI</span>
         </div>
