@@ -294,6 +294,31 @@
         The AI will prioritize course materials and only use web search when needed for current information or when explicitly requested.
       </div>
     </div>
+
+    <!-- Syllabus Section -->
+    <div class="setting-section">
+      <h2>📚 Course Syllabus</h2>
+      <p>Set which document should be used as the course syllabus for exam prep and schedule-based queries.</p>
+
+      <div id="syllabusStatus" style="margin-bottom: 16px;">
+        <p style="color: #666; font-size: 14px;">Loading...</p>
+      </div>
+
+      <div id="syllabusSelector" style="display: none;">
+        <label for="syllabusSelect" style="display: block; margin-bottom: 8px; font-size: 14px; color: #333;">
+          Select Syllabus Document:
+        </label>
+        <select id="syllabusSelect" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; margin-bottom: 12px;">
+          <option value="">-- No Syllabus --</option>
+        </select>
+
+        <button class="btn btn-primary" id="saveSyllabusBtn">Save Syllabus</button>
+      </div>
+
+      <div class="info-box">
+        <strong>How it works:</strong> When you ask about exams, tests, or specific weeks/modules, the AI will use the syllabus to understand course structure and select relevant materials.
+      </div>
+    </div>
   </div>
 
   <script src="settings.js"></script>

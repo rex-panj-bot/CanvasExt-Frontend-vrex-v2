@@ -5,7 +5,8 @@
 // Storage keys
 const STORAGE_KEYS = {
   API_KEY: 'gemini_api_key',
-  WEB_SEARCH: 'enable_web_search'
+  WEB_SEARCH: 'enable_web_search',
+  CURRENT_COURSE: 'current_course_id'
 };
 
 // DOM Elements
@@ -20,7 +21,11 @@ const elements = {
   statusMessage: document.getElementById('statusMessage'),
   showGuideBtn: document.getElementById('showGuideBtn'),
   setupGuide: document.getElementById('setupGuide'),
-  webSearchToggle: document.getElementById('webSearchToggle')
+  webSearchToggle: document.getElementById('webSearchToggle'),
+  syllabusStatus: document.getElementById('syllabusStatus'),
+  syllabusSelector: document.getElementById('syllabusSelector'),
+  syllabusSelect: document.getElementById('syllabusSelect'),
+  saveSyllabusBtn: document.getElementById('saveSyllabusBtn')
 };
 
 /**
@@ -28,6 +33,7 @@ const elements = {
  */
 async function init() {
   await loadSettings();
+  await loadSyllabusSettings();
   attachEventListeners();
 }
 
@@ -222,6 +228,91 @@ function showStatus(message, type = 'info') {
     setTimeout(() => {
       elements.statusMessage.style.display = 'none';
     }, 5000);
+  }
+}
+
+/**
+ * Load syllabus settings for current course
+ */
+async function loadSyllabusSettings() {
+  try {
+    // Get current course ID
+    const result = await chrome.storage.local.get([STORAGE_KEYS.CURRENT_COURSE]);
+    const courseId = result[STORAGE_KEYS.CURRENT_COURSE];
+
+    if (!courseId) {
+      elements.syllabusStatus.innerHTML = '<p style="color: #999; font-size: 14px;">No course selected. Please go to the main screen and select a course first.</p>';
+      return;
+    }
+
+    // Get backend URL
+    const backendUrl = 'https://canvasext-backend-production.up.railway.app';
+
+    // Fetch current syllabus
+    const syllabusResponse = await fetch(`${backendUrl}/courses/${courseId}/syllabus`);
+    const syllabusData = await syllabusResponse.json();
+
+    // Get all materials for the course
+    const materialsResponse = await fetch(`${backendUrl}/chats/${courseId}`);
+    const materialsData = await materialsResponse.json();
+
+    if (!materialsData.success || !materialsData.summaries) {
+      elements.syllabusStatus.innerHTML = '<p style="color: #999; font-size: 14px;">No course materials found. Please scan course first.</p>';
+      return;
+    }
+
+    // Populate dropdown with all files
+    elements.syllabusSelect.innerHTML = '<option value="">-- No Syllabus --</option>';
+    materialsData.summaries.forEach(file => {
+      const option = document.createElement('option');
+      option.value = file.doc_id;
+      option.textContent = file.filename;
+      elements.syllabusSelect.appendChild(option);
+    });
+
+    // Set current syllabus if exists
+    if (syllabusData.success && syllabusData.syllabus_id) {
+      elements.syllabusSelect.value = syllabusData.syllabus_id;
+      const source = syllabusData.source === 'stored' ? '✅ Saved' : '🔍 Auto-detected';
+      elements.syllabusStatus.innerHTML = `<p style="color: #28a745; font-size: 14px;"><strong>Current Syllabus:</strong> ${syllabusData.syllabus_name} (${source})</p>`;
+    } else {
+      elements.syllabusStatus.innerHTML = '<p style="color: #999; font-size: 14px;">No syllabus set. Select one below.</p>';
+    }
+
+    // Show selector
+    elements.syllabusSelector.style.display = 'block';
+
+    // Add save handler
+    elements.saveSyllabusBtn.onclick = async () => {
+      const selectedSyllabusId = elements.syllabusSelect.value;
+
+      if (!selectedSyllabusId) {
+        // Clear syllabus
+        elements.syllabusStatus.innerHTML = '<p style="color: #999; font-size: 14px;">No syllabus selected.</p>';
+        return;
+      }
+
+      try {
+        const response = await fetch(`${backendUrl}/courses/${courseId}/syllabus?syllabus_id=${encodeURIComponent(selectedSyllabusId)}`, {
+          method: 'POST'
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          elements.syllabusStatus.innerHTML = `<p style="color: #28a745; font-size: 14px;"><strong>✅ Syllabus saved:</strong> ${data.syllabus_name}</p>`;
+        } else {
+          elements.syllabusStatus.innerHTML = `<p style="color: #dc3545; font-size: 14px;">❌ Error: ${data.error}</p>`;
+        }
+      } catch (error) {
+        console.error('Error saving syllabus:', error);
+        elements.syllabusStatus.innerHTML = '<p style="color: #dc3545; font-size: 14px;">❌ Failed to save syllabus. Please try again.</p>';
+      }
+    };
+
+  } catch (error) {
+    console.error('Error loading syllabus settings:', error);
+    elements.syllabusStatus.innerHTML = '<p style="color: #dc3545; font-size: 14px;">❌ Failed to load syllabus settings.</p>';
   }
 }
 
