@@ -1020,15 +1020,7 @@ async function createStudyBot() {
 
     updateProgress('Collecting files...', PROGRESS_PERCENT.COLLECTING);
 
-    // Supported file extensions for Gemini AI
-    const supportedExtensions = [
-      'pdf', 'txt', 'doc', 'docx',  // Documents
-      'xlsx', 'xls', 'csv',          // Spreadsheets
-      'pptx', 'ppt',                 // Presentations
-      'md', 'rtf',                   // Text formats
-      'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'    // Images (for vision)
-    ];
-
+    // NEVER SKIP: All files are processed - backend handles conversion and compatibility
     // Collect ALL files for local download + determine which need backend upload
     const allFilesToDownload = []; // For local blob storage (ALWAYS download)
     const filesToUploadToBackend = []; // For backend AI processing (only if new)
@@ -1083,21 +1075,16 @@ async function createStudyBot() {
         allFilesToDownload.push(fileInfo);
       }
 
-      // Check if supported and should be uploaded to backend
-      const isSupported = ext && supportedExtensions.includes(ext);
+      // NEVER SKIP: Upload all files to backend, conversion happens server-side
+      // Backend will convert Office files to PDF and handle all formats
+      const fileNameWithoutExt = itemName.substring(0, itemName.lastIndexOf('.')) || itemName;
+      const fileId = `${currentCourse.id}_${fileNameWithoutExt}`;
 
-      if (isSupported) {
-        // Check backend cache ONLY for upload decision (not download)
-        const fileNameWithoutExt = itemName.substring(0, itemName.lastIndexOf('.')) || itemName;
-        const fileId = `${currentCourse.id}_${fileNameWithoutExt}`;
-        if (!uploadedFileIds.has(fileId)) {
-          filesToUploadToBackend.push(fileInfo);
-          console.log(`Will upload ${itemName} (${ext}) to backend`);
-        } else {
-          console.log(`Skipping ${itemName} (${ext}) - already on backend`);
-        }
+      if (!uploadedFileIds.has(fileId)) {
+        filesToUploadToBackend.push(fileInfo);
+        console.log(`Will upload ${itemName} (${ext || 'unknown'}) to backend`);
       } else {
-        console.log(`Skipping ${itemName} (${ext || 'no extension'}) - unsupported format`);
+        console.log(`File ${itemName} already on backend, skipping upload`);
       }
     };
 
