@@ -574,7 +574,11 @@ function displayMaterials() {
       // Open file from blob or Canvas URL
       if (fileItem) {
         // Check if this is an assignment or page - ALWAYS open Canvas URL for these
-        if (fileItem.type === 'assignment' || fileItem.type === 'page') {
+        // Check both fileItem.type AND category to ensure we catch all assignments/pages
+        const isAssignment = fileItem.type === 'assignment' || category === 'assignments';
+        const isPage = fileItem.type === 'page' || category === 'pages';
+
+        if (isAssignment || isPage) {
           // Open in Canvas (assignments and pages should never open text blob)
           if (fileItem.html_url) {
             chrome.tabs.create({ url: fileItem.html_url });
