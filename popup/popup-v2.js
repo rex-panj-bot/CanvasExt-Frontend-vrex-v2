@@ -1147,6 +1147,61 @@ async function createStudyBot() {
       });
     }
 
+    // Process assignments: convert descriptions to text files for AI to read
+    if (materialsToProcess.assignments && Array.isArray(materialsToProcess.assignments)) {
+      console.log(`📋 Processing ${materialsToProcess.assignments.length} assignment descriptions for backend upload`);
+
+      materialsToProcess.assignments.forEach((assignment) => {
+        // Only process assignments with descriptions
+        if (!assignment.description || assignment.description.trim() === '') {
+          console.log(`⏭️ Skipping assignment "${assignment.name}" - no description`);
+          return;
+        }
+
+        // Strip HTML tags from description to get plain text
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = assignment.description;
+        const plainText = tempDiv.textContent || tempDiv.innerText || '';
+
+        if (plainText.trim() === '') {
+          console.log(`⏭️ Skipping assignment "${assignment.name}" - empty after HTML strip`);
+          return;
+        }
+
+        // Create text content with assignment metadata
+        const assignmentText = `Assignment: ${assignment.name}\n` +
+                              `Due Date: ${assignment.due_at ? new Date(assignment.due_at).toLocaleString() : 'No due date'}\n` +
+                              `Canvas URL: ${assignment.html_url}\n\n` +
+                              `Description:\n${plainText.trim()}`;
+
+        // Create text blob
+        const textBlob = new Blob([assignmentText], { type: 'text/plain' });
+
+        // Add blob to assignment object so it can be opened locally
+        assignment.blob = textBlob;
+
+        // Create filename: prefix with [Assignment] for clarity
+        const safeName = assignment.name.replace(/[^a-zA-Z0-9_\-\s]/g, '_');
+        const filename = `[Assignment] ${safeName}.txt`;
+
+        // Check if already uploaded
+        const fileId = `${currentCourse.id}_[Assignment] ${safeName}`;
+
+        if (!uploadedFileIds.has(fileId)) {
+          // Add to backend upload queue
+          filesToUploadToBackend.push({
+            blob: textBlob,
+            name: filename,
+            type: 'txt'
+          });
+
+          console.log(`✅ Queued assignment "${assignment.name}" for backend upload as ${filename}`);
+        } else {
+          console.log(`⏭️ Assignment "${assignment.name}" already uploaded to backend`);
+        }
+      });
+    }
+
     // Log summary of what will be uploaded
     const uploadSummary = {};
     filesToUploadToBackend.forEach(f => {
@@ -1265,13 +1320,31 @@ async function createStudyBot() {
     }
 
     // Upload only NEW files to backend (respect backend cache)
-    if (downloadedFiles.length > 0 && filesToUploadToBackend.length > 0) {
-      // Filter downloaded files to only upload ones that backend doesn't have
-      const uploadSet = new Set(filesToUploadToBackend.map(f => f.name));
-      const filesToActuallyUpload = downloadedFiles.filter(f => {
-        // Check if this file needs uploading (match by name or without extension)
-        const nameWithoutExt = f.name.replace(/\.(pdf|docx?|txt|xlsx?|pptx?|csv|md|rtf|png|jpe?g|gif|webp|bmp)$/i, '');
-        return uploadSet.has(f.name) || uploadSet.has(nameWithoutExt);
+    // Collect files that need uploading: either from downloads or from direct blobs (assignments)
+    const filesToActuallyUpload = [];
+
+    if (filesToUploadToBackend.length > 0) {
+      // First, add downloaded files that need uploading
+      if (downloadedFiles.length > 0) {
+        const uploadSet = new Set(filesToUploadToBackend.map(f => f.name));
+        const downloadedToUpload = downloadedFiles.filter(f => {
+          // Check if this file needs uploading (match by name or without extension)
+          const nameWithoutExt = f.name.replace(/\.(pdf|docx?|txt|xlsx?|pptx?|csv|md|rtf|png|jpe?g|gif|webp|bmp)$/i, '');
+          return uploadSet.has(f.name) || uploadSet.has(nameWithoutExt);
+        });
+        filesToActuallyUpload.push(...downloadedToUpload);
+      }
+
+      // Second, add files that already have blobs (assignments, etc.)
+      filesToUploadToBackend.forEach(fileInfo => {
+        if (fileInfo.blob) {
+          // File already has a blob (e.g., assignment description converted to text)
+          filesToActuallyUpload.push({
+            blob: fileInfo.blob,
+            name: fileInfo.name
+          });
+          console.log(`📋 Added blob-based file to upload queue: ${fileInfo.name}`);
+        }
       });
 
       if (filesToActuallyUpload.length > 0) {
@@ -1328,9 +1401,9 @@ async function createStudyBot() {
           }
         }
       } else {
-        console.log('⚡ FAST PATH: Skipping backend upload, all files already on backend!');
+        console.log('⚡ FAST PATH: No new files to upload to backend!');
       }
-    } else if (filesToUploadToBackend.length === 0) {
+    } else {
       console.log('⚡ FAST PATH: Skipping backend upload, all files already cached on backend!');
       updateProgress('All files already on backend...', PROGRESS_PERCENT.UPLOADING);
     }
