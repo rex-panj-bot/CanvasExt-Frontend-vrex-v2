@@ -878,8 +878,44 @@ async function continueLoadingInBackground(courseId, courseName, filesToDownload
       });
 
       if (filesToActuallyUpload.length > 0) {
-        await backendClient.uploadPDFs(courseId, filesToActuallyUpload);
+        const uploadResult = await backendClient.uploadPDFs(courseId, filesToActuallyUpload);
         console.log(`✅ Uploaded ${filesToActuallyUpload.length} files to backend`);
+
+        // Check for unreadable files and filter them out
+        if (uploadResult && uploadResult.files) {
+          const unreadableFiles = uploadResult.files.filter(f => f.unreadable === true);
+
+          if (unreadableFiles.length > 0) {
+            const unreadableNames = unreadableFiles.map(f => f.filename).join(', ');
+            console.warn(`⚠️ ${unreadableFiles.length} files could not be converted:`, unreadableNames);
+
+            // Show alert to user (simple notification)
+            alert(`⚠️ ${unreadableFiles.length} file(s) could not be converted and won't be available to the AI:\n\n${unreadableNames}\n\nThese files will not appear in your file list.`);
+
+            // Remove unreadable files from materialsToProcess
+            const unreadableSet = new Set(unreadableFiles.map(f => f.filename));
+            for (const [key, items] of Object.entries(materialsToProcess)) {
+              if (Array.isArray(items)) {
+                materialsToProcess[key] = items.filter(item => {
+                  const itemName = item.display_name || item.filename || item.name || item.title;
+                  return !unreadableSet.has(itemName);
+                });
+              }
+            }
+
+            // Remove from module items
+            if (materialsToProcess.modules && Array.isArray(materialsToProcess.modules)) {
+              materialsToProcess.modules.forEach((module) => {
+                if (module.items && Array.isArray(module.items)) {
+                  module.items = module.items.filter(item => {
+                    const itemName = item.title || item.name || item.display_name;
+                    return !unreadableSet.has(itemName);
+                  });
+                }
+              });
+            }
+          }
+        }
       }
     }
 
@@ -1251,8 +1287,46 @@ async function createStudyBot() {
         });
         console.log(`📊 File types being uploaded:`, uploadTypes);
 
-        await backendClient.uploadPDFs(currentCourse.id, filesToActuallyUpload);
+        const uploadResult = await backendClient.uploadPDFs(currentCourse.id, filesToActuallyUpload);
         console.log(`✅ Successfully uploaded ${filesToActuallyUpload.length} new files to backend`);
+
+        // Check for unreadable files and filter them out
+        if (uploadResult && uploadResult.files) {
+          const unreadableFiles = uploadResult.files.filter(f => f.unreadable === true);
+
+          if (unreadableFiles.length > 0) {
+            const unreadableNames = unreadableFiles.map(f => f.filename).join(', ');
+            console.warn(`⚠️ ${unreadableFiles.length} files could not be converted:`, unreadableNames);
+
+            // Show alert to user (simple notification)
+            alert(`⚠️ ${unreadableFiles.length} file(s) could not be converted and won't be available to the AI:\n\n${unreadableNames}\n\nThese files will not appear in your file list.`);
+
+            // Remove unreadable files from scannedMaterials
+            const unreadableSet = new Set(unreadableFiles.map(f => f.filename));
+            if (scannedMaterials) {
+              for (const [key, items] of Object.entries(scannedMaterials)) {
+                if (Array.isArray(items)) {
+                  scannedMaterials[key] = items.filter(item => {
+                    const itemName = item.display_name || item.filename || item.name || item.title;
+                    return !unreadableSet.has(itemName);
+                  });
+                }
+              }
+
+              // Remove from module items
+              if (scannedMaterials.modules && Array.isArray(scannedMaterials.modules)) {
+                scannedMaterials.modules.forEach((module) => {
+                  if (module.items && Array.isArray(module.items)) {
+                    module.items = module.items.filter(item => {
+                      const itemName = item.title || item.name || item.display_name;
+                      return !unreadableSet.has(itemName);
+                    });
+                  }
+                });
+              }
+            }
+          }
+        }
       } else {
         console.log('⚡ FAST PATH: Skipping backend upload, all files already on backend!');
       }
