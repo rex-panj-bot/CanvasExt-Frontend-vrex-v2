@@ -571,17 +571,24 @@ function displayMaterials() {
         }
       }
 
-      // Open file from blob
+      // Open file from blob or Canvas URL
       if (fileItem) {
-        if (fileItem.blob) {
-          // Open from IndexedDB blob
+        // Check if this is an assignment (has html_url, no blob)
+        if (fileItem.type === 'assignment' && fileItem.html_url) {
+          // Open assignment in Canvas
+          chrome.tabs.create({ url: fileItem.html_url });
+        } else if (fileItem.blob) {
+          // Open from IndexedDB blob (files, pages, etc.)
           const blobUrl = URL.createObjectURL(fileItem.blob);
           chrome.tabs.create({ url: blobUrl });
 
           // Clean up blob URL after a delay
           setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
+        } else if (fileItem.html_url) {
+          // Fallback: open Canvas URL if available
+          chrome.tabs.create({ url: fileItem.html_url });
         } else {
-          // No blob available
+          // No blob or URL available
           showTemporaryMessage(`Cannot open "${fileName}" - file data not available. Please re-scan course materials.`);
         }
       } else {

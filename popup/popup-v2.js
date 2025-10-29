@@ -1406,6 +1406,17 @@ async function createStudyBot() {
       await materialsDB.saveMaterials(currentCourse.id, currentCourse.name, materialsToProcess);
       await materialsDB.close();
 
+      // Auto-detect and save syllabus
+      try {
+        const syllabusResponse = await fetch(`https://canvasext-backend-production.up.railway.app/courses/${currentCourse.id}/syllabus`);
+        const syllabusData = await syllabusResponse.json();
+        if (syllabusData.success && syllabusData.syllabus_id) {
+          console.log(`📚 Auto-detected syllabus: ${syllabusData.syllabus_name}`);
+        }
+      } catch (e) {
+        console.warn('Could not auto-detect syllabus:', e);
+      }
+
       // NEW APPROACH: Write download task to chrome.storage, service worker will handle it
       updateProgress('Starting background downloads...', PROGRESS_PERCENT.DOWNLOADING_START);
 
@@ -1472,6 +1483,17 @@ async function createStudyBot() {
       const materialsDB = new MaterialsDB();
       await materialsDB.saveMaterials(currentCourse.id, currentCourse.name, materialsToProcess);
       await materialsDB.close();
+
+      // Auto-detect and save syllabus
+      try {
+        const syllabusResponse = await fetch(`https://canvasext-backend-production.up.railway.app/courses/${currentCourse.id}/syllabus`);
+        const syllabusData = await syllabusResponse.json();
+        if (syllabusData.success && syllabusData.syllabus_id) {
+          console.log(`📚 Auto-detected syllabus: ${syllabusData.syllabus_name}`);
+        }
+      } catch (e) {
+        console.warn('Could not auto-detect syllabus:', e);
+      }
 
       // Open chat interface
       const chatUrl = chrome.runtime.getURL(`chat/chat.html?courseId=${currentCourse.id}`);
