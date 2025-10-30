@@ -373,6 +373,11 @@ function displayMaterials() {
               <label class="material-label" title="${file.title || file.name}">
                 ${file.title || file.name}
               </label>
+              <button class="delete-material-btn" title="Remove from AI memory" data-module-idx="${moduleIdx}" data-item-idx="${originalItemIdx}">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M18 6L6 18M6 6l12 12"/>
+                </svg>
+              </button>
             </div>
           `).join('')}
         </div>
@@ -453,6 +458,11 @@ function displayMaterials() {
           <label class="material-label" title="${file.display_name || file.name}">
             ${file.display_name || file.name}
           </label>
+          <button class="delete-material-btn" title="Remove from AI memory" data-category="files" data-index="${originalIndex}">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18 6L6 18M6 6l12 12"/>
+            </svg>
+          </button>
         </div>
       `).join('');
 
@@ -486,6 +496,11 @@ function displayMaterials() {
         <label class="material-label" title="${page.title}">
           ${page.title}
         </label>
+        <button class="delete-material-btn" title="Remove from AI memory" data-category="pages" data-index="${pageIdx}">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 6L6 18M6 6l12 12"/>
+          </svg>
+        </button>
       </div>
     `).join('');
 
@@ -518,6 +533,11 @@ function displayMaterials() {
         <label class="material-label" title="${assignment.name}">
           ${assignment.name}
         </label>
+        <button class="delete-material-btn" title="Remove from AI memory" data-category="assignments" data-index="${assignmentIdx}">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 6L6 18M6 6l12 12"/>
+          </svg>
+        </button>
       </div>
     `).join('');
 
@@ -551,7 +571,7 @@ function displayMaterials() {
   oldMaterialsList.parentNode.replaceChild(newMaterialsList, oldMaterialsList);
 
   // Now add the listener to the fresh element
-  document.querySelector('.materials-list').addEventListener('click', (e) => {
+  document.querySelector('.materials-list').addEventListener('click', async (e) => {
     const deleteBtn = e.target.closest('.delete-material-btn');
     if (deleteBtn) {
       e.preventDefault();
@@ -559,21 +579,79 @@ function displayMaterials() {
 
       const materialItem = deleteBtn.closest('.material-item');
       const category = materialItem.getAttribute('data-category');
-      const index = parseInt(materialItem.getAttribute('data-index'));
+      const index = materialItem.getAttribute('data-index');
+      const moduleIdx = materialItem.getAttribute('data-module-idx');
+      const itemIdx = materialItem.getAttribute('data-item-idx');
 
-      if (processedMaterials && processedMaterials[category]) {
-        const material = processedMaterials[category][index];
-        const materialName = material.name || material.display_name;
+      let material = null;
+      let materialName = '';
+      let fileId = null;
 
-        processedMaterials[category].splice(index, 1);
+      // Get material info based on type (module item or standalone)
+      if (moduleIdx !== null && itemIdx !== null) {
+        // Module item
+        const module = processedMaterials.modules?.[parseInt(moduleIdx)];
+        if (module && module.items) {
+          material = module.items[parseInt(itemIdx)];
+          materialName = material?.title || material?.name || 'this file';
+          fileId = material?.id || material?.content_id;
+        }
+      } else if (category && index !== null) {
+        // Standalone file, page, or assignment
+        material = processedMaterials[category]?.[parseInt(index)];
+        materialName = material?.name || material?.display_name || material?.title || 'this file';
+        fileId = material?.id || material?.content_id;
+      }
 
+      if (!material) {
+        console.error('Material not found');
+        return;
+      }
+
+      // Show confirmation dialog
+      const confirmed = await showConfirmDialog(
+        `Remove "${materialName}"?`,
+        'This will remove the file from AI memory. You can restore it from Settings later.'
+      );
+
+      if (!confirmed) return;
+
+      try {
+        // Send soft delete to backend
+        if (fileId) {
+          const response = await fetch(
+            `https://web-production-9aaba7.up.railway.app/courses/${courseId}/materials/${fileId}`,
+            { method: 'DELETE' }
+          );
+
+          if (!response.ok) {
+            throw new Error(`Failed to delete: ${response.statusText}`);
+          }
+
+          console.log(`Soft deleted ${materialName} (ID: ${fileId})`);
+        }
+
+        // Remove from frontend immediately
+        if (moduleIdx !== null && itemIdx !== null) {
+          // Remove from module items
+          const module = processedMaterials.modules[parseInt(moduleIdx)];
+          module.items.splice(parseInt(itemIdx), 1);
+        } else if (category && index !== null) {
+          // Remove from category array
+          processedMaterials[category].splice(parseInt(index), 1);
+        }
+
+        // Update IndexedDB
         chrome.storage.local.set({
           [`course_materials_${courseId}`]: processedMaterials
         }, () => {
-          console.log(`Deleted material: ${materialName}`);
           displayMaterials();
-          showTemporaryMessage(`Removed "${materialName}" from AI memory`);
+          showTemporaryMessage(`Removed "${materialName}". Restore from Settings if needed.`);
         });
+
+      } catch (error) {
+        console.error('Error deleting material:', error);
+        showTemporaryMessage(`Error removing file: ${error.message}`);
       }
     }
 
@@ -2000,6 +2078,84 @@ function showStatusMessage(element, message, type) {
   setTimeout(() => {
     element.classList.remove('show');
   }, 3000);
+}
+
+/**
+ * Show confirmation dialog
+ * @param {string} title - Dialog title
+ * @param {string} message - Dialog message
+ * @returns {Promise<boolean>} - True if confirmed, false if cancelled
+ */
+function showConfirmDialog(title, message) {
+  return new Promise((resolve) => {
+    // Create modal overlay
+    const overlay = document.createElement('div');
+    overlay.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(4px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10000;
+    `;
+
+    // Create dialog
+    const dialog = document.createElement('div');
+    dialog.style.cssText = `
+      background: var(--surface, #1a1a1a);
+      border-radius: 12px;
+      padding: 24px;
+      max-width: 400px;
+      width: 90%;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    `;
+
+    dialog.innerHTML = `
+      <h3 style="margin: 0 0 12px 0; font-size: 18px; color: var(--text-primary, #fff);">${title}</h3>
+      <p style="margin: 0 0 24px 0; color: var(--text-secondary, #aaa); line-height: 1.5;">${message}</p>
+      <div style="display: flex; gap: 12px; justify-content: flex-end;">
+        <button id="confirm-cancel" style="
+          padding: 10px 20px;
+          border: 1px solid var(--border, #333);
+          background: transparent;
+          color: var(--text-secondary, #aaa);
+          border-radius: 8px;
+          cursor: pointer;
+          font-size: 14px;
+        ">Cancel</button>
+        <button id="confirm-ok" style="
+          padding: 10px 20px;
+          border: none;
+          background: var(--error, #ef4444);
+          color: white;
+          border-radius: 8px;
+          cursor: pointer;
+          font-size: 14px;
+          font-weight: 500;
+        ">Remove</button>
+      </div>
+    `;
+
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+
+    // Handle buttons
+    const handleClose = (result) => {
+      overlay.remove();
+      resolve(result);
+    };
+
+    dialog.querySelector('#confirm-cancel').onclick = () => handleClose(false);
+    dialog.querySelector('#confirm-ok').onclick = () => handleClose(true);
+    overlay.onclick = (e) => {
+      if (e.target === overlay) handleClose(false);
+    };
+  });
 }
 
 function exportChat() {
