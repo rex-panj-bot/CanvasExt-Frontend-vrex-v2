@@ -610,6 +610,36 @@ function displayMaterials() {
 }
 
 /**
+ * Toggle between collapsed and expanded syllabus selector
+ */
+function toggleSyllabusSelector(forceExpanded = false) {
+  const collapsedView = document.getElementById('syllabus-collapsed');
+  const expandedView = document.getElementById('syllabus-expanded');
+
+  if (!collapsedView || !expandedView) return;
+
+  if (forceExpanded || !collapsedView.classList.contains('hidden')) {
+    // Show expanded, hide collapsed
+    collapsedView.classList.add('hidden');
+    expandedView.classList.remove('hidden');
+  } else {
+    // Show collapsed, hide expanded
+    collapsedView.classList.remove('hidden');
+    expandedView.classList.add('hidden');
+  }
+}
+
+/**
+ * Update collapsed view with syllabus name
+ */
+function updateCollapsedSyllabusView(syllabusName) {
+  const collapsedText = document.getElementById('syllabus-collapsed-name');
+  if (collapsedText) {
+    collapsedText.textContent = syllabusName || 'No syllabus selected';
+  }
+}
+
+/**
  * Load syllabus selector dropdown with available files
  */
 async function loadSyllabusSelector() {
@@ -617,6 +647,7 @@ async function loadSyllabusSelector() {
     const syllabusSelect = document.getElementById('syllabus-select');
     const saveSyllabusBtn = document.getElementById('save-syllabus-btn');
     const syllabusStatus = document.getElementById('syllabus-status');
+    const syllabusEditBtn = document.getElementById('syllabus-edit-btn');
 
     if (!syllabusSelect) return;
 
@@ -670,13 +701,27 @@ async function loadSyllabusSelector() {
       syllabusStatus.textContent = `✓ Using: ${data.syllabus_name || 'Syllabus'}`;
       syllabusStatus.className = 'syllabus-status success';
       console.log('📚 Loaded syllabus:', data.syllabus_name);
+
+      // Update collapsed view and show it
+      updateCollapsedSyllabusView(data.syllabus_name);
+      toggleSyllabusSelector(false); // Show collapsed
     } else {
       syllabusStatus.textContent = '⚠️ No syllabus detected';
       syllabusStatus.className = 'syllabus-status warning';
+
+      // Keep expanded if no syllabus
+      toggleSyllabusSelector(true);
     }
 
     // Enable save button
     saveSyllabusBtn.disabled = false;
+
+    // Handle edit button click (expand selector)
+    if (syllabusEditBtn) {
+      syllabusEditBtn.addEventListener('click', () => {
+        toggleSyllabusSelector(true); // Force expand
+      });
+    }
 
     // Handle selection change
     syllabusSelect.addEventListener('change', () => {
@@ -709,6 +754,12 @@ async function loadSyllabusSelector() {
           syllabusStatus.className = 'syllabus-status success';
           saveSyllabusBtn.disabled = true;
           console.log('✅ Syllabus saved:', saveData.syllabus_name);
+
+          // Update collapsed view and collapse the selector
+          updateCollapsedSyllabusView(saveData.syllabus_name);
+          setTimeout(() => {
+            toggleSyllabusSelector(false); // Collapse after save
+          }, 1000); // Give user time to see success message
         } else {
           syllabusStatus.textContent = `✗ Error: ${saveData.error}`;
           syllabusStatus.className = 'syllabus-status error';
