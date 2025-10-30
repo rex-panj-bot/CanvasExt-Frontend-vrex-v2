@@ -132,6 +132,10 @@ class WebSocketClient {
           } else if (data.type === 'done') {
             if (onComplete) onComplete();
             resolve();
+          } else if (data.type === 'stopped') {
+            console.log('🛑 Stream stopped by user');
+            if (onComplete) onComplete();
+            resolve();
           } else if (data.type === 'error') {
             const error = new Error(data.message);
             if (onError) onError(error);
