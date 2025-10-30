@@ -89,6 +89,10 @@ class WebSocketClient {
 
   /**
    * Start heartbeat/ping mechanism
+   *
+   * Sends pings to keep Railway connection alive (prevents idle timeout).
+   * Does NOT expect pongs - Railway proxy may not forward them reliably.
+   * Connection errors will be detected naturally when real messages fail.
    */
   startHeartbeat() {
     // Clear any existing intervals
@@ -102,16 +106,11 @@ class WebSocketClient {
         console.log('📤 Sending ping...');
         try {
           this.ws.send(JSON.stringify({ type: 'ping' }));
-
-          // Set timeout for pong response
-          this.pingTimeout = setTimeout(() => {
-            console.warn('⚠️ No pong received within 10s, connection may be dead');
-            this.notifyConnectionState('stale');
-            // Force reconnection
-            this.ws.close();
-          }, this.PONG_TIMEOUT_MS);
+          // Note: We don't wait for pong - Railway proxy may not forward it
+          // Connection health will be detected when actual messages fail
         } catch (error) {
           console.error('❌ Error sending ping:', error);
+          // If ping send fails, connection is truly dead
           this.ws.close();
         }
       }
@@ -257,14 +256,9 @@ class WebSocketClient {
           this.lastMessageReceived = Date.now();
 
           if (data.type === 'pong') {
-            // Received pong response
-            console.log('📥 Received pong');
+            // Received pong response (may or may not arrive due to Railway proxy)
+            console.log('📥 Received pong (connection healthy)');
             this.lastPongReceived = Date.now();
-            // Clear pong timeout
-            if (this.pingTimeout) {
-              clearTimeout(this.pingTimeout);
-              this.pingTimeout = null;
-            }
             // Don't process pong as a regular message
             return;
           } else if (data.type === 'chunk') {
