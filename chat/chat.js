@@ -47,6 +47,9 @@ function setupBackgroundLoadingListener() {
   // Show loading banner
   showLoadingBanner('Loading course materials...');
 
+  // Track if we ever found a task
+  let taskFound = false;
+
   // Poll chrome.storage.local for download task updates
   const pollInterval = setInterval(() => {
     chrome.storage.local.get(['downloadTask'], async (result) => {
@@ -54,8 +57,21 @@ function setupBackgroundLoadingListener() {
 
       if (!task) {
         console.log('⚠️ [CHAT] No download task found in storage');
+
+        // If we never found a task after a few seconds, hide the banner
+        if (!taskFound) {
+          setTimeout(() => {
+            if (!taskFound) {
+              console.log('⏱️ [CHAT] No download task found, hiding banner');
+              hideLoadingBanner();
+              clearInterval(pollInterval);
+            }
+          }, 2000);
+        }
         return;
       }
+
+      taskFound = true;
 
       // Check if this task is for our course
       if (task.courseId !== courseId) {
@@ -199,9 +215,12 @@ async function init() {
   // Check if we're in loading mode (background loading in progress)
   const isLoading = urlParams.get('loading') === 'true';
 
-  // Setup background loading listener
+  // Setup background loading listener (only if we're in loading mode)
   if (isLoading) {
     setupBackgroundLoadingListener();
+  } else {
+    // Not in loading mode, just load materials normally
+    console.log('📂 [CHAT] Loading materials from IndexedDB (no background download)');
   }
 
   // Load materials from storage
@@ -612,13 +631,13 @@ function displayMaterials() {
 /**
  * Toggle between collapsed and expanded syllabus selector
  */
-function toggleSyllabusSelector(forceExpanded = false) {
+function toggleSyllabusSelector(showExpanded) {
   const collapsedView = document.getElementById('syllabus-collapsed');
   const expandedView = document.getElementById('syllabus-expanded');
 
   if (!collapsedView || !expandedView) return;
 
-  if (forceExpanded || !collapsedView.classList.contains('hidden')) {
+  if (showExpanded) {
     // Show expanded, hide collapsed
     collapsedView.classList.add('hidden');
     expandedView.classList.remove('hidden');
@@ -800,16 +819,46 @@ async function handleFileUpload(event) {
     await backendClient.uploadPDFs(courseId, filesToUpload);
 
     console.log('✅ Files uploaded successfully');
-    showLoadingBanner('Files uploaded! Refreshing materials...', 'success');
+    showLoadingBanner('Files uploaded! Adding to materials...', 'success');
 
     // Wait a bit for backend processing
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    await new Promise(resolve => setTimeout(resolve, 1500));
 
-    // Reload materials from backend/IndexedDB
-    // For now, just show success - materials will appear after page refresh
-    // TODO: Implement dynamic materials refresh without page reload
+    // Add uploaded files to the materials list in IndexedDB
+    const materialsDB = new MaterialsDB();
+    const materialsData = await materialsDB.loadMaterials(courseId);
+
+    if (materialsData) {
+      // Add new files to the files array
+      if (!materialsData.materials.files) {
+        materialsData.materials.files = [];
+      }
+
+      files.forEach(file => {
+        materialsData.materials.files.push({
+          name: file.name,
+          display_name: file.name,
+          stored_name: file.name,
+          type: 'file',
+          blob: file, // Store the file blob
+          uploaded_by_user: true, // Mark as user-uploaded
+          uploaded_at: new Date().toISOString()
+        });
+      });
+
+      // Save updated materials back to IndexedDB
+      await materialsDB.saveMaterials(courseId, courseName, materialsData.materials);
+      console.log('✅ [CHAT] Added uploaded files to IndexedDB');
+    }
+
+    await materialsDB.close();
+
+    // Refresh the materials display
+    processedMaterials = materialsData.materials;
+    displayMaterials();
+
     hideLoadingBanner();
-    showTemporaryMessage(`Successfully uploaded ${files.length} file(s). Refresh to see them in the list.`);
+    showTemporaryMessage(`Successfully uploaded and added ${files.length} file(s)!`);
 
     // Clear file input
     event.target.value = '';
