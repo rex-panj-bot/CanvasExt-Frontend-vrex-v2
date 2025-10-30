@@ -526,17 +526,32 @@ function displayMaterials() {
   }
 
 
-  // Setup select all/deselect all buttons
-  document.getElementById('select-all-materials')?.addEventListener('click', () => {
-    document.querySelectorAll('.material-checkbox, .module-checkbox').forEach(cb => cb.checked = true);
-  });
+  // Setup select all/deselect all buttons (remove old listeners first)
+  const selectAllBtn = document.getElementById('select-all-materials');
+  const deselectAllBtn = document.getElementById('deselect-all-materials');
 
-  document.getElementById('deselect-all-materials')?.addEventListener('click', () => {
-    document.querySelectorAll('.material-checkbox, .module-checkbox').forEach(cb => cb.checked = false);
-  });
+  if (selectAllBtn) {
+    selectAllBtn.replaceWith(selectAllBtn.cloneNode(true));
+    document.getElementById('select-all-materials').addEventListener('click', () => {
+      document.querySelectorAll('.material-checkbox, .module-checkbox').forEach(cb => cb.checked = true);
+    });
+  }
+
+  if (deselectAllBtn) {
+    deselectAllBtn.replaceWith(deselectAllBtn.cloneNode(true));
+    document.getElementById('deselect-all-materials').addEventListener('click', () => {
+      document.querySelectorAll('.material-checkbox, .module-checkbox').forEach(cb => cb.checked = false);
+    });
+  }
 
   // Setup delete button handlers using event delegation
-  materialsList.addEventListener('click', (e) => {
+  // Remove old listener by cloning the element
+  const oldMaterialsList = materialsList;
+  const newMaterialsList = materialsList.cloneNode(true);
+  oldMaterialsList.parentNode.replaceChild(newMaterialsList, oldMaterialsList);
+
+  // Now add the listener to the fresh element
+  document.querySelector('.materials-list').addEventListener('click', (e) => {
     const deleteBtn = e.target.closest('.delete-material-btn');
     if (deleteBtn) {
       e.preventDefault();
@@ -567,6 +582,15 @@ function displayMaterials() {
     if (label && !deleteBtn) {  // Only if not clicking delete button
       e.preventDefault();
       e.stopPropagation();
+
+      // Prevent duplicate clicks within 500ms
+      const now = Date.now();
+      const clickKey = label.textContent.trim();
+      if (window._lastFileClick && window._lastFileClick.key === clickKey && now - window._lastFileClick.time < 500) {
+        console.log('Ignoring duplicate click');
+        return;
+      }
+      window._lastFileClick = { key: clickKey, time: now };
 
       const materialItem = label.closest('.material-item');
       const moduleIdx = materialItem.getAttribute('data-module-idx');
