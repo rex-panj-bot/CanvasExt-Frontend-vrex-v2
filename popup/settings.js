@@ -34,6 +34,7 @@ const elements = {
 async function init() {
   await loadSettings();
   await loadSyllabusSettings();
+  await loadDeletedFiles();
   attachEventListeners();
 }
 
@@ -315,6 +316,259 @@ async function loadSyllabusSettings() {
     elements.syllabusStatus.innerHTML = '<p style="color: #dc3545; font-size: 14px;">❌ Failed to load syllabus settings.</p>';
   }
 }
+
+/**
+ * Load deleted files for current course
+ */
+async function loadDeletedFiles() {
+  const deletedFilesStatus = document.getElementById('deletedFilesStatus');
+  const noDeletedFiles = document.getElementById('noDeletedFiles');
+  const deletedFilesList = document.getElementById('deletedFilesList');
+  const bulkActions = document.getElementById('bulkActions');
+
+  try {
+    // Get current course ID
+    const result = await chrome.storage.local.get([STORAGE_KEYS.CURRENT_COURSE]);
+    const courseId = result[STORAGE_KEYS.CURRENT_COURSE];
+
+    if (!courseId) {
+      noDeletedFiles.textContent = 'No course selected. Please go to the main screen and select a course first.';
+      noDeletedFiles.style.display = 'block';
+      return;
+    }
+
+    // Get backend URL
+    const backendUrl = 'https://web-production-9aaba7.up.railway.app';
+
+    // Fetch deleted files
+    const response = await fetch(`${backendUrl}/courses/${courseId}/deleted-materials`);
+    const data = await response.json();
+
+    if (!data.success) {
+      throw new Error(data.error || 'Failed to fetch deleted files');
+    }
+
+    const deletedFiles = data.deleted_files || [];
+
+    if (deletedFiles.length === 0) {
+      noDeletedFiles.style.display = 'block';
+      deletedFilesList.style.display = 'none';
+      bulkActions.style.display = 'none';
+      return;
+    }
+
+    // Render deleted files list
+    noDeletedFiles.style.display = 'none';
+    deletedFilesList.style.display = 'block';
+    bulkActions.style.display = 'block';
+
+    deletedFilesList.innerHTML = deletedFiles.map(file => {
+      const deletedDate = new Date(file.deleted_at).toLocaleDateString();
+      const metadata = file.metadata || {};
+      const fileSize = metadata.size ? formatFileSize(metadata.size) : '';
+
+      return `
+        <div class="deleted-file-item" data-file-id="${file.doc_id}">
+          <div class="deleted-file-info">
+            <div class="deleted-file-name" title="${file.filename}">${file.filename}</div>
+            <div class="deleted-file-meta">Deleted on ${deletedDate} ${fileSize ? '• ' + fileSize : ''}</div>
+          </div>
+          <div class="deleted-file-actions">
+            <button class="btn-small btn-restore" onclick="restoreFile('${file.doc_id}', '${courseId}')">
+              Restore
+            </button>
+            <button class="btn-small btn-delete-permanent" onclick="deleteFilePermanently('${file.doc_id}', '${courseId}', '${file.filename.replace(/'/g, "\\'")}')">
+              Delete
+            </button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // Setup bulk action handlers
+    document.getElementById('restoreAllBtn').onclick = () => restoreAllFiles(courseId, deletedFiles);
+    document.getElementById('deleteAllBtn').onclick = () => deleteAllFilesPermanently(courseId, deletedFiles);
+
+  } catch (error) {
+    console.error('Error loading deleted files:', error);
+    showDeletedFilesStatus('Failed to load deleted files: ' + error.message, 'error');
+  }
+}
+
+/**
+ * Restore a single file
+ */
+async function restoreFile(fileId, courseId) {
+  const backendUrl = 'https://web-production-9aaba7.up.railway.app';
+
+  try {
+    showDeletedFilesStatus('Restoring file...', 'info');
+
+    const response = await fetch(`${backendUrl}/courses/${courseId}/materials/${fileId}/restore`, {
+      method: 'PUT'
+    });
+
+    const data = await response.json();
+
+    if (data.success) {
+      showDeletedFilesStatus('File restored successfully!', 'success');
+      // Reload deleted files list
+      await loadDeletedFiles();
+    } else {
+      throw new Error(data.error || 'Failed to restore file');
+    }
+  } catch (error) {
+    console.error('Error restoring file:', error);
+    showDeletedFilesStatus('Error restoring file: ' + error.message, 'error');
+  }
+}
+
+/**
+ * Permanently delete a single file
+ */
+async function deleteFilePermanently(fileId, courseId, fileName) {
+  if (!confirm(`Are you sure you want to permanently delete "${fileName}"?\n\nThis action cannot be undone and will remove the file from cloud storage.`)) {
+    return;
+  }
+
+  const backendUrl = 'https://web-production-9aaba7.up.railway.app';
+
+  try {
+    showDeletedFilesStatus('Permanently deleting file...', 'info');
+
+    const response = await fetch(`${backendUrl}/courses/${courseId}/materials/${fileId}?permanent=true`, {
+      method: 'DELETE'
+    });
+
+    const data = await response.json();
+
+    if (data.success) {
+      showDeletedFilesStatus('File permanently deleted', 'success');
+      // Reload deleted files list
+      await loadDeletedFiles();
+    } else {
+      throw new Error(data.error || 'Failed to delete file');
+    }
+  } catch (error) {
+    console.error('Error deleting file:', error);
+    showDeletedFilesStatus('Error deleting file: ' + error.message, 'error');
+  }
+}
+
+/**
+ * Restore all files
+ */
+async function restoreAllFiles(courseId, files) {
+  if (!confirm(`Restore all ${files.length} files?`)) {
+    return;
+  }
+
+  const backendUrl = 'https://web-production-9aaba7.up.railway.app';
+  let successCount = 0;
+  let errorCount = 0;
+
+  showDeletedFilesStatus(`Restoring ${files.length} files...`, 'info');
+
+  for (const file of files) {
+    try {
+      const response = await fetch(`${backendUrl}/courses/${courseId}/materials/${file.doc_id}/restore`, {
+        method: 'PUT'
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        successCount++;
+      } else {
+        errorCount++;
+      }
+    } catch (error) {
+      console.error('Error restoring file:', file.filename, error);
+      errorCount++;
+    }
+  }
+
+  if (errorCount === 0) {
+    showDeletedFilesStatus(`All ${successCount} files restored successfully!`, 'success');
+  } else {
+    showDeletedFilesStatus(`Restored ${successCount} files, ${errorCount} failed`, 'error');
+  }
+
+  // Reload deleted files list
+  await loadDeletedFiles();
+}
+
+/**
+ * Delete all files permanently
+ */
+async function deleteAllFilesPermanently(courseId, files) {
+  if (!confirm(`Are you sure you want to PERMANENTLY delete all ${files.length} files?\n\nThis action cannot be undone and will remove all files from cloud storage.`)) {
+    return;
+  }
+
+  const backendUrl = 'https://web-production-9aaba7.up.railway.app';
+  let successCount = 0;
+  let errorCount = 0;
+
+  showDeletedFilesStatus(`Permanently deleting ${files.length} files...`, 'info');
+
+  for (const file of files) {
+    try {
+      const response = await fetch(`${backendUrl}/courses/${courseId}/materials/${file.doc_id}?permanent=true`, {
+        method: 'DELETE'
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        successCount++;
+      } else {
+        errorCount++;
+      }
+    } catch (error) {
+      console.error('Error deleting file:', file.filename, error);
+      errorCount++;
+    }
+  }
+
+  if (errorCount === 0) {
+    showDeletedFilesStatus(`All ${successCount} files permanently deleted`, 'success');
+  } else {
+    showDeletedFilesStatus(`Deleted ${successCount} files, ${errorCount} failed`, 'error');
+  }
+
+  // Reload deleted files list
+  await loadDeletedFiles();
+}
+
+/**
+ * Show status message for deleted files section
+ */
+function showDeletedFilesStatus(message, type = 'info') {
+  const statusElement = document.getElementById('deletedFilesStatus');
+  statusElement.textContent = message;
+  statusElement.className = `status-message ${type}`;
+  statusElement.style.display = 'block';
+
+  if (type === 'success' || type === 'info') {
+    setTimeout(() => {
+      statusElement.style.display = 'none';
+    }, 5000);
+  }
+}
+
+/**
+ * Format file size in human-readable format
+ */
+function formatFileSize(bytes) {
+  if (bytes === 0) return '0 Bytes';
+  const k = 1024;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+}
+
+// Make functions globally available for inline onclick handlers
+window.restoreFile = restoreFile;
+window.deleteFilePermanently = deleteFilePermanently;
 
 // Initialize on page load
 init();
