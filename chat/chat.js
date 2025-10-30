@@ -302,7 +302,8 @@ async function loadMaterials() {
  * Display materials with module-based organization
  */
 function displayMaterials() {
-  const materialsList = elements.materialsList;
+  // Always get fresh reference from DOM to avoid stale references after cloning
+  const materialsList = document.querySelector('.materials-list');
 
   if (!materialsList) {
     console.error('materials-list element not found!');
