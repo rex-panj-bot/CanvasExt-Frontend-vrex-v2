@@ -198,50 +198,56 @@
       <!-- Suggested Prompts -->
       <div class="suggested-prompts-container">
         <div class="suggested-prompts">
-          <button class="suggested-prompt" data-prompt="How do distributive and integrative negotiation approaches differ?">
-            How do distributive and integrative negotiation approaches differ?
+          <button class="suggested-prompt" data-prompt="Help me learn the key concepts from this week's materials">
+            <span class="prompt-category">Learn</span>
+            Help me understand this week's concepts
           </button>
-          <button class="suggested-prompt" data-prompt="What are the key concepts I should focus on?">
-            What are the key concepts I should focus on?
+          <button class="suggested-prompt" data-prompt="Quiz me on the topics we've covered to reinforce my understanding">
+            <span class="prompt-category">Reinforce</span>
+            Quiz me to reinforce my knowledge
           </button>
-          <button class="suggested-prompt" data-prompt="Explain the main theories covered in this course">
-            Explain the main theories covered in this course
+          <button class="suggested-prompt" data-prompt="Create a practice test based on the course materials">
+            <span class="prompt-category">Test</span>
+            Generate a practice exam
           </button>
         </div>
       </div>
 
       <!-- Input Area -->
       <div class="input-container">
+        <!-- Toggles and Settings (above input) -->
+        <div class="input-header">
+          <label class="toggle-compact">
+            <input type="checkbox" id="smart-file-selection-toggle">
+            <span class="toggle-switch-compact"></span>
+            <span class="toggle-label-compact">Smart File Selection</span>
+          </label>
+          <label class="toggle-compact">
+            <input type="checkbox" id="web-search-toggle-inline">
+            <span class="toggle-switch-compact"></span>
+            <span class="toggle-label-compact">Web Search</span>
+          </label>
+          <span class="powered-by-compact">Powered by Gemini AI</span>
+        </div>
+
+        <!-- Input Bar -->
         <div class="input-wrapper">
           <textarea
             id="message-input"
             placeholder="Ask a question about your course materials..."
             rows="1"></textarea>
-          <button id="send-btn" class="btn btn-primary" disabled>
-            <span class="send-icon">▲</span>
-          </button>
-          <button id="stop-btn" class="btn btn-stop hidden">
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-              <rect x="3" y="3" width="10" height="10" rx="1"/>
-            </svg>
-          </button>
-        </div>
-
-        <div class="input-footer">
-          <span id="token-info" class="token-info"></span>
-          <label class="web-search-toggle-inline toggle-with-tooltip">
-            <input type="checkbox" id="smart-file-selection-toggle">
-            <span class="toggle-switch"></span>
-            <span class="toggle-label">Smart File Selection</span>
-            <span class="toggle-tooltip">Automatically uses only the most relevant files for your query.</span>
-          </label>
-          <label class="web-search-toggle-inline toggle-with-tooltip">
-            <input type="checkbox" id="web-search-toggle-inline">
-            <span class="toggle-switch"></span>
-            <span class="toggle-label">Web Search</span>
-            <span class="toggle-tooltip">Allows the AI to search the internet if the answer isn't found in your course materials.</span>
-          </label>
-          <span class="powered-by">Powered by Gemini AI</span>
+          <div class="input-actions">
+            <button id="send-btn" class="btn btn-send" disabled>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 19V5M12 5l-7 7M12 5l7 7"/>
+              </svg>
+            </button>
+            <button id="stop-btn" class="btn btn-stop hidden">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <rect x="3" y="3" width="10" height="10" rx="1"/>
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
     </main>

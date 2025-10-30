@@ -897,46 +897,56 @@ body {
   }
 }
 
+/* User messages - right-aligned text bubble */
+.user-message {
+  justify-content: flex-end;
+}
+
+.user-message .message-content {
+  background: var(--blue-primary);
+  color: white;
+  padding: 12px 16px;
+  border-radius: 18px;
+  border-bottom-right-radius: 4px;
+  max-width: 70%;
+  margin-left: auto;
+}
+
+.user-message .message-text {
+  color: white;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+/* Assistant messages - left-aligned embedded style */
+.assistant-message {
+  justify-content: flex-start;
+}
+
+.assistant-message .message-content {
+  flex: 1;
+  max-width: 100%;
+}
+
+/* Hide avatars and role labels for all messages */
 .message-avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 20px;
-  flex-shrink: 0;
+  display: none !important;
 }
 
-.assistant-message .message-avatar {
-  background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+.message-header {
+  display: none !important;
 }
 
-.user-message .message-avatar {
-  background: var(--surface);
+.message-role {
+  display: none !important;
+}
+
+.message-time {
+  display: none !important;
 }
 
 .message-content {
   flex: 1;
-  max-width: 800px;
-}
-
-.message-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.message-role {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-secondary);
-}
-
-.message-time {
-  font-size: 12px;
-  color: var(--text-light);
 }
 
 .message-text {
@@ -1184,14 +1194,78 @@ body {
   background: var(--surface);
 }
 
+/* Input Header - Toggles above input */
+.input-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  margin-bottom: 12px;
+  font-size: 12px;
+}
+
+.toggle-compact {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggle-compact input[type="checkbox"] {
+  display: none;
+}
+
+.toggle-switch-compact {
+  position: relative;
+  width: 32px;
+  height: 18px;
+  background: var(--border-color);
+  border-radius: 9px;
+  transition: background 0.2s;
+}
+
+.toggle-switch-compact::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  background: white;
+  border-radius: 50%;
+  transition: left 0.2s;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.toggle-compact input[type="checkbox"]:checked + .toggle-switch-compact {
+  background: var(--blue-primary);
+}
+
+.toggle-compact input[type="checkbox"]:checked + .toggle-switch-compact::after {
+  left: 16px;
+}
+
+.toggle-label-compact {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.powered-by-compact {
+  font-size: 11px;
+  color: var(--text-light);
+  margin-left: auto;
+}
+
+/* Input Wrapper */
 .input-wrapper {
   display: flex;
-  gap: 16px;
+  gap: 8px;
   align-items: flex-end;
   background: var(--background);
   border: 2px solid var(--border);
-  border-radius: 20px;
-  padding: 8px 8px 8px 20px;
+  border-radius: 24px;
+  padding: 12px 12px 12px 20px;
   transition: all 0.3s;
 }
 
@@ -1202,7 +1276,7 @@ body {
 
 #message-input {
   flex: 1;
-  padding: 12px 0;
+  padding: 0;
   border: none;
   background: transparent;
   font-size: 15px;
@@ -1210,6 +1284,7 @@ body {
   resize: none;
   max-height: 150px;
   color: var(--text-primary);
+  line-height: 1.5;
 }
 
 #message-input::placeholder {
@@ -1220,47 +1295,98 @@ body {
   outline: none;
 }
 
-#send-btn {
-  width: 44px;
-  height: 44px;
-  min-width: 44px;
-  min-height: 44px;
+/* Input Actions - Send and Stop buttons */
+.input-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-send {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
   padding: 0;
   background: var(--blue-primary);
   color: white;
   border: none;
   border-radius: 50%;
   cursor: pointer;
-  transition: all 0.3s;
+  transition: all 0.2s;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+}
+
+.btn-send:hover:not(:disabled) {
+  background: var(--blue-hover);
+  transform: scale(1.05);
+}
+
+.btn-send:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-stop {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0;
+  background: var(--error);
+  color: white;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-stop:hover {
+  background: #dc2626;
+  transform: scale(1.05);
+}
+
+/* Legacy send-btn id support */
+#send-btn {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0;
+  background: var(--blue-primary);
+  color: white;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 #send-btn:hover:not(:disabled) {
   background: var(--blue-hover);
   transform: scale(1.05);
-  box-shadow: 0 6px 16px rgba(59, 130, 246, 0.5);
 }
 
 #send-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
-  box-shadow: none;
-}
-
-.send-icon {
-  font-size: 20px;
 }
 
 /* Suggested Prompts */
 .suggested-prompts {
   display: flex;
-  gap: 10px;
+  gap: 12px;
   overflow-x: auto;
   padding-bottom: 4px;
   scrollbar-width: thin;
+  justify-content: center;
 }
 
 .suggested-prompts::-webkit-scrollbar {
@@ -1277,7 +1403,11 @@ body {
 }
 
 .suggested-prompt {
-  padding: 10px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px 16px;
   background: rgba(30, 41, 59, 0.5);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -1285,13 +1415,22 @@ body {
   font-size: 13px;
   cursor: pointer;
   transition: all 0.3s;
-  white-space: nowrap;
   flex-shrink: 0;
+  min-width: 200px;
+  max-width: 280px;
 }
 
 :root[data-theme="light"] .suggested-prompt {
   background: rgba(226, 232, 240, 0.5);
   color: var(--text-secondary);
+}
+
+.prompt-category {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--blue-primary);
 }
 
 .suggested-prompt:hover {
