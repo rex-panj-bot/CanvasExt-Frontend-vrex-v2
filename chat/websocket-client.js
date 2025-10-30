@@ -221,29 +221,13 @@ class WebSocketClient {
 
     // Return a Promise that resolves when streaming is complete
     return new Promise((resolve, reject) => {
-      let hasReceivedResponse = false;
-      let queryTimeout = null;
       let closeHandler = null;
-
-      // Set timeout for query (2 minutes max)
-      queryTimeout = setTimeout(() => {
-        if (!hasReceivedResponse) {
-          console.error('⏱️ Query timeout - no response received in 2 minutes');
-          const timeoutError = new Error('Query timeout - no response from backend. Please try again.');
-          if (onError) onError(timeoutError);
-          reject(timeoutError);
-
-          // Clean up close handler
-          if (closeHandler) {
-            this.ws.removeEventListener('close', closeHandler);
-          }
-        }
-      }, 120000); // 2 minute timeout
+      let isComplete = false;
 
       // Handle connection close during query
       closeHandler = (event) => {
-        clearTimeout(queryTimeout);
-        if (!hasReceivedResponse) {
+        if (!isComplete) {
+          isComplete = true;
           console.error(`❌ Connection closed during query (code: ${event.code})`);
           const closeError = new Error('Connection closed unexpectedly. Please retry your query.');
           if (onError) onError(closeError);
@@ -269,7 +253,7 @@ class WebSocketClient {
         try {
           const data = JSON.parse(event.data);
 
-          // Update last message received timestamp
+          // Update last message received timestamp (for global connection monitoring)
           this.lastMessageReceived = Date.now();
 
           if (data.type === 'pong') {
@@ -284,33 +268,29 @@ class WebSocketClient {
             // Don't process pong as a regular message
             return;
           } else if (data.type === 'chunk') {
-            hasReceivedResponse = true;
             if (onChunk) {
               onChunk(data.content);
             }
           } else if (data.type === 'done') {
-            hasReceivedResponse = true;
-            clearTimeout(queryTimeout);
+            isComplete = true;
             this.ws.removeEventListener('close', closeHandler);
             if (onComplete) onComplete();
             resolve();
           } else if (data.type === 'stopped') {
-            hasReceivedResponse = true;
-            clearTimeout(queryTimeout);
+            isComplete = true;
             this.ws.removeEventListener('close', closeHandler);
             console.log('🛑 Stream stopped by user');
             if (onComplete) onComplete();
             resolve();
           } else if (data.type === 'error') {
-            hasReceivedResponse = true;
-            clearTimeout(queryTimeout);
+            isComplete = true;
             this.ws.removeEventListener('close', closeHandler);
             const error = new Error(data.message);
             if (onError) onError(error);
             reject(error);
           }
         } catch (error) {
-          clearTimeout(queryTimeout);
+          isComplete = true;
           this.ws.removeEventListener('close', closeHandler);
           console.error('❌ WebSocket message parsing error:', error);
           if (onError) onError(error);
@@ -323,7 +303,7 @@ class WebSocketClient {
         this.ws.send(JSON.stringify(payload));
         console.log('📤 Query sent, waiting for response...');
       } catch (error) {
-        clearTimeout(queryTimeout);
+        isComplete = true;
         this.ws.removeEventListener('close', closeHandler);
         console.error('❌ Failed to send query:', error);
         if (onError) onError(error);
