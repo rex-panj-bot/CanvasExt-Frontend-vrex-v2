@@ -11,83 +11,12 @@
     <!-- Header -->
     <header class="header">
       <h1>Canvas Material Extractor</h1>
-      <a href="settings.html" class="settings-btn" title="Settings">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/>
-          <path d="M12 1V4M12 20V23M23 12H20M4 12H1M19.07 19.07L17 17M7 7L4.93 4.93M19.07 4.93L17 7M7 17L4.93 19.07" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-        </svg>
-      </a>
     </header>
 
-    <!-- Auth Method Selection Screen -->
-    <div id="auth-method-screen" class="screen">
-      <div class="setup-content">
-        <h2>Choose Authentication Method</h2>
-        <p class="help-text">Select how you want to connect to Canvas</p>
-
-        <div class="auth-method-cards">
-          <div class="auth-card" id="select-session-auth">
-            <div class="auth-card-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <rect x="5" y="11" width="14" height="10" rx="2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M12 15C12.5523 15 13 15.4477 13 16C13 16.5523 12.5523 17 12 17C11.4477 17 11 16.5523 11 16C11 15.4477 11.4477 15 12 15Z" fill="currentColor"/>
-                <path d="M7 11V7C7 4.79086 8.79086 3 11 3H13C15.2091 3 17 4.79086 17 7V11" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-              </svg>
-            </div>
-            <h3>Session Login</h3>
-            <p>Use your existing Canvas login</p>
-            <ul class="auth-features">
-              <li>✓ No admin approval needed</li>
-              <li>✓ Quick setup</li>
-              <li>✓ Must stay logged in</li>
-            </ul>
-            <button class="btn btn-primary">Use Session Login</button>
-          </div>
-
-          <div class="auth-card" id="select-oauth-auth">
-            <div class="auth-card-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <rect x="5" y="11" width="14" height="10" rx="2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                <circle cx="12" cy="16" r="1.5" fill="currentColor"/>
-                <path d="M7 11V7C7 4.79086 8.79086 3 11 3H13C15.2091 3 17 4.79086 17 7V11" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                <circle cx="16" cy="7" r="3" fill="currentColor" opacity="0.3"/>
-              </svg>
-            </div>
-            <h3>OAuth 2.0</h3>
-            <p>Official OAuth authentication</p>
-            <ul class="auth-features">
-              <li>✓ More secure</li>
-              <li>✓ Token auto-refresh</li>
-              <li>⚠ Requires admin setup</li>
-            </ul>
-            <button class="btn btn-primary">Use OAuth 2.0</button>
-          </div>
-
-          <div class="auth-card" id="select-token-auth">
-            <div class="auth-card-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <circle cx="7" cy="12" r="4" stroke="currentColor" stroke-width="2"/>
-                <path d="M11 12H21M17 8V10M19 10V14M17 14V16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-            </div>
-            <h3>API Token</h3>
-            <p>Manual API token (legacy)</p>
-            <ul class="auth-features">
-              <li>✓ Simple setup</li>
-              <li>⚠ May be disabled</li>
-              <li>⚠ Manual management</li>
-            </ul>
-            <button class="btn btn-primary">Use API Token</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- Session Auth Setup -->
-    <div id="session-setup-screen" class="screen hidden">
+    <div id="session-setup-screen" class="screen">
       <div class="setup-content">
-        <button id="back-to-auth-method" class="btn-back">← Back</button>
-        <h2>Session Login Setup</h2>
+        <h2>Canvas Login</h2>
         <p class="help-text">Log in to Canvas using your existing account</p>
 
         <div class="form-group">
@@ -123,150 +52,10 @@
       </div>
     </div>
 
-    <!-- OAuth Setup -->
-    <div id="oauth-setup-screen" class="screen hidden">
-      <div class="setup-content">
-        <button id="oauth-back-btn" class="btn-back">← Back</button>
-        <h2>OAuth 2.0 Setup</h2>
-        <p class="help-text">Configure OAuth authentication with Canvas</p>
-
-        <div class="info-box">
-          <p><strong>First time setup:</strong></p>
-          <ol>
-            <li>Install this extension and find your Extension ID</li>
-            <li>Ask your Canvas admin to create a Developer Key</li>
-            <li>Provide redirect URI: <code id="redirect-uri-display"></code></li>
-            <li>Get Client ID and Secret from admin</li>
-            <li>Enter them below</li>
-          </ol>
-          <p><small>Extension ID: <strong id="extension-id-display"></strong> <button id="copy-ext-id" class="btn-copy">Copy</button></small></p>
-        </div>
-
-        <div class="form-group">
-          <label for="oauth-canvas-url">Canvas Instance URL</label>
-          <input
-            type="text"
-            id="oauth-canvas-url"
-            placeholder="canvas.instructure.com"
-            class="input-field"
-          >
-        </div>
-
-        <div class="form-group">
-          <label for="oauth-client-id">Client ID</label>
-          <input
-            type="text"
-            id="oauth-client-id"
-            placeholder="Enter Client ID from Canvas admin"
-            class="input-field"
-          >
-        </div>
-
-        <div class="form-group">
-          <label for="oauth-client-secret">Client Secret</label>
-          <input
-            type="password"
-            id="oauth-client-secret"
-            placeholder="Enter Client Secret from Canvas admin"
-            class="input-field"
-          >
-        </div>
-
-        <div class="error-message" id="oauth-error"></div>
-
-        <button id="save-oauth-btn" class="btn btn-primary">
-          Save & Authorize with Canvas
-        </button>
-
-        <div class="help-link">
-          <a href="#" id="show-oauth-help">How to get OAuth credentials?</a>
-        </div>
-      </div>
-    </div>
-
-    <!-- Token Setup (Legacy) -->
-    <div id="token-setup-screen" class="screen hidden">
-      <div class="setup-content">
-        <button id="token-back-btn" class="btn-back">← Back</button>
-        <h2>API Token Setup</h2>
-        <p class="help-text">Enter your Canvas API token</p>
-
-        <div class="warning-box">
-          <p><strong>⚠ Note:</strong> Some institutions have disabled API token generation. If you can't create a token, use Session Login or OAuth 2.0 instead.</p>
-        </div>
-
-        <div class="form-group">
-          <label for="token-canvas-url">Canvas Instance URL</label>
-          <input
-            type="text"
-            id="token-canvas-url"
-            placeholder="canvas.instructure.com"
-            class="input-field"
-          >
-        </div>
-
-        <div class="form-group">
-          <label for="api-token">Canvas API Token</label>
-          <input
-            type="password"
-            id="api-token"
-            placeholder="Enter your Canvas API token"
-            class="input-field"
-          >
-          <small class="help-text">
-            Get your token from: Account → Settings → New Access Token
-          </small>
-        </div>
-
-        <div class="error-message" id="token-error"></div>
-
-        <button id="save-token-btn" class="btn btn-primary">
-          Save & Continue
-        </button>
-
-        <div class="help-link">
-          <a href="#" id="show-token-help">How to get API token?</a>
-        </div>
-      </div>
-    </div>
-
-    <!-- Main Screen (unchanged) -->
+    <!-- Main Screen -->
     <div id="main-screen" class="screen hidden">
       <div class="settings-bar">
-        <span id="auth-method-badge" class="auth-badge"></span>
         <div class="settings-bar-actions">
-          <div class="theme-toggle" id="theme-toggle">
-            <svg class="theme-icon sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="5"/>
-              <line x1="12" y1="1" x2="12" y2="3"/>
-              <line x1="12" y1="21" x2="12" y2="23"/>
-              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
-              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
-              <line x1="1" y1="12" x2="3" y2="12"/>
-              <line x1="21" y1="12" x2="23" y2="12"/>
-              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
-              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-            </svg>
-            <svg class="theme-icon moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-            </svg>
-            <div class="theme-toggle-slider">
-              <svg class="moon-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-              </svg>
-              <svg class="sun-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="5"/>
-                <line x1="12" y1="1" x2="12" y2="3"/>
-                <line x1="12" y1="21" x2="12" y2="23"/>
-                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
-                <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
-                <line x1="1" y1="12" x2="3" y2="12"/>
-                <line x1="21" y1="12" x2="23" y2="12"/>
-                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
-                <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-              </svg>
-            </div>
-          </div>
           <button id="settings-btn" class="btn-icon" title="Settings">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path d="M12 15C13.6569 15 15 13.6569 15 12C15 10.3431 13.6569 9 12 9C10.3431 9 9 10.3431 9 12C9 13.6569 10.3431 15 12 15Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -276,9 +65,9 @@
         </div>
       </div>
 
-      <!-- Recently Used Courses -->
+      <!-- Course Study Bots -->
       <div id="recent-courses-section" class="section hidden">
-        <h3 class="section-subtitle">Recently Used</h3>
+        <h3 class="section-subtitle">Course Study Bots</h3>
         <div id="recent-courses-list" class="recent-courses-list">
           <!-- Recent courses will be populated here -->
         </div>
@@ -364,16 +153,7 @@
           </div>
 
           <div id="download-section">
-            <button id="download-btn" class="btn btn-primary btn-large">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M21 15V19C21 19.5304 20.7893 20.0391 20.4142 20.4142C20.0391 20.7893 19.5304 21 19 21H5C4.46957 21 3.96086 20.7893 3.58579 20.4142C3.21071 20.0391 3 19.5304 3 19V15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                <polyline points="7 10 12 15 17 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                <line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-              <span>Download Materials as ZIP</span>
-            </button>
-
-            <button id="study-bot-btn" class="btn btn-ai btn-large">
+            <button id="study-bot-btn" class="btn btn-ai btn-large" disabled title="Please select a course and wait for materials to load">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <rect x="5" y="4" width="14" height="16" rx="3" stroke="currentColor" stroke-width="2"/>
                 <circle cx="9" cy="10" r="1.5" fill="currentColor"/>
@@ -407,28 +187,46 @@
       </div>
     </div>
 
-    <!-- Settings Screen -->
-    <div id="settings-screen" class="screen hidden">
-      <div class="settings-content">
-        <button id="settings-back-btn" class="btn-back">← Back</button>
-        <h2>Settings</h2>
-
-        <div class="info-box">
-          <p><strong>Current Auth Method:</strong> <span id="current-auth-method">None</span></p>
-          <p><strong>Canvas URL:</strong> <span id="current-canvas-url">Not set</span></p>
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal hidden">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>Settings</h2>
+          <button id="close-settings-modal" class="btn-icon close-modal">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18 6L6 18M6 6l12 12"/>
+            </svg>
+          </button>
         </div>
-
-        <button id="change-auth-btn" class="btn btn-secondary">
-          Change Authentication Method
-        </button>
-
-        <button id="clear-data-btn" class="btn btn-danger">
-          Clear All Data
-        </button>
-
-        <div class="error-message" id="settings-error"></div>
-        <div class="success-message hidden" id="settings-success">
-          Settings updated successfully!
+        <div class="modal-body">
+          <div class="setting-item">
+            <div class="setting-info">
+              <h3>Theme</h3>
+              <p class="setting-description">Choose your preferred color theme</p>
+            </div>
+            <div class="theme-toggle-setting">
+              <button id="light-theme-btn" class="theme-btn">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="5"/>
+                  <line x1="12" y1="1" x2="12" y2="3"/>
+                  <line x1="12" y1="21" x2="12" y2="23"/>
+                  <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+                  <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                  <line x1="1" y1="12" x2="3" y2="12"/>
+                  <line x1="21" y1="12" x2="23" y2="12"/>
+                  <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+                  <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                </svg>
+                <span>Light</span>
+              </button>
+              <button id="dark-theme-btn" class="theme-btn active">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                </svg>
+                <span>Dark</span>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

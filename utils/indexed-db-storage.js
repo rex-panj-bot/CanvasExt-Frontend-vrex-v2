@@ -46,9 +46,20 @@ class MaterialsDB {
       const transaction = this.db.transaction(['materials'], 'readwrite');
       const store = transaction.objectStore('materials');
 
+      // Ensure courseName is a string (defensive check)
+      let validCourseName = 'Unknown Course';
+      if (typeof courseName === 'string') {
+        validCourseName = courseName;
+      } else if (typeof courseName === 'object' && courseName !== null) {
+        validCourseName = courseName.name || courseName.courseName || 'Unknown Course';
+        console.warn('⚠️ [IndexedDB] courseName was an object, extracted:', validCourseName, 'from:', courseName);
+      } else if (courseName) {
+        validCourseName = String(courseName);
+      }
+
       const data = {
         courseId,
-        courseName,
+        courseName: validCourseName,
         materials,
         lastUpdated: Date.now()
       };

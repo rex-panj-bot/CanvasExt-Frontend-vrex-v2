@@ -313,9 +313,9 @@ async function handleBackgroundDownloads(downloadTask) {
           fileName = file.actual_name; // Use actual name from GCS (might be .pdf)
         } else {
           // Download from Canvas
-          const response = await fetch(file.url, {
-            credentials: 'include'  // Include cookies for Canvas
-          });
+          // These are Canvas URLs which include authentication tokens in the URL itself
+          console.log(`📥 [SERVICE-WORKER] Downloading ${file.name} from Canvas`);
+          const response = await fetch(file.url);  // No credentials needed - token is in URL
 
           if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
@@ -414,19 +414,17 @@ async function handleBackgroundDownloads(downloadTask) {
   console.log(`📦 [SERVICE-WORKER] Downloaded ${allDownloadedFiles.length}/${allFiles.length} files`);
   console.log(`⚡ [SERVICE-WORKER] Memory optimized: processed ${totalBatches} batches of ${BATCH_SIZE} files each`);
 
-  // All uploads already handled in batches above
   // Mark task as complete
   await updateDownloadTask({
     status: 'complete',
     progress: {
       filesCompleted: completed,
       filesTotal: allFiles.length,
-      message: 'All materials loaded!'
-    },
-    downloadedFiles: allDownloadedFiles // Store downloaded files for IndexedDB update
+      message: 'All materials uploaded to backend!'
+    }
   });
 
-  console.log('✅ [SERVICE-WORKER] Background downloads complete');
+  console.log('✅ [SERVICE-WORKER] Background downloads and uploads complete');
 }
 
 /**

@@ -1,6 +1,6 @@
 /**
- * Popup Script V2 - Multi-Auth Support
- * Supports: OAuth 2.0, Session Login, and API Token
+ * Popup Script V2 - Session Auth Only
+ * Supports: Session Login
  */
 
 // Constants
@@ -23,21 +23,42 @@ let currentAuthMethod = null;
 
 // Screen management
 const screens = {
-  authMethod: document.getElementById('auth-method-screen'),
   sessionSetup: document.getElementById('session-setup-screen'),
-  oauthSetup: document.getElementById('oauth-setup-screen'),
-  tokenSetup: document.getElementById('token-setup-screen'),
-  main: document.getElementById('main-screen'),
-  settings: document.getElementById('settings-screen')
+  main: document.getElementById('main-screen')
 };
+
+// Initialize theme based on system preference or user override
+function initializeTheme() {
+  const savedTheme = localStorage.getItem('theme');
+
+  if (savedTheme) {
+    // User has set a preference, use it
+    document.documentElement.setAttribute('data-theme', savedTheme);
+  } else {
+    // No user preference, use system preference
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const theme = prefersDark ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', theme);
+  }
+}
+
+// Listen for system theme changes (only if user hasn't set a manual preference)
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+  const savedTheme = localStorage.getItem('theme');
+  if (!savedTheme) {
+    // Only update if user hasn't manually set a preference
+    const theme = e.matches ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', theme);
+  }
+});
+
+// Initialize theme before DOM loads
+initializeTheme();
 
 // Initialize
 document.addEventListener('DOMContentLoaded', init);
 
 async function init() {
-  // Initialize theme
-  initTheme();
-
   fileProcessor = new FileProcessor();
 
   // Always use session auth - no other options
@@ -71,54 +92,84 @@ async function init() {
   }
 
   setupEventListeners();
-
-  // Display extension ID for OAuth setup (still needed for reference)
-  document.getElementById('extension-id-display').textContent = chrome.runtime.id;
-  document.getElementById('redirect-uri-display').textContent = `https://${chrome.runtime.id}.chromiumapp.org/`;
 }
 
 function setupEventListeners() {
-  // Auth method selection
-  document.getElementById('select-session-auth').querySelector('.btn').addEventListener('click', () => {
-    showScreen('sessionSetup');
-  });
-
-  document.getElementById('select-oauth-auth').querySelector('.btn').addEventListener('click', () => {
-    showScreen('oauthSetup');
-  });
-
-  document.getElementById('select-token-auth').querySelector('.btn').addEventListener('click', () => {
-    showScreen('tokenSetup');
-  });
-
-  // Back buttons - removed since we only have session auth now
-
   // Session auth
   document.getElementById('session-login-btn').addEventListener('click', handleSessionLogin);
   document.getElementById('session-continue-btn').addEventListener('click', handleSessionContinue);
 
-  // OAuth auth
-  document.getElementById('save-oauth-btn').addEventListener('click', handleOAuthSetup);
-  document.getElementById('show-oauth-help').addEventListener('click', showOAuthHelp);
-  document.getElementById('copy-ext-id').addEventListener('click', copyExtensionId);
-
-  // Token auth
-  document.getElementById('save-token-btn').addEventListener('click', handleTokenSetup);
-  document.getElementById('show-token-help').addEventListener('click', showTokenHelp);
-
   // Main screen
-  document.getElementById('settings-btn').addEventListener('click', () => {
-    loadSettingsScreen();
-    showScreen('settings');
-  });
   document.getElementById('course-select').addEventListener('change', handleCourseChange);
-  document.getElementById('download-btn').addEventListener('click', downloadMaterials);
   document.getElementById('study-bot-btn').addEventListener('click', createStudyBot);
 
-  // Settings
-  document.getElementById('settings-back-btn').addEventListener('click', () => showScreen('main'));
-  document.getElementById('change-auth-btn').addEventListener('click', changeAuthMethod);
-  document.getElementById('clear-data-btn').addEventListener('click', clearAllData);
+  // Settings button - show modal
+  const settingsBtn = document.getElementById('settings-btn');
+  const settingsModal = document.getElementById('settings-modal');
+  const closeSettingsModal = document.getElementById('close-settings-modal');
+
+  if (settingsBtn && settingsModal) {
+    settingsBtn.addEventListener('click', () => {
+      settingsModal.classList.remove('hidden');
+      updateThemeButtons();
+    });
+  }
+
+  if (closeSettingsModal && settingsModal) {
+    closeSettingsModal.addEventListener('click', () => {
+      settingsModal.classList.add('hidden');
+    });
+
+    // Close modal when clicking outside
+    settingsModal.addEventListener('click', (e) => {
+      if (e.target === settingsModal) {
+        settingsModal.classList.add('hidden');
+      }
+    });
+  }
+
+  // Theme toggle buttons in modal
+  const lightThemeBtn = document.getElementById('light-theme-btn');
+  const darkThemeBtn = document.getElementById('dark-theme-btn');
+
+  if (lightThemeBtn) {
+    lightThemeBtn.addEventListener('click', () => {
+      document.documentElement.setAttribute('data-theme', 'light');
+      localStorage.setItem('theme', 'light');
+      updateThemeButtons();
+    });
+  }
+
+  if (darkThemeBtn) {
+    darkThemeBtn.addEventListener('click', () => {
+      document.documentElement.setAttribute('data-theme', 'dark');
+      localStorage.setItem('theme', 'dark');
+      updateThemeButtons();
+    });
+  }
+
+  function updateThemeButtons() {
+    const savedTheme = localStorage.getItem('theme');
+    let currentTheme;
+
+    if (savedTheme) {
+      currentTheme = savedTheme;
+    } else {
+      // No saved preference, check system
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      currentTheme = prefersDark ? 'dark' : 'light';
+    }
+
+    if (lightThemeBtn && darkThemeBtn) {
+      if (currentTheme === 'light') {
+        lightThemeBtn.classList.add('active');
+        darkThemeBtn.classList.remove('active');
+      } else {
+        lightThemeBtn.classList.remove('active');
+        darkThemeBtn.classList.add('active');
+      }
+    }
+  }
 
   // No checkboxes needed anymore - materials are always included
 
@@ -221,157 +272,6 @@ async function handleSessionContinue() {
   }
 }
 
-// ========== OAUTH AUTH ==========
-
-async function handleOAuthSetup() {
-  const url = document.getElementById('oauth-canvas-url').value.trim();
-  const clientId = document.getElementById('oauth-client-id').value.trim();
-  const clientSecret = document.getElementById('oauth-client-secret').value.trim();
-  const errorEl = document.getElementById('oauth-error');
-
-  hideError(errorEl);
-
-  if (!url || !clientId || !clientSecret) {
-    showError(errorEl, 'Please fill in all fields');
-    return;
-  }
-
-  try {
-    const btn = document.getElementById('save-oauth-btn');
-    btn.disabled = true;
-    btn.textContent = 'Authorizing...';
-
-    // Save OAuth credentials
-    let normalizedUrl = url;
-    if (!normalizedUrl.startsWith('http')) {
-      normalizedUrl = 'https://' + normalizedUrl;
-    }
-    normalizedUrl = normalizedUrl.replace(/\/$/, '');
-
-    await StorageManager.saveOAuthCredentials(clientId, clientSecret, normalizedUrl);
-
-    // Start OAuth flow
-    const oauth = new CanvasOAuth(normalizedUrl, clientId, clientSecret);
-    const tokens = await oauth.authenticate();
-
-    // Save tokens
-    await StorageManager.saveOAuthTokens(tokens.accessToken, tokens.refreshToken, tokens.expiresIn);
-    await StorageManager.saveAuthMethod('oauth');
-    currentAuthMethod = 'oauth';
-
-    // Initialize API with OAuth
-    canvasAPI = new CanvasAPI(normalizedUrl, tokens.accessToken, 'oauth');
-
-    await loadMainScreen();
-  } catch (error) {
-    console.error('OAuth setup error:', error);
-    showError(errorEl, error.message);
-    document.getElementById('save-oauth-btn').disabled = false;
-    document.getElementById('save-oauth-btn').textContent = 'Save & Authorize with Canvas';
-  }
-}
-
-function showOAuthHelp(e) {
-  e.preventDefault();
-  const helpText = `OAuth 2.0 Setup Instructions:
-
-1. Find Your Extension ID:
-   - Go to chrome://extensions
-   - Find "Canvas Material Extractor"
-   - Copy the Extension ID
-
-2. Request Developer Key from Canvas Admin:
-   - Ask your Canvas admin to create a Developer Key
-   - Provide them with:
-     * Key Name: Canvas Material Extractor
-     * Redirect URI: https://[your-extension-id].chromiumapp.org/
-     * Scopes: url:GET|/api/v1/*
-
-3. Get Credentials:
-   - Admin will provide Client ID and Client Secret
-   - Enter them in the form above
-
-4. Authorize:
-   - Click "Save & Authorize with Canvas"
-   - Log in to Canvas when prompted
-   - Authorize the extension
-
-For detailed instructions, see the README file.`;
-
-  alert(helpText);
-}
-
-function copyExtensionId() {
-  const extId = chrome.runtime.id;
-  navigator.clipboard.writeText(extId).then(() => {
-    const btn = document.getElementById('copy-ext-id');
-    const originalText = btn.textContent;
-    btn.textContent = 'Copied!';
-    setTimeout(() => {
-      btn.textContent = originalText;
-    }, 2000);
-  });
-}
-
-// ========== TOKEN AUTH ==========
-
-async function handleTokenSetup() {
-  const url = document.getElementById('token-canvas-url').value.trim();
-  const token = document.getElementById('api-token').value.trim();
-  const errorEl = document.getElementById('token-error');
-
-  hideError(errorEl);
-
-  if (!url || !token) {
-    showError(errorEl, 'Please enter both Canvas URL and API token');
-    return;
-  }
-
-  try {
-    const btn = document.getElementById('save-token-btn');
-    btn.disabled = true;
-    btn.textContent = 'Testing connection...';
-
-    // Save credentials
-    await StorageManager.saveCredentials(token, url);
-    await StorageManager.saveAuthMethod('token');
-    currentAuthMethod = 'token';
-
-    // Test connection
-    const savedUrl = await StorageManager.getCanvasUrl();
-    canvasAPI = new CanvasAPI(savedUrl, token, 'token');
-
-    const connected = await canvasAPI.testConnection();
-
-    if (!connected) {
-      throw new Error('Failed to connect to Canvas. Please check your credentials.');
-    }
-
-    await loadMainScreen();
-  } catch (error) {
-    showError(errorEl, error.message);
-    document.getElementById('save-token-btn').disabled = false;
-    document.getElementById('save-token-btn').textContent = 'Save & Continue';
-  }
-}
-
-function showTokenHelp(e) {
-  e.preventDefault();
-  const helpText = `To get your Canvas API token:
-
-1. Log in to Canvas
-2. Click on "Account" in the left navigation
-3. Click on "Settings"
-4. Scroll down to "Approved Integrations"
-5. Click "+ New Access Token"
-6. Enter a purpose (e.g., "Material Extractor")
-7. Click "Generate Token"
-8. Copy the token and paste it here
-
-Note: Some institutions have disabled API token generation. If you don't see this option, use Session Login or OAuth 2.0 instead.`;
-
-  alert(helpText);
-}
 
 // ========== MAIN SCREEN ==========
 
@@ -379,26 +279,13 @@ async function loadMainScreen() {
   try {
     // Initialize Canvas API if not already done
     if (!canvasAPI) {
-      const authMethod = await StorageManager.getAuthMethod();
       const url = await StorageManager.getCanvasUrl();
-
-      if (authMethod === 'oauth') {
-        const { accessToken } = await StorageManager.getOAuthTokens();
-        canvasAPI = new CanvasAPI(url, accessToken, 'oauth');
-      } else if (authMethod === 'session') {
-        canvasAPI = new CanvasAPI(url, null, 'session');
-      } else if (authMethod === 'token') {
-        const { token } = await StorageManager.getCredentials();
-        canvasAPI = new CanvasAPI(url, token, 'token');
-      }
+      canvasAPI = new CanvasAPI(url, null, 'session');
     }
-
-    // Update auth badge
-    const badge = document.getElementById('auth-method-badge');
-    badge.textContent = currentAuthMethod || 'Unknown';
 
     showScreen('main');
     await loadCourses();
+    await loadRecentCourses();
   } catch (error) {
     console.error('Error loading main screen:', error);
     showAuthMethodScreen();
@@ -440,6 +327,99 @@ async function loadCourses() {
   }
 }
 
+async function loadRecentCourses() {
+  try {
+    const materialsDB = new MaterialsDB();
+    const courseIds = await materialsDB.listCourses();
+
+    if (!courseIds || courseIds.length === 0) {
+      // No recent courses, keep section hidden
+      document.getElementById('recent-courses-section').classList.add('hidden');
+      await materialsDB.close();
+      return;
+    }
+
+    // Load course details for each course ID
+    const recentCourses = [];
+    for (const courseId of courseIds) {
+      const materialsData = await materialsDB.loadMaterials(courseId);
+      if (materialsData && materialsData.courseName) {
+        // Debug log to check what courseName type we're getting
+        console.log('📚 [Recent Courses] courseId:', courseId, 'courseName type:', typeof materialsData.courseName, 'value:', materialsData.courseName);
+
+        // Ensure we have a valid course name (not an object)
+        let courseName;
+        if (typeof materialsData.courseName === 'string') {
+          courseName = materialsData.courseName;
+        } else if (typeof materialsData.courseName === 'object' && materialsData.courseName !== null) {
+          // If courseName is an object, try to extract a name property
+          courseName = materialsData.courseName.name || materialsData.courseName.courseName || 'Unknown Course';
+          console.warn('⚠️ courseName was an object, extracted:', courseName);
+        } else {
+          courseName = String(materialsData.courseName);
+        }
+
+        recentCourses.push({
+          id: String(courseId), // Ensure courseId is a string
+          name: courseName,
+          lastUpdated: materialsData.lastUpdated
+        });
+      }
+    }
+
+    await materialsDB.close();
+
+    // Sort by last updated (most recent first) - show ALL courses
+    recentCourses.sort((a, b) => b.lastUpdated - a.lastUpdated);
+
+    if (recentCourses.length === 0) {
+      document.getElementById('recent-courses-section').classList.add('hidden');
+      return;
+    }
+
+    // Display recent courses
+    const recentCoursesSection = document.getElementById('recent-courses-section');
+    const recentCoursesList = document.getElementById('recent-courses-list');
+
+    recentCoursesList.innerHTML = '';
+
+    recentCourses.forEach(course => {
+      const courseItem = document.createElement('div');
+      courseItem.className = 'recent-course-card';
+      courseItem.innerHTML = `
+        <div class="recent-course-name">${course.name}</div>
+        <div class="recent-course-code">${formatTimeAgo(course.lastUpdated)}</div>
+      `;
+      courseItem.addEventListener('click', () => {
+        // Open chat page directly for this course
+        const chatUrl = chrome.runtime.getURL(`chat/chat.html?courseId=${course.id}`);
+        chrome.tabs.create({ url: chatUrl });
+      });
+      recentCoursesList.appendChild(courseItem);
+    });
+
+    recentCoursesSection.classList.remove('hidden');
+  } catch (error) {
+    console.error('Error loading recent courses:', error);
+    // Don't show error to user, just keep section hidden
+    document.getElementById('recent-courses-section').classList.add('hidden');
+  }
+}
+
+function formatTimeAgo(timestamp) {
+  const now = Date.now();
+  const diff = now - timestamp;
+
+  const minutes = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  const days = Math.floor(diff / 86400000);
+
+  if (minutes < 1) return 'Just now';
+  if (minutes < 60) return `${minutes} min ago`;
+  if (hours < 24) return `${hours} hour${hours > 1 ? 's' : ''} ago`;
+  return `${days} day${days > 1 ? 's' : ''} ago`;
+}
+
 async function handleCourseChange() {
   const courseId = document.getElementById('course-select').value;
 
@@ -447,8 +427,17 @@ async function handleCourseChange() {
 
   if (!courseId) {
     document.getElementById('material-section').classList.add('hidden');
+    // Disable study bot button when no course selected
+    const studyBotBtn = document.getElementById('study-bot-btn');
+    studyBotBtn.disabled = true;
+    studyBotBtn.title = 'Please select a course first';
     return;
   }
+
+  // Disable study bot button immediately when switching courses
+  const studyBotBtn = document.getElementById('study-bot-btn');
+  studyBotBtn.disabled = true;
+  studyBotBtn.title = 'Loading course materials...';
 
   const courseName = document.getElementById('course-select').options[document.getElementById('course-select').selectedIndex].text;
   currentCourse = { id: courseId, name: courseName };
@@ -459,7 +448,13 @@ async function handleCourseChange() {
 }
 
 async function scanCourseMaterials(courseId, courseName) {
+  const studyBotBtn = document.getElementById('study-bot-btn');
+
   try {
+    // Disable button and show loading state
+    studyBotBtn.disabled = true;
+    studyBotBtn.title = 'Loading course materials...';
+
     document.getElementById('material-section').classList.remove('hidden');
     document.getElementById('course-name').textContent = courseName;
     document.getElementById('scan-loading').classList.remove('hidden');
@@ -479,10 +474,17 @@ async function scanCourseMaterials(courseId, courseName) {
 
     document.getElementById('scan-loading').classList.add('hidden');
     document.getElementById('material-summary').classList.remove('hidden');
+
+    // Re-enable study bot button after materials are loaded
+    studyBotBtn.disabled = false;
+    studyBotBtn.title = 'Create an AI study bot for this course';
   } catch (error) {
     console.error('Error scanning materials:', error);
     document.getElementById('scan-loading').classList.add('hidden');
     showError(document.getElementById('material-error'), 'Failed to scan materials: ' + error.message);
+    // Keep study bot button disabled on error
+    studyBotBtn.disabled = true;
+    studyBotBtn.title = 'Cannot create study bot - materials failed to load';
   }
 }
 
@@ -1004,8 +1006,11 @@ async function continueLoadingInBackground(courseId, courseName, filesToDownload
  * Performance: <2s to open chat (warm or cold!), loading continues in background
  */
 async function createStudyBot() {
+  const studyBotBtn = document.getElementById('study-bot-btn');
+
   try {
-    document.getElementById('study-bot-btn').disabled = true;
+    studyBotBtn.disabled = true;
+    studyBotBtn.title = 'Creating study bot...';
     document.getElementById('study-bot-progress').classList.remove('hidden');
 
     // Progress update helper
@@ -1612,7 +1617,8 @@ async function createStudyBot() {
       updateProgress('Chat opened! Downloads continuing in background...', 100);
       setTimeout(() => {
         document.getElementById('study-bot-progress').classList.add('hidden');
-        document.getElementById('study-bot-btn').disabled = false;
+        studyBotBtn.disabled = false;
+        studyBotBtn.title = 'Create an AI study bot for this course';
       }, 1000);
 
       console.log('✅ [POPUP] Background loading initiated, chat will open immediately');
@@ -1645,7 +1651,8 @@ async function createStudyBot() {
       // Reset UI
       setTimeout(() => {
         document.getElementById('study-bot-progress').classList.add('hidden');
-        document.getElementById('study-bot-btn').disabled = false;
+        studyBotBtn.disabled = false;
+        studyBotBtn.title = 'Create an AI study bot for this course';
         document.getElementById('study-bot-progress-fill').style.width = '0%';
       }, 500);
     }
@@ -1654,7 +1661,8 @@ async function createStudyBot() {
     console.error('Error creating study bot:', error);
     showError(document.getElementById('material-error'), 'Failed to create study bot: ' + error.message);
     document.getElementById('study-bot-progress').classList.add('hidden');
-    document.getElementById('study-bot-btn').disabled = false;
+    studyBotBtn.disabled = false;
+    studyBotBtn.title = 'Create an AI study bot for this course';
   }
 }
 
@@ -1714,24 +1722,6 @@ function filterSelectedMaterials(materials, selectedFileIds) {
 
 // ========== SETTINGS ==========
 
-async function loadSettingsScreen() {
-  const authMethod = await StorageManager.getAuthMethod();
-  const url = await StorageManager.getCanvasUrl();
-
-  document.getElementById('current-auth-method').textContent = authMethod || 'None';
-  document.getElementById('current-canvas-url').textContent = url || 'Not set';
-}
-
-async function changeAuthMethod() {
-  // Session auth only - just clear and restart
-  await StorageManager.clearAll();
-  showScreen('sessionSetup');
-}
-
-async function clearAllData() {
-  await StorageManager.clearAll();
-  showScreen('sessionSetup');
-}
 
 // ========== DETAILED FILE LIST VIEW ==========
 
@@ -1903,39 +1893,4 @@ function deselectAllFiles() {
   selectedFiles.clear();
 }
 
-// Theme Management
-function initTheme() {
-  // Load saved theme preference
-  chrome.storage.local.get(['theme'], (result) => {
-    const savedTheme = result.theme || 'dark';
-    applyTheme(savedTheme);
-  });
-
-  // Set up theme toggle
-  const themeToggle = document.getElementById('theme-toggle');
-  if (themeToggle) {
-    themeToggle.addEventListener('click', toggleTheme);
-  }
-}
-
-function toggleTheme() {
-  const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
-  const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-  applyTheme(newTheme);
-
-  // Save theme preference
-  chrome.storage.local.set({ theme: newTheme });
-}
-
-function applyTheme(theme) {
-  document.documentElement.setAttribute('data-theme', theme);
-  const themeToggle = document.getElementById('theme-toggle');
-
-  if (themeToggle) {
-    if (theme === 'light') {
-      themeToggle.classList.add('light');
-    } else {
-      themeToggle.classList.remove('light');
-    }
-  }
-}
+// Theme Management - removed (now handled at top of file with system preference detection)
