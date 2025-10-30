@@ -1889,6 +1889,64 @@ function parseCitations(content) {
 }
 
 /**
+ * Render LaTeX math expressions using KaTeX
+ * Supports both inline math ($...$) and display math ($$...$$)
+ */
+function renderMath(content) {
+  if (!window.katex) {
+    console.warn('KaTeX not loaded, skipping math rendering');
+    return content;
+  }
+
+  try {
+    // First, protect code blocks from math processing
+    const codeBlocks = [];
+    let protectedContent = content.replace(/```[\s\S]*?```/g, (match) => {
+      codeBlocks.push(match);
+      return `__CODE_BLOCK_${codeBlocks.length - 1}__`;
+    });
+
+    // Render display math ($$...$$)
+    protectedContent = protectedContent.replace(/\$\$([\s\S]+?)\$\$/g, (match, math) => {
+      try {
+        return katex.renderToString(math.trim(), {
+          displayMode: true,
+          throwOnError: false,
+          output: 'html'
+        });
+      } catch (e) {
+        console.error('KaTeX display math error:', e);
+        return match; // Return original if rendering fails
+      }
+    });
+
+    // Render inline math ($...$)
+    protectedContent = protectedContent.replace(/\$([^\$\n]+?)\$/g, (match, math) => {
+      try {
+        return katex.renderToString(math.trim(), {
+          displayMode: false,
+          throwOnError: false,
+          output: 'html'
+        });
+      } catch (e) {
+        console.error('KaTeX inline math error:', e);
+        return match; // Return original if rendering fails
+      }
+    });
+
+    // Restore code blocks
+    protectedContent = protectedContent.replace(/__CODE_BLOCK_(\d+)__/g, (match, index) => {
+      return codeBlocks[parseInt(index)];
+    });
+
+    return protectedContent;
+  } catch (e) {
+    console.error('Math rendering error:', e);
+    return content;
+  }
+}
+
+/**
  * Normalize filename for flexible matching
  * Removes date prefixes, handles underscores/dashes, case-insensitive
  */
@@ -1976,13 +2034,16 @@ function addMessage(role, content) {
   const avatar = role === 'assistant' ? '🤖' : '👤';
   const roleName = role === 'assistant' ? 'AI Assistant' : 'You';
 
-  // For assistant messages: parse citations first, then render markdown
+  // For assistant messages: render math, parse citations, then render markdown
   let processedContent = content;
   if (role === 'assistant') {
-    processedContent = parseCitations(content);
+    // Step 1: Render math (LaTeX → HTML)
+    processedContent = renderMath(processedContent);
+    // Step 2: Parse citations
+    processedContent = parseCitations(processedContent);
   }
 
-  // Render markdown
+  // Step 3: Render markdown
   const renderedContent = role === 'assistant' ? marked.parse(processedContent) : content;
 
   messageDiv.innerHTML = `
@@ -2051,8 +2112,9 @@ function updateTypingIndicator(id, content) {
   const messageDiv = document.getElementById(id);
   if (messageDiv) {
     const textDiv = messageDiv.querySelector('.message-text');
-    // Parse citations in streaming content too
-    const processedContent = parseCitations(content);
+    // Render math and parse citations in streaming content too
+    let processedContent = renderMath(content);
+    processedContent = parseCitations(processedContent);
     textDiv.innerHTML = marked.parse(processedContent);
     elements.messagesContainer.scrollTop = elements.messagesContainer.scrollHeight;
   }

@@ -2989,3 +2989,53 @@ body {
   color: var(--error);
   margin-bottom: 8px;
 }
+
+/* KaTeX Math Rendering Styles */
+/* Override KaTeX defaults to match our theme */
+.katex {
+  font-size: 1.1em;
+  color: var(--text-primary);
+}
+
+.katex-display {
+  margin: 1em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* Dark theme adjustments for KaTeX */
+:root:not([data-theme="light"]) .katex {
+  color: var(--text-primary);
+}
+
+/* Light theme adjustments for KaTeX */
+:root[data-theme="light"] .katex {
+  color: var(--text-primary);
+}
+
+/* Scrollbar for wide equations */
+.katex-display::-webkit-scrollbar {
+  height: 6px;
+}
+
+.katex-display::-webkit-scrollbar-track {
+  background: var(--surface);
+}
+
+.katex-display::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+.katex-display::-webkit-scrollbar-thumb:hover {
+  background: var(--text-light);
+}
+
+/* Ensure math doesn't break markdown flow */
+.message-text .katex-display {
+  text-align: center;
+}
+
+.message-text p .katex {
+  vertical-align: middle;
+}
