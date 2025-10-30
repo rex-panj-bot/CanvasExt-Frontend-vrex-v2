@@ -635,19 +635,27 @@ function displayMaterials() {
         if (moduleIdx !== null && itemIdx !== null) {
           // Remove from module items
           const module = processedMaterials.modules[parseInt(moduleIdx)];
+          console.log(`Removing module item at module ${moduleIdx}, item ${itemIdx}`);
           module.items.splice(parseInt(itemIdx), 1);
+          console.log(`Module now has ${module.items.length} items`);
         } else if (category && index !== null) {
           // Remove from category array
+          console.log(`Removing ${category} item at index ${index}`);
+          const originalLength = processedMaterials[category].length;
           processedMaterials[category].splice(parseInt(index), 1);
+          console.log(`${category} reduced from ${originalLength} to ${processedMaterials[category].length} items`);
         }
 
-        // Update IndexedDB
-        chrome.storage.local.set({
+        // Update IndexedDB and refresh display
+        await chrome.storage.local.set({
           [`course_materials_${courseId}`]: processedMaterials
-        }, () => {
-          displayMaterials();
-          showTemporaryMessage(`Removed "${materialName}". Restore from Settings if needed.`);
         });
+        console.log('Updated IndexedDB with removed file');
+
+        // Re-render the materials list immediately
+        displayMaterials();
+        console.log('Re-rendered materials list');
+        showTemporaryMessage(`Removed "${materialName}". Restore from Settings if needed.`);
 
       } catch (error) {
         console.error('Error deleting material:', error);
