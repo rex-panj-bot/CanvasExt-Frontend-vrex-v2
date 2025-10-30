@@ -658,6 +658,20 @@ body {
   background: var(--success);
 }
 
+.status-indicator.warning {
+  background: #f59e0b; /* Orange/amber for unstable/reconnecting */
+  animation: pulse-warning 2s ease-in-out infinite;
+}
+
+@keyframes pulse-warning {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
 .status-indicator.error {
   background: var(--error);
 }

@@ -1004,6 +1004,26 @@ async function loadAPIKey() {
 
     // Connect WebSocket
     try {
+      // Set up connection state change handler
+      wsClient.onConnectionStateChange = (state) => {
+        switch (state) {
+          case 'connected':
+            setAPIStatus('connected', 'Backend Connected');
+            elements.sendBtn.disabled = false;
+            break;
+          case 'reconnecting':
+            setAPIStatus('warning', 'Reconnecting...');
+            break;
+          case 'stale':
+            setAPIStatus('warning', 'Connection Unstable');
+            break;
+          case 'offline':
+            setAPIStatus('error', 'Offline');
+            elements.sendBtn.disabled = true;
+            break;
+        }
+      };
+
       await wsClient.connect(courseId);
       setAPIStatus('connected', 'Backend Connected');
       elements.sendBtn.disabled = false;

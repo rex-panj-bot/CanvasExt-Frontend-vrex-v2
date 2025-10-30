@@ -15,6 +15,19 @@ class WebSocketClient {
     this.reconnectDelay = 1000; // Start with 1 second
     this.reconnectTimeout = null;
     this.pendingMessages = new Map(); // Track pending requests
+
+    // Heartbeat/keepalive settings
+    this.pingInterval = null;
+    this.pingTimeout = null;
+    this.lastPongReceived = null;
+    this.lastMessageReceived = null;
+    this.PING_INTERVAL_MS = 30000; // Send ping every 30 seconds
+    this.PONG_TIMEOUT_MS = 10000; // Expect pong within 10 seconds
+    this.STALE_CONNECTION_MS = 45000; // Consider connection stale after 45s of no activity
+
+    // Connection monitoring
+    this.connectionMonitorInterval = null;
+    this.onConnectionStateChange = null; // Callback for connection state changes
   }
 
   /**
@@ -37,6 +50,14 @@ class WebSocketClient {
         this.isConnected = true;
         this.reconnectAttempts = 0; // Reset reconnect counter
         this.reconnectDelay = 1000; // Reset delay
+        this.lastMessageReceived = Date.now();
+        this.lastPongReceived = Date.now();
+
+        // Start heartbeat and monitoring
+        this.startHeartbeat();
+        this.startConnectionMonitor();
+        this.notifyConnectionState('connected');
+
         resolve();
       };
 
@@ -50,14 +71,103 @@ class WebSocketClient {
         console.log(`🔌 WebSocket disconnected (code: ${event.code}, reason: ${event.reason || 'unknown'})`);
         this.isConnected = false;
 
+        // Stop heartbeat and monitoring
+        this.stopHeartbeat();
+        this.stopConnectionMonitor();
+
         // Attempt to reconnect if not manually closed
         if (event.code !== 1000 && this.reconnectAttempts < this.maxReconnectAttempts) {
           this.attemptReconnect();
         } else if (this.reconnectAttempts >= this.maxReconnectAttempts) {
           console.error('❌ Max reconnection attempts reached');
+          this.notifyConnectionState('offline');
         }
       };
     });
+  }
+
+  /**
+   * Start heartbeat/ping mechanism
+   */
+  startHeartbeat() {
+    // Clear any existing intervals
+    this.stopHeartbeat();
+
+    console.log('💓 Starting heartbeat (ping every 30s)');
+
+    // Send ping every 30 seconds
+    this.pingInterval = setInterval(() => {
+      if (this.ws && this.isConnected) {
+        console.log('📤 Sending ping...');
+        try {
+          this.ws.send(JSON.stringify({ type: 'ping' }));
+
+          // Set timeout for pong response
+          this.pingTimeout = setTimeout(() => {
+            console.warn('⚠️ No pong received within 10s, connection may be dead');
+            this.notifyConnectionState('stale');
+            // Force reconnection
+            this.ws.close();
+          }, this.PONG_TIMEOUT_MS);
+        } catch (error) {
+          console.error('Error sending ping:', error);
+          this.ws.close();
+        }
+      }
+    }, this.PING_INTERVAL_MS);
+  }
+
+  /**
+   * Stop heartbeat mechanism
+   */
+  stopHeartbeat() {
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
+    }
+    if (this.pingTimeout) {
+      clearTimeout(this.pingTimeout);
+      this.pingTimeout = null;
+    }
+  }
+
+  /**
+   * Start connection monitoring (checks for stale connections)
+   */
+  startConnectionMonitor() {
+    this.stopConnectionMonitor();
+
+    this.connectionMonitorInterval = setInterval(() => {
+      if (!this.isConnected) return;
+
+      const now = Date.now();
+      const timeSinceLastMessage = now - (this.lastMessageReceived || now);
+
+      // If no messages received for 45s, connection might be stale
+      if (timeSinceLastMessage > this.STALE_CONNECTION_MS) {
+        console.warn(`⚠️ No messages received for ${timeSinceLastMessage}ms, connection may be stale`);
+        this.notifyConnectionState('stale');
+      }
+    }, 15000); // Check every 15 seconds
+  }
+
+  /**
+   * Stop connection monitoring
+   */
+  stopConnectionMonitor() {
+    if (this.connectionMonitorInterval) {
+      clearInterval(this.connectionMonitorInterval);
+      this.connectionMonitorInterval = null;
+    }
+  }
+
+  /**
+   * Notify connection state change to UI
+   */
+  notifyConnectionState(state) {
+    if (this.onConnectionStateChange) {
+      this.onConnectionStateChange(state);
+    }
   }
 
   /**
@@ -72,11 +182,13 @@ class WebSocketClient {
     const delay = Math.min(this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1), 30000);
 
     console.log(`🔄 Attempting reconnect ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay}ms...`);
+    this.notifyConnectionState('reconnecting');
 
     this.reconnectTimeout = setTimeout(() => {
       if (this.courseId) {
         this.connect(this.courseId).catch(error => {
           console.error('Reconnection failed:', error);
+          this.notifyConnectionState('offline');
         });
       }
     }, delay);
@@ -125,7 +237,21 @@ class WebSocketClient {
         try {
           const data = JSON.parse(event.data);
 
-          if (data.type === 'chunk') {
+          // Update last message received timestamp
+          this.lastMessageReceived = Date.now();
+
+          if (data.type === 'pong') {
+            // Received pong response
+            console.log('📥 Received pong');
+            this.lastPongReceived = Date.now();
+            // Clear pong timeout
+            if (this.pingTimeout) {
+              clearTimeout(this.pingTimeout);
+              this.pingTimeout = null;
+            }
+            // Don't process pong as a regular message
+            return;
+          } else if (data.type === 'chunk') {
             if (onChunk) {
               onChunk(data.content);
             }
@@ -157,6 +283,10 @@ class WebSocketClient {
    * Close WebSocket connection
    */
   disconnect() {
+    // Stop heartbeat and monitoring
+    this.stopHeartbeat();
+    this.stopConnectionMonitor();
+
     if (this.ws) {
       this.ws.close();
       this.ws = null;
