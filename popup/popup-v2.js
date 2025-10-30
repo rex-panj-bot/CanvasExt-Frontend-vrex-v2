@@ -1545,6 +1545,21 @@ async function createStudyBot() {
         console.warn('Could not auto-detect syllabus:', e);
       }
 
+      // Auto-detect and save syllabus BEFORE opening chat
+      updateProgress('Identifying syllabus...', PROGRESS_PERCENT.UPLOADING + 5);
+      try {
+        const syllabusResponse = await fetch(`https://web-production-9aaba7.up.railway.app/courses/${currentCourse.id}/syllabus`);
+        const syllabusData = await syllabusResponse.json();
+        if (syllabusData.success && syllabusData.syllabus_id) {
+          console.log(`📚 Auto-detected syllabus: ${syllabusData.syllabus_name}`);
+          updateProgress(`Found syllabus: ${syllabusData.syllabus_name}`, PROGRESS_PERCENT.UPLOADING + 8);
+        } else {
+          console.log('⚠️ No syllabus detected automatically');
+        }
+      } catch (e) {
+        console.warn('Could not auto-detect syllabus:', e);
+      }
+
       // NEW APPROACH: Write download task to chrome.storage, service worker will handle it
       updateProgress('Starting background downloads...', PROGRESS_PERCENT.DOWNLOADING_START);
 

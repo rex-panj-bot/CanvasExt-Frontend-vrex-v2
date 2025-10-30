@@ -34,6 +34,26 @@
       </div>
 
       <div class="sidebar-content">
+        <!-- Syllabus Selector -->
+        <div class="syllabus-section">
+          <div class="syllabus-header">
+            <span class="syllabus-icon">📚</span>
+            <span class="syllabus-label">Course Syllabus</span>
+          </div>
+          <div id="syllabus-selector" class="syllabus-selector">
+            <select id="syllabus-select" class="syllabus-select">
+              <option value="">Detecting syllabus...</option>
+            </select>
+            <button id="save-syllabus-btn" class="btn-syllabus-save" title="Save syllabus selection" disabled>
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                <path d="M12 5L6.5 10.5L4 8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span>Save Syllabus</span>
+            </button>
+          </div>
+          <div id="syllabus-status" class="syllabus-status"></div>
+        </div>
+
         <div class="materials-section">
           <div class="materials-header">
             <h3>Course Materials</h3>

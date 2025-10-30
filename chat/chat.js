@@ -267,6 +267,9 @@ async function loadMaterials() {
     // Display materials in sidebar
     displayMaterials();
 
+    // Load syllabus selector
+    await loadSyllabusSelector();
+
     console.log('Materials loaded successfully');
   } catch (error) {
     console.error('Error loading materials:', error);
@@ -604,6 +607,122 @@ function displayMaterials() {
       }
     }
   });
+}
+
+/**
+ * Load syllabus selector dropdown with available files
+ */
+async function loadSyllabusSelector() {
+  try {
+    const syllabusSelect = document.getElementById('syllabus-select');
+    const saveSyllabusBtn = document.getElementById('save-syllabus-btn');
+    const syllabusStatus = document.getElementById('syllabus-status');
+
+    if (!syllabusSelect) return;
+
+    // Check if syllabus is already detected
+    const response = await fetch(`https://web-production-9aaba7.up.railway.app/courses/${courseId}/syllabus`);
+    const data = await response.json();
+
+    // Build list of all files for dropdown
+    const fileOptions = [];
+
+    // Collect files from modules
+    if (processedMaterials.modules) {
+      processedMaterials.modules.forEach(module => {
+        if (module.items) {
+          module.items.forEach(item => {
+            if (item.type === 'File' && item.url) {
+              const name = item.stored_name || item.title || item.name;
+              const cleanName = name.replace(/\.(pdf|docx?|txt|xlsx?|pptx?|csv|md|rtf)$/i, '');
+              const docId = `${courseId}_${cleanName.replace(/\//g, '-')}`;
+              fileOptions.push({ docId, name });
+            }
+          });
+        }
+      });
+    }
+
+    // Collect standalone files
+    if (processedMaterials.files) {
+      processedMaterials.files.forEach(file => {
+        const name = file.stored_name || file.name || file.display_name;
+        if (name) {
+          const cleanName = name.replace(/\.(pdf|docx?|txt|xlsx?|pptx?|csv|md|rtf)$/i, '');
+          const docId = `${courseId}_${cleanName.replace(/\//g, '-')}`;
+          fileOptions.push({ docId, name });
+        }
+      });
+    }
+
+    // Populate dropdown
+    syllabusSelect.innerHTML = '<option value="">-- No syllabus selected --</option>';
+    fileOptions.forEach(file => {
+      const option = document.createElement('option');
+      option.value = file.docId;
+      option.textContent = file.name;
+      syllabusSelect.appendChild(option);
+    });
+
+    // Set current syllabus if detected
+    if (data.success && data.syllabus_id) {
+      syllabusSelect.value = data.syllabus_id;
+      syllabusStatus.textContent = `✓ Using: ${data.syllabus_name || 'Syllabus'}`;
+      syllabusStatus.className = 'syllabus-status success';
+      console.log('📚 Loaded syllabus:', data.syllabus_name);
+    } else {
+      syllabusStatus.textContent = '⚠️ No syllabus detected';
+      syllabusStatus.className = 'syllabus-status warning';
+    }
+
+    // Enable save button
+    saveSyllabusBtn.disabled = false;
+
+    // Handle selection change
+    syllabusSelect.addEventListener('change', () => {
+      saveSyllabusBtn.disabled = false;
+    });
+
+    // Handle save button click
+    saveSyllabusBtn.addEventListener('click', async () => {
+      const selectedSyllabusId = syllabusSelect.value;
+
+      if (!selectedSyllabusId) {
+        syllabusStatus.textContent = '⚠️ Please select a file';
+        syllabusStatus.className = 'syllabus-status warning';
+        return;
+      }
+
+      try {
+        syllabusStatus.textContent = 'Saving...';
+        syllabusStatus.className = 'syllabus-status';
+
+        const saveResponse = await fetch(`https://web-production-9aaba7.up.railway.app/courses/${courseId}/syllabus?syllabus_id=${encodeURIComponent(selectedSyllabusId)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        const saveData = await saveResponse.json();
+
+        if (saveData.success) {
+          syllabusStatus.textContent = `✓ Syllabus saved: ${saveData.syllabus_name}`;
+          syllabusStatus.className = 'syllabus-status success';
+          saveSyllabusBtn.disabled = true;
+          console.log('✅ Syllabus saved:', saveData.syllabus_name);
+        } else {
+          syllabusStatus.textContent = `✗ Error: ${saveData.error}`;
+          syllabusStatus.className = 'syllabus-status error';
+        }
+      } catch (error) {
+        console.error('Error saving syllabus:', error);
+        syllabusStatus.textContent = '✗ Failed to save';
+        syllabusStatus.className = 'syllabus-status error';
+      }
+    });
+
+  } catch (error) {
+    console.error('Error loading syllabus selector:', error);
+  }
 }
 
 /**
