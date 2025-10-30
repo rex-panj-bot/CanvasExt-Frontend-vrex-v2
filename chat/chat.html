@@ -41,10 +41,7 @@
         <!-- Syllabus Selector - Compact Single Line -->
         <div class="syllabus-section">
           <div class="syllabus-compact">
-            <div class="syllabus-label-row">
-              <span class="syllabus-icon">📚</span>
-              <span class="syllabus-label-text">Syllabus</span>
-            </div>
+            <span class="syllabus-label-text">Syllabus</span>
             <select id="syllabus-select" class="syllabus-select-compact">
               <option value="">Detecting...</option>
             </select>
@@ -222,6 +219,11 @@
             rows="1"></textarea>
           <button id="send-btn" class="btn btn-primary" disabled>
             <span class="send-icon">▲</span>
+          </button>
+          <button id="stop-btn" class="btn btn-stop hidden">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+              <rect x="3" y="3" width="10" height="10" rx="1"/>
+            </svg>
           </button>
         </div>
 

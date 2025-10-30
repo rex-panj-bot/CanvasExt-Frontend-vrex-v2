@@ -83,6 +83,20 @@ class WebSocketClient {
   }
 
   /**
+   * Stop current streaming
+   */
+  stopStreaming() {
+    if (this.ws && this.isConnected) {
+      console.log('Sending stop signal to backend...');
+      try {
+        this.ws.send(JSON.stringify({ type: 'stop' }));
+      } catch (error) {
+        console.error('Error sending stop signal:', error);
+      }
+    }
+  }
+
+  /**
    * Send query and receive streaming response
    */
   async sendQuery(message, conversationHistory, selectedDocs, syllabusId, sessionId, apiKey, enableWebSearch, useSmartSelection, onChunk, onComplete, onError) {

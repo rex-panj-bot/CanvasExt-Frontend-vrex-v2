@@ -11,6 +11,8 @@ let conversationHistory = [];
 let processedMaterials = null; // Course materials for sidebar display
 let currentSessionId = null; // Current chat session ID for saving
 let availableCourses = []; // List of courses with materials
+let isGenerating = false; // Track if AI is currently generating
+let currentStreamAbort = null; // AbortController for current generation
 
 // DOM Elements
 const elements = {
@@ -1033,6 +1035,12 @@ function setupEventListeners() {
     }
   });
 
+  // Stop generation
+  const stopBtn = document.getElementById('stop-btn');
+  if (stopBtn) {
+    stopBtn.addEventListener('click', stopGeneration);
+  }
+
   // Starter questions
   document.querySelectorAll('.starter-question').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -1235,6 +1243,32 @@ function hideLoadingBanner() {
 }
 
 /**
+ * Stop AI generation
+ */
+function stopGeneration() {
+  console.log('🛑 Stopping generation...');
+
+  if (wsClient && isGenerating) {
+    wsClient.stopStreaming();
+  }
+
+  isGenerating = false;
+
+  // Show/hide buttons
+  const stopBtn = document.getElementById('stop-btn');
+  if (stopBtn) stopBtn.classList.add('hidden');
+  elements.sendBtn.disabled = false;
+
+  hideLoadingBanner();
+
+  // Mark last message as stopped
+  const lastMessage = conversationHistory[conversationHistory.length - 1];
+  if (lastMessage && lastMessage.role === 'assistant') {
+    lastMessage.content += '\n\n_(Generation stopped by user)_';
+  }
+}
+
+/**
  * Send a message to the AI assistant via Python backend
  */
 async function sendMessage() {
@@ -1250,6 +1284,15 @@ async function sendMessage() {
   elements.messageInput.value = '';
   elements.messageInput.style.height = 'auto';
   elements.sendBtn.disabled = true;
+
+  // Show stop button, hide send button
+  const stopBtn = document.getElementById('stop-btn');
+  if (stopBtn) {
+    stopBtn.classList.remove('hidden');
+    elements.sendBtn.classList.add('hidden');
+  }
+
+  isGenerating = true;
 
   // Add user message
   addMessage('user', message);
@@ -1340,6 +1383,12 @@ async function sendMessage() {
     removeTypingIndicator(typingId);
     addMessage('assistant', `Sorry, I encountered an error: ${error.message}`);
   } finally {
+    isGenerating = false;
+
+    // Hide stop button, show send button
+    const stopBtn = document.getElementById('stop-btn');
+    if (stopBtn) stopBtn.classList.add('hidden');
+    elements.sendBtn.classList.remove('hidden');
     elements.sendBtn.disabled = false;
   }
 }
