@@ -576,6 +576,15 @@ body {
   background: var(--surface-hover);
 }
 
+/* Selected state using data-selected attribute */
+.material-item[data-selected="true"] {
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--text-primary);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  font-weight: 500;
+}
+
+/* Keep old checkbox style for backwards compatibility */
 .material-item:has(.material-checkbox:checked) {
   background: rgba(59, 130, 246, 0.15);
   color: var(--text-primary);
@@ -598,6 +607,36 @@ body {
   height: 14px;
   accent-color: var(--blue-primary);
   flex-shrink: 0;
+}
+
+/* Open Material Button */
+.open-material-btn {
+  opacity: 0;
+  background: transparent;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: all 0.2s;
+  color: var(--text-light);
+  flex-shrink: 0;
+}
+
+.material-item:hover .open-material-btn {
+  opacity: 1;
+}
+
+.open-material-btn:hover {
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--blue-primary);
+  transform: scale(1.1);
+}
+
+.open-material-btn svg {
+  pointer-events: none;
 }
 
 /* Delete Material Button */
@@ -2668,4 +2707,285 @@ body {
 
 .api-key-modal-info li {
   margin-bottom: 4px;
+}
+
+/* Settings Modal Spacing */
+.settings-modal-body {
+  padding: 24px;
+}
+
+.setting-section-spaced {
+  margin-bottom: 0;
+}
+
+.setting-section-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 0 16px 0;
+  color: var(--text-primary, #f1f5f9);
+}
+
+.setting-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.setting-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.setting-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary, #94a3b8);
+}
+
+.setting-value {
+  font-size: 14px;
+  color: var(--text-primary, #f1f5f9);
+  padding: 8px 0;
+}
+
+.section-description {
+  font-size: 14px;
+  color: var(--text-secondary, #94a3b8);
+  margin: 0 0 12px 0;
+  line-height: 1.5;
+}
+
+.settings-divider {
+  border: none;
+  border-top: 1px solid var(--border, #1e293b);
+  margin: 32px 0;
+}
+
+.button-group {
+  display: flex;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.button-group .btn {
+  flex: 1;
+}
+
+.btn-full-width {
+  width: 100%;
+  margin-top: 4px;
+}
+
+/* Deleted Files List */
+.deleted-files-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.no-deleted-files {
+  text-align: center;
+  color: var(--text-secondary, #94a3b8);
+  padding: 24px;
+  font-size: 14px;
+  background: var(--surface-hover, #1e293b);
+  border-radius: 8px;
+  margin: 0;
+}
+
+.deleted-file-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  background: var(--surface-hover, #1e293b);
+  border-radius: 8px;
+  border: 1px solid var(--border, #334155);
+  gap: 16px;
+}
+
+.deleted-file-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.deleted-file-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary, #f1f5f9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.deleted-file-date {
+  font-size: 12px;
+  color: var(--text-secondary, #94a3b8);
+}
+
+.deleted-file-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.btn-small {
+  padding: 8px 16px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+/* Danger Zone Styling */
+.danger-zone {
+  border: 1px solid var(--error-border, #7f1d1d);
+  background: var(--error-bg, rgba(127, 29, 29, 0.1));
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.danger-title {
+  color: var(--error, #ef4444);
+}
+
+.danger-zone .section-description {
+  color: var(--text-secondary, #94a3b8);
+}
+
+/* Status Messages in Settings */
+#settings-error,
+#settings-success {
+  margin-top: 20px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  text-align: center;
+}
+
+#settings-error {
+  background: var(--error-bg, rgba(239, 68, 68, 0.1));
+  color: var(--error, #ef4444);
+  border: 1px solid var(--error-border, #7f1d1d);
+}
+
+#settings-success {
+  background: var(--success-bg, rgba(34, 197, 94, 0.1));
+  color: var(--success, #22c55e);
+  border: 1px solid var(--success-border, #166534);
+}
+
+#settings-success.hidden {
+  display: none;
+}
+
+/* First-time hint for file selection */
+.first-time-hint {
+  margin: 12px 12px 8px 12px;
+  padding: 12px;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 8px;
+  animation: slideIn 0.3s ease-out;
+}
+
+.hint-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.hint-content strong {
+  color: var(--blue-primary);
+  flex-shrink: 0;
+}
+
+.hint-close {
+  margin-left: auto;
+  padding: 4px 12px;
+  background: var(--blue-primary);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.hint-close:hover {
+  background: var(--blue-hover);
+  transform: scale(1.05);
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideOut {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+}
+
+/* Retry Button Styles */
+.retry-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  margin-top: 12px;
+  background: var(--error);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.retry-btn:hover {
+  background: #dc2626;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+}
+
+.retry-btn:active {
+  transform: translateY(0);
+}
+
+.retry-btn svg {
+  flex-shrink: 0;
+}
+
+.error-message {
+  border-left: 3px solid var(--error);
+  background: rgba(239, 68, 68, 0.05);
+}
+
+.error-message h3 {
+  color: var(--error);
+  margin-bottom: 8px;
 }

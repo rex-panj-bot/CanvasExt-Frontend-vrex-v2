@@ -1820,7 +1820,46 @@ async function sendMessage() {
   } catch (error) {
     console.error('Error sending message:', error);
     removeTypingIndicator(typingId);
-    addMessage('assistant', `Sorry, I encountered an error: ${error.message}`);
+    hideLoadingBanner();
+
+    // Show error message with retry button
+    const errorDiv = document.createElement('div');
+    errorDiv.className = 'message assistant-message error-message';
+    errorDiv.innerHTML = `
+      <div class="message-avatar">⚠️</div>
+      <div class="message-content">
+        <div class="message-text">
+          <h3>Error</h3>
+          <p>${error.message}</p>
+          <button class="retry-btn" data-retry-message="${message}">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M2 8C2 4.686 4.686 2 8 2C11.314 2 14 4.686 14 8C14 11.314 11.314 14 8 14C5.79 14 3.83 12.868 2.757 11.2" stroke-linecap="round"/>
+              <path d="M2 11.2V7.2M2 11.2H6" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            Retry Query
+          </button>
+        </div>
+      </div>
+    `;
+
+    elements.messagesContainer.appendChild(errorDiv);
+    elements.messagesContainer.scrollTop = elements.messagesContainer.scrollHeight;
+
+    // Add retry click handler
+    const retryBtn = errorDiv.querySelector('.retry-btn');
+    retryBtn.addEventListener('click', () => {
+      // Remove error message
+      errorDiv.remove();
+
+      // Put message back in input
+      elements.messageInput.value = message;
+      elements.messageInput.style.height = 'auto';
+      elements.messageInput.style.height = elements.messageInput.scrollHeight + 'px';
+
+      // Auto-send
+      sendMessage();
+    });
+
   } finally {
     isGenerating = false;
 
