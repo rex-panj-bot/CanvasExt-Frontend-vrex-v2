@@ -17,13 +17,14 @@ class WebSocketClient {
     this.pendingMessages = new Map(); // Track pending requests
 
     // Heartbeat/keepalive settings
+    // Railway WebSocket timeout is ~55-60s, so ping every 20s to stay well within limit
     this.pingInterval = null;
     this.pingTimeout = null;
     this.lastPongReceived = null;
     this.lastMessageReceived = null;
-    this.PING_INTERVAL_MS = 30000; // Send ping every 30 seconds
+    this.PING_INTERVAL_MS = 20000; // Send ping every 20 seconds (was 30s, too long for Railway)
     this.PONG_TIMEOUT_MS = 10000; // Expect pong within 10 seconds
-    this.STALE_CONNECTION_MS = 45000; // Consider connection stale after 45s of no activity
+    this.STALE_CONNECTION_MS = 35000; // Consider connection stale after 35s of no activity
 
     // Connection monitoring
     this.connectionMonitorInterval = null;
@@ -93,9 +94,9 @@ class WebSocketClient {
     // Clear any existing intervals
     this.stopHeartbeat();
 
-    console.log('💓 Starting heartbeat (ping every 30s)');
+    console.log(`💓 Starting heartbeat (ping every ${this.PING_INTERVAL_MS / 1000}s to prevent Railway timeout)`);
 
-    // Send ping every 30 seconds
+    // Send ping regularly to prevent idle timeout
     this.pingInterval = setInterval(() => {
       if (this.ws && this.isConnected) {
         console.log('📤 Sending ping...');
@@ -110,7 +111,7 @@ class WebSocketClient {
             this.ws.close();
           }, this.PONG_TIMEOUT_MS);
         } catch (error) {
-          console.error('Error sending ping:', error);
+          console.error('❌ Error sending ping:', error);
           this.ws.close();
         }
       }
