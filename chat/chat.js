@@ -777,6 +777,51 @@ async function loadSyllabusSelector() {
 }
 
 /**
+ * Handle file upload from user's computer
+ */
+async function handleFileUpload(event) {
+  const files = Array.from(event.target.files);
+
+  if (files.length === 0) return;
+
+  console.log(`📤 User uploading ${files.length} file(s):`, files.map(f => f.name));
+
+  // Show loading banner
+  showLoadingBanner(`Uploading ${files.length} file(s)...`, 'info');
+
+  try {
+    // Prepare files for upload
+    const filesToUpload = files.map(file => ({
+      blob: file,
+      name: file.name
+    }));
+
+    // Upload to backend
+    await backendClient.uploadPDFs(courseId, filesToUpload);
+
+    console.log('✅ Files uploaded successfully');
+    showLoadingBanner('Files uploaded! Refreshing materials...', 'success');
+
+    // Wait a bit for backend processing
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // Reload materials from backend/IndexedDB
+    // For now, just show success - materials will appear after page refresh
+    // TODO: Implement dynamic materials refresh without page reload
+    hideLoadingBanner();
+    showTemporaryMessage(`Successfully uploaded ${files.length} file(s). Refresh to see them in the list.`);
+
+    // Clear file input
+    event.target.value = '';
+
+  } catch (error) {
+    console.error('❌ File upload error:', error);
+    showLoadingBanner(`Upload failed: ${error.message}`, 'error');
+    setTimeout(() => hideLoadingBanner(), 3000);
+  }
+}
+
+/**
  * Show a temporary success message
  */
 function showTemporaryMessage(message) {
@@ -1101,6 +1146,18 @@ function setupEventListeners() {
   elements.messageInput.addEventListener('input', () => {
     elements.sendBtn.disabled = !elements.messageInput.value.trim();
   });
+
+  // File upload handler
+  const uploadBtn = document.getElementById('upload-files-btn');
+  const fileInput = document.getElementById('file-upload-input');
+
+  if (uploadBtn && fileInput) {
+    uploadBtn.addEventListener('click', () => {
+      fileInput.click();
+    });
+
+    fileInput.addEventListener('change', handleFileUpload);
+  }
 
   // Citation links - use event delegation on messages container
   elements.messagesContainer.addEventListener('click', (e) => {
