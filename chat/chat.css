@@ -86,17 +86,17 @@ body {
 }
 
 .sidebar-header {
-  padding: 16px 20px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--border);
   background: linear-gradient(135deg, var(--surface) 0%, rgba(100, 116, 139, 0.1) 100%);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .sidebar-header h3 {
-  font-size: 18px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
   line-height: 1.5;
@@ -276,24 +276,23 @@ body {
 }
 
 .materials-control-btn {
-  background: var(--surface-hover);
-  border: 1px solid var(--border);
+  background: transparent;
+  border: none;
   border-radius: 6px;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   transition: all 0.2s ease;
-  color: var(--text-secondary);
+  color: var(--text-light);
   padding: 0;
 }
 
 .materials-control-btn:hover {
-  background: var(--border);
+  background: var(--surface-hover);
   color: var(--text-primary);
-  transform: translateY(-1px);
 }
 
 .materials-control-btn:active {
@@ -334,32 +333,34 @@ body {
 }
 
 .syllabus-compact {
-  padding: 12px 20px;
+  padding: 10px 16px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
   background: var(--surface-hover);
   transition: all 0.2s ease;
 }
 
 .syllabus-label-text {
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 600;
-  color: var(--text-secondary);
+  color: var(--text-light);
   white-space: nowrap;
   flex-shrink: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .syllabus-select-compact {
   flex: 1;
   min-width: 0;
-  padding: 6px 10px;
+  padding: 5px 8px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 5px;
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: 11px;
   font-family: inherit;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -435,8 +436,8 @@ body {
 .module-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 8px;
+  gap: 6px;
+  padding: 7px 6px;
   background: var(--background);
   cursor: pointer;
   transition: background 0.2s;
@@ -449,8 +450,8 @@ body {
 
 .module-checkbox {
   cursor: pointer;
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   flex-shrink: 0;
 }
 
@@ -470,7 +471,7 @@ body {
 
 .module-name {
   flex: 1;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--text-primary);
   overflow: hidden;
@@ -482,9 +483,9 @@ body {
   background: var(--blue-primary);
   background: linear-gradient(135deg, var(--blue-primary) 0%, var(--blue-light) 100%);
   color: white;
-  padding: 2px 8px;
-  border-radius: 12px;
-  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-size: 10px;
   font-weight: 600;
   flex-shrink: 0;
 }
@@ -492,8 +493,8 @@ body {
 .module-items {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 4px 0 4px 28px;
+  gap: 1px;
+  padding: 2px 0 2px 24px;
   max-height: 500px;
   overflow-y: auto;
   transition: max-height 0.3s ease;
@@ -560,15 +561,15 @@ body {
 }
 
 .material-item {
-  padding: 6px 12px;
-  font-size: 13px;
+  padding: 5px 10px;
+  font-size: 12px;
   color: var(--text-secondary);
-  border-radius: 8px;
+  border-radius: 6px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   transition: all 0.2s;
-  margin-bottom: 3px;
+  margin-bottom: 2px;
 }
 
 .material-item:hover {
@@ -593,8 +594,8 @@ body {
 
 .material-checkbox {
   cursor: pointer;
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   accent-color: var(--blue-primary);
   flex-shrink: 0;
 }
@@ -635,7 +636,7 @@ body {
 
 
 .sidebar-footer {
-  padding: 16px;
+  padding: 12px;
   border-top: 1px solid var(--border);
 }
 
