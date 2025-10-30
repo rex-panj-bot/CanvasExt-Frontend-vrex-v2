@@ -98,43 +98,8 @@ function setupBackgroundLoadingListener() {
         clearInterval(pollInterval); // Stop polling
         showLoadingBanner('Materials loaded! Updating display...', 'success');
 
-        // Update IndexedDB with downloaded files
+        // Reload materials from IndexedDB (blobs were already saved by service worker)
         try {
-          if (task.downloadedFiles && task.downloadedFiles.length > 0) {
-            console.log('💾 [CHAT] Updating IndexedDB with downloaded files...');
-
-            // Load current materials
-            const materialsDB = new MaterialsDB();
-            const materialsData = await materialsDB.loadMaterials(courseId);
-
-            if (materialsData) {
-              // Create blob map
-              const blobMap = new Map();
-              task.downloadedFiles.forEach(df => {
-                blobMap.set(df.name, df.blob);
-              });
-
-              // Attach blobs to materials
-              const materials = materialsData.materials;
-              for (const items of Object.values(materials)) {
-                if (!Array.isArray(items)) continue;
-                items.forEach((item) => {
-                  const itemName = item.display_name || item.filename || item.name || item.title;
-                  if (itemName && blobMap.has(itemName)) {
-                    item.blob = blobMap.get(itemName);
-                  }
-                });
-              }
-
-              // Save updated materials
-              await materialsDB.saveMaterials(courseId, task.courseName, materials);
-              console.log('✅ [CHAT] IndexedDB updated with blobs');
-            }
-
-            await materialsDB.close();
-          }
-
-          // Reload materials from IndexedDB (now with blobs)
           await loadMaterials();
 
           // Clear the download task from storage
@@ -145,7 +110,7 @@ function setupBackgroundLoadingListener() {
           hideLoadingBanner();
 
         } catch (error) {
-          console.error('❌ [CHAT] Error updating materials:', error);
+          console.error('❌ [CHAT] Error reloading materials:', error);
           showLoadingBanner('Materials loaded but error updating display', 'error');
           setTimeout(() => hideLoadingBanner(), 3000);
         }
@@ -245,6 +210,19 @@ async function init() {
 
   // Auto-resize textarea
   setupTextareaResize();
+
+  // Check if settings should be opened (from URL parameter or message)
+  const openSettings = urlParams.get('openSettings');
+  if (openSettings === 'true') {
+    showSettingsModal();
+  }
+
+  // Listen for messages to open settings
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.action === 'openSettings') {
+      showSettingsModal();
+    }
+  });
 }
 
 async function loadMaterials() {
@@ -271,7 +249,11 @@ async function loadMaterials() {
 
     await materialsDB.close();
 
-    courseName = materialsData.courseName;
+    // Ensure courseName is a string (defensive check)
+    courseName = typeof materialsData.courseName === 'string'
+      ? materialsData.courseName
+      : 'Unknown Course';
+
     processedMaterials = materialsData.materials || {
       modules: [],
       files: [],
@@ -295,6 +277,50 @@ async function loadMaterials() {
   } catch (error) {
     console.error('Error loading materials:', error);
     showError('Failed to load course materials: ' + error.message);
+  }
+}
+
+/**
+ * Show first-time user hint about file selection
+ */
+async function showFirstTimeHint() {
+  try {
+    const { hasSeenFileSelectionHint } = await chrome.storage.local.get(['hasSeenFileSelectionHint']);
+
+    if (!hasSeenFileSelectionHint) {
+      const hint = document.createElement('div');
+      hint.className = 'first-time-hint';
+      hint.innerHTML = `
+        <div class="hint-content">
+          <strong>💡 Tip:</strong> Click files to select for AI context. Use the open button (↗) to view files.
+          <button class="hint-close">Got it!</button>
+        </div>
+      `;
+
+      const materialsList = document.querySelector('.materials-list');
+      if (materialsList) {
+        materialsList.insertAdjacentElement('beforebegin', hint);
+
+        // Close button
+        const closeBtn = hint.querySelector('.hint-close');
+        closeBtn.addEventListener('click', async () => {
+          hint.style.animation = 'slideOut 0.3s ease-out';
+          setTimeout(() => hint.remove(), 300);
+          await chrome.storage.local.set({ hasSeenFileSelectionHint: true });
+        });
+
+        // Auto-hide after 10 seconds
+        setTimeout(async () => {
+          if (hint.parentElement) {
+            hint.style.animation = 'slideOut 0.3s ease-out';
+            setTimeout(() => hint.remove(), 300);
+            await chrome.storage.local.set({ hasSeenFileSelectionHint: true });
+          }
+        }, 10000);
+      }
+    }
+  } catch (error) {
+    console.error('Error showing first-time hint:', error);
   }
 }
 
@@ -351,29 +377,28 @@ function displayMaterials() {
       });
 
       const moduleDiv = document.createElement('div');
-      moduleDiv.className = 'material-module';
+      moduleDiv.className = 'material-module collapsed'; // Start collapsed
       moduleDiv.innerHTML = `
         <div class="module-header" data-module-idx="${moduleIdx}">
-          <input type="checkbox" class="module-checkbox" id="module-${moduleIdx}" checked>
-          <svg class="module-chevron" width="12" height="12" viewBox="0 0 16 16" fill="none">
+          <input type="checkbox" class="module-checkbox" id="module-${moduleIdx}">
+          <svg class="module-chevron rotated" width="12" height="12" viewBox="0 0 16 16" fill="none">
             <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
           <span class="module-name">${module.name || `Module ${moduleIdx + 1}`}</span>
           <span class="module-count">${moduleFilesWithIndices.length}</span>
         </div>
-        <div class="module-items">
+        <div class="module-items collapsed">
           ${moduleFilesWithIndices.map(({ file, originalItemIdx }) => `
-            <div class="material-item" data-module-idx="${moduleIdx}" data-item-idx="${originalItemIdx}">
-              <input type="checkbox"
-                     class="material-checkbox"
-                     id="module-${moduleIdx}-item-${originalItemIdx}"
-                     data-module-idx="${moduleIdx}"
-                     data-item-idx="${originalItemIdx}"
-                     data-file-url="${file.url || ''}"
-                     checked>
+            <div class="material-item" data-module-idx="${moduleIdx}" data-item-idx="${originalItemIdx}" data-selected="false">
               <label class="material-label" title="${file.title || file.name}">
                 ${file.title || file.name}
               </label>
+              <button class="open-material-btn" title="Open file" data-module-idx="${moduleIdx}" data-item-idx="${originalItemIdx}">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M11 2H13C13.5523 2 14 2.44772 14 3V13C14 13.5523 13.5523 14 13 14H3C2.44772 14 2 13.5523 2 13V3C2 2.44772 2.44772 2 3 2H5" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M10 7L13 4M13 4V7M13 4H10" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
               <button class="delete-material-btn" title="Remove from AI memory" data-module-idx="${moduleIdx}" data-item-idx="${originalItemIdx}">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M18 6L6 18M6 6l12 12"/>
@@ -385,38 +410,6 @@ function displayMaterials() {
       `;
 
       modulesSection.appendChild(moduleDiv);
-
-      // Setup module collapse/expand
-      const header = moduleDiv.querySelector('.module-header');
-      const itemsDiv = moduleDiv.querySelector('.module-items');
-      const moduleCheckbox = moduleDiv.querySelector('.module-checkbox');
-      const chevron = moduleDiv.querySelector('.module-chevron');
-
-      header.addEventListener('click', (e) => {
-        if (e.target !== moduleCheckbox) {
-          itemsDiv.classList.toggle('collapsed');
-          moduleDiv.classList.toggle('collapsed');
-          chevron.classList.toggle('rotated');
-        }
-      });
-
-      // Module checkbox selects/deselects all files in module
-      moduleCheckbox.addEventListener('change', (e) => {
-        e.stopPropagation();
-        const checkboxes = itemsDiv.querySelectorAll('.material-checkbox');
-        checkboxes.forEach(cb => cb.checked = moduleCheckbox.checked);
-      });
-
-      // Update module checkbox when individual items change
-      const itemCheckboxes = itemsDiv.querySelectorAll('.material-checkbox');
-      itemCheckboxes.forEach(cb => {
-        cb.addEventListener('change', () => {
-          const allChecked = Array.from(itemCheckboxes).every(icb => icb.checked);
-          const noneChecked = Array.from(itemCheckboxes).every(icb => !icb.checked);
-          moduleCheckbox.checked = allChecked;
-          moduleCheckbox.indeterminate = !allChecked && !noneChecked;
-        });
-      });
     });
 
     materialsList.appendChild(modulesSection);
@@ -448,17 +441,16 @@ function displayMaterials() {
       const filesDiv = document.createElement('div');
       filesDiv.className = 'section-items';
       filesDiv.innerHTML = standaloneFilesWithIndices.map(({ file, originalIndex }) => `
-        <div class="material-item" data-category="files" data-index="${originalIndex}">
-          <input type="checkbox"
-                 class="material-checkbox"
-                 id="file-${originalIndex}"
-                 data-category="files"
-                 data-index="${originalIndex}"
-                 data-file-url="${file.url || ''}"
-                 checked>
+        <div class="material-item" data-category="files" data-index="${originalIndex}" data-selected="false">
           <label class="material-label" title="${file.display_name || file.name}">
             ${file.display_name || file.name}
           </label>
+          <button class="open-material-btn" title="Open file" data-category="files" data-index="${originalIndex}">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M11 2H13C13.5523 2 14 2.44772 14 3V13C14 13.5523 13.5523 14 13 14H3C2.44772 14 2 13.5523 2 13V3C2 2.44772 2.44772 2 3 2H5" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M10 7L13 4M13 4V7M13 4H10" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
           <button class="delete-material-btn" title="Remove from AI memory" data-category="files" data-index="${originalIndex}">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M18 6L6 18M6 6l12 12"/>
@@ -487,16 +479,16 @@ function displayMaterials() {
     const pagesDiv = document.createElement('div');
     pagesDiv.className = 'section-items';
     pagesDiv.innerHTML = processedMaterials.pages.map((page, pageIdx) => `
-      <div class="material-item" data-category="pages" data-index="${pageIdx}">
-        <input type="checkbox"
-               class="material-checkbox"
-               id="page-${pageIdx}"
-               data-category="pages"
-               data-index="${pageIdx}"
-               checked>
+      <div class="material-item" data-category="pages" data-index="${pageIdx}" data-selected="false">
         <label class="material-label" title="${page.title}">
           ${page.title}
         </label>
+        <button class="open-material-btn" title="Open page" data-category="pages" data-index="${pageIdx}">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M11 2H13C13.5523 2 14 2.44772 14 3V13C14 13.5523 13.5523 14 13 14H3C2.44772 14 2 13.5523 2 13V3C2 2.44772 2.44772 2 3 2H5" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M10 7L13 4M13 4V7M13 4H10" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
         <button class="delete-material-btn" title="Remove from AI memory" data-category="pages" data-index="${pageIdx}">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M18 6L6 18M6 6l12 12"/>
@@ -524,16 +516,16 @@ function displayMaterials() {
     const assignmentsDiv = document.createElement('div');
     assignmentsDiv.className = 'section-items';
     assignmentsDiv.innerHTML = processedMaterials.assignments.map((assignment, assignmentIdx) => `
-      <div class="material-item" data-category="assignments" data-index="${assignmentIdx}">
-        <input type="checkbox"
-               class="material-checkbox"
-               id="assignment-${assignmentIdx}"
-               data-category="assignments"
-               data-index="${assignmentIdx}"
-               checked>
+      <div class="material-item" data-category="assignments" data-index="${assignmentIdx}" data-selected="false">
         <label class="material-label" title="${assignment.name}">
           ${assignment.name}
         </label>
+        <button class="open-material-btn" title="Open assignment" data-category="assignments" data-index="${assignmentIdx}">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M11 2H13C13.5523 2 14 2.44772 14 3V13C14 13.5523 13.5523 14 13 14H3C2.44772 14 2 13.5523 2 13V3C2 2.44772 2.44772 2 3 2H5" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M10 7L13 4M13 4V7M13 4H10" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
         <button class="delete-material-btn" title="Remove from AI memory" data-category="assignments" data-index="${assignmentIdx}">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M18 6L6 18M6 6l12 12"/>
@@ -547,6 +539,9 @@ function displayMaterials() {
   }
 
 
+  // Show first-time user hint
+  showFirstTimeHint();
+
   // Setup select all/deselect all buttons (remove old listeners first)
   const selectAllBtn = document.getElementById('select-all-materials');
   const deselectAllBtn = document.getElementById('deselect-all-materials');
@@ -554,14 +549,14 @@ function displayMaterials() {
   if (selectAllBtn) {
     selectAllBtn.replaceWith(selectAllBtn.cloneNode(true));
     document.getElementById('select-all-materials').addEventListener('click', () => {
-      document.querySelectorAll('.material-checkbox, .module-checkbox').forEach(cb => cb.checked = true);
+      document.querySelectorAll('.material-item').forEach(item => item.setAttribute('data-selected', 'true'));
     });
   }
 
   if (deselectAllBtn) {
     deselectAllBtn.replaceWith(deselectAllBtn.cloneNode(true));
     document.getElementById('deselect-all-materials').addEventListener('click', () => {
-      document.querySelectorAll('.material-checkbox, .module-checkbox').forEach(cb => cb.checked = false);
+      document.querySelectorAll('.material-item').forEach(item => item.setAttribute('data-selected', 'false'));
     });
   }
 
@@ -596,13 +591,15 @@ function displayMaterials() {
         if (module && module.items) {
           material = module.items[parseInt(itemIdx)];
           materialName = material?.title || material?.name || 'this file';
-          fileId = material?.id || material?.content_id;
+          // Try multiple possible ID fields
+          fileId = material?.id || material?.content_id || material?.file_id || material?.url;
         }
       } else if (category && index !== null) {
         // Standalone file, page, or assignment
         material = processedMaterials[category]?.[parseInt(index)];
         materialName = material?.name || material?.display_name || material?.title || 'this file';
-        fileId = material?.id || material?.content_id;
+        // Try multiple possible ID fields
+        fileId = material?.id || material?.content_id || material?.file_id || material?.url;
       }
 
       if (!material) {
@@ -610,11 +607,37 @@ function displayMaterials() {
         return;
       }
 
-      // Show confirmation dialog
-      const confirmed = await showConfirmDialog(
-        `Remove "${materialName}"?`,
-        'This will remove the file from AI memory. You can restore it from Settings later.'
-      );
+      if (!fileId) {
+        console.error('File ID not found for material:', material);
+        console.error('Available fields:', Object.keys(material));
+        // Generate a unique ID based on the material's properties
+        fileId = `${category || 'module'}_${materialName.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}`;
+        console.warn('Using generated fileId:', fileId);
+      }
+
+      console.log('🗑️ Deleting file:', { fileId, materialName, courseId });
+
+      // Check if user has disabled confirmation
+      const prefs = await chrome.storage.local.get(['skipDeleteConfirmation']);
+      const skipConfirmation = prefs.skipDeleteConfirmation || false;
+
+      let confirmed = true;
+      if (!skipConfirmation) {
+        // Show confirmation dialog with "Don't ask again" option
+        const result = await showConfirmDialog(
+          `Remove "${materialName}"?`,
+          'This will remove the file from AI memory. You can restore it from Settings later.',
+          { showDontAskAgain: true, dontAskAgainKey: 'skipDeleteConfirmation' }
+        );
+
+        confirmed = result.confirmed;
+
+        // Save preference if user checked "Don't ask again"
+        if (result.dontAskAgain) {
+          await chrome.storage.local.set({ skipDeleteConfirmation: true });
+          console.log('Saved preference: skip delete confirmation');
+        }
+      }
 
       if (!confirmed) return;
 
@@ -631,6 +654,25 @@ function displayMaterials() {
           }
 
           console.log(`Soft deleted ${materialName} (ID: ${fileId})`);
+
+          // Store in soft_deleted_files for restore functionality
+          const result = await chrome.storage.local.get(['soft_deleted_files']);
+          const deletedFiles = result.soft_deleted_files || {};
+
+          deletedFiles[fileId] = {
+            name: materialName,
+            courseId: String(courseId), // Ensure consistent string format
+            deletedAt: Date.now(),
+            materialData: material
+          };
+
+          await chrome.storage.local.set({ soft_deleted_files: deletedFiles });
+          console.log('🗑️ Stored in soft_deleted_files for restore:', {
+            fileId,
+            name: materialName,
+            courseId: String(courseId),
+            totalDeletedFiles: Object.keys(deletedFiles).length
+          });
         }
 
         // Remove from frontend immediately
@@ -648,10 +690,10 @@ function displayMaterials() {
           console.log(`${category} reduced from ${originalLength} to ${processedMaterials[category].length} items`);
         }
 
-        // Update IndexedDB and refresh display
-        await chrome.storage.local.set({
-          [`course_materials_${courseId}`]: processedMaterials
-        });
+        // Update IndexedDB with the modified materials
+        const materialsDB = new MaterialsDB();
+        await materialsDB.saveMaterials(courseId, courseName, processedMaterials);
+        await materialsDB.close();
         console.log('Updated IndexedDB with removed file');
 
         // Re-render the materials list immediately
@@ -665,22 +707,48 @@ function displayMaterials() {
       }
     }
 
-    // Handle clicking on file name label to open in new tab
+    // Handle clicking on file name label to toggle selection
     const label = e.target.closest('.material-label');
-    if (label && !deleteBtn) {  // Only if not clicking delete button
+    if (label && !deleteBtn && !e.target.closest('.open-material-btn')) {  // Only if not clicking delete or open button
       e.preventDefault();
       e.stopPropagation();
 
-      // Prevent duplicate clicks within 500ms
-      const now = Date.now();
-      const clickKey = label.textContent.trim();
-      if (window._lastFileClick && window._lastFileClick.key === clickKey && now - window._lastFileClick.time < 500) {
-        console.log('Ignoring duplicate click');
-        return;
-      }
-      window._lastFileClick = { key: clickKey, time: now };
-
       const materialItem = label.closest('.material-item');
+
+      // Check if shift key is pressed for range selection
+      if (e.shiftKey && window._lastSelectedItem) {
+        // Get all material items
+        const allItems = Array.from(document.querySelectorAll('.material-item'));
+        const currentIndex = allItems.indexOf(materialItem);
+        const lastIndex = allItems.indexOf(window._lastSelectedItem);
+
+        if (currentIndex !== -1 && lastIndex !== -1) {
+          const start = Math.min(currentIndex, lastIndex);
+          const end = Math.max(currentIndex, lastIndex);
+          const targetState = window._lastSelectedItem.getAttribute('data-selected') === 'true';
+
+          // Select/deselect all items in range
+          for (let i = start; i <= end; i++) {
+            allItems[i].setAttribute('data-selected', targetState ? 'true' : 'false');
+          }
+        }
+      } else {
+        // Normal click - toggle selection
+        const isSelected = materialItem.getAttribute('data-selected') === 'true';
+        materialItem.setAttribute('data-selected', isSelected ? 'false' : 'true');
+      }
+
+      // Store last selected item for shift-click
+      window._lastSelectedItem = materialItem;
+    }
+
+    // Handle open button click
+    const openBtn = e.target.closest('.open-material-btn');
+    if (openBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const materialItem = openBtn.closest('.material-item');
       const moduleIdx = materialItem.getAttribute('data-module-idx');
       const itemIdx = materialItem.getAttribute('data-item-idx');
       const category = materialItem.getAttribute('data-category');
@@ -707,33 +775,24 @@ function displayMaterials() {
         }
       }
 
-      // Open file from blob or Canvas URL
+      // Open file by fetching from backend GCS on-demand
       if (fileItem) {
         // Check if this is an assignment or page - ALWAYS open Canvas URL for these
-        // Check both fileItem.type AND category to ensure we catch all assignments/pages
         const isAssignment = fileItem.type === 'assignment' || category === 'assignments';
         const isPage = fileItem.type === 'page' || category === 'pages';
 
         if (isAssignment || isPage) {
-          // Open in Canvas (assignments and pages should never open text blob)
+          // Open in Canvas (assignments and pages should never open as files)
           if (fileItem.html_url) {
             chrome.tabs.create({ url: fileItem.html_url });
           } else {
             showTemporaryMessage(`Cannot open "${fileName}" - Canvas URL not available.`);
           }
-        } else if (fileItem.blob) {
-          // Open from IndexedDB blob (files, pages, etc.)
-          const blobUrl = URL.createObjectURL(fileItem.blob);
-          chrome.tabs.create({ url: blobUrl });
-
-          // Clean up blob URL after a delay
-          setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
-        } else if (fileItem.html_url) {
-          // Fallback: open Canvas URL if available
-          chrome.tabs.create({ url: fileItem.html_url });
         } else {
-          // No blob or URL available
-          showTemporaryMessage(`Cannot open "${fileName}" - file data not available. Please re-scan course materials.`);
+          // Open file from backend/GCS
+          const backendUrl = 'https://web-production-9aaba7.up.railway.app';
+          const fileUrl = `${backendUrl}/pdfs/${encodeURIComponent(courseId)}/${encodeURIComponent(fileName)}`;
+          chrome.tabs.create({ url: fileUrl });
         }
       } else {
         showTemporaryMessage('File not found in materials list');
@@ -941,15 +1000,15 @@ function showTemporaryMessage(message) {
 
 
 /**
- * Get currently selected materials from checkboxes
+ * Get currently selected materials from data-selected attribute
  */
 function getSelectedMaterials() {
   const selected = {};
-  const checkedBoxes = document.querySelectorAll('.material-checkbox:checked');
+  const selectedItems = document.querySelectorAll('.material-item[data-selected="true"]');
 
-  checkedBoxes.forEach(checkbox => {
-    const category = checkbox.dataset.category;
-    const index = parseInt(checkbox.dataset.index);
+  selectedItems.forEach(item => {
+    const category = item.getAttribute('data-category');
+    const index = parseInt(item.getAttribute('data-index'));
 
     if (processedMaterials && processedMaterials[category] && processedMaterials[category][index]) {
       if (!selected[category]) {
@@ -968,33 +1027,33 @@ function getSelectedMaterials() {
  */
 function getSelectedDocIds() {
   const docIds = [];
-  const checkedBoxes = document.querySelectorAll('.material-checkbox:checked');
+  const selectedItems = document.querySelectorAll('.material-item[data-selected="true"]');
 
-  checkedBoxes.forEach((checkbox, idx) => {
-    const moduleIdx = checkbox.dataset.moduleIdx;
-    const itemIdx = checkbox.dataset.itemIdx;
-    const category = checkbox.dataset.category;
-    const index = checkbox.dataset.index;
+  selectedItems.forEach((item, idx) => {
+    const moduleIdx = item.getAttribute('data-module-idx');
+    const itemIdx = item.getAttribute('data-item-idx');
+    const category = item.getAttribute('data-category');
+    const index = item.getAttribute('data-index');
 
     let materialName = null;
 
     // Handle module items
-    if (moduleIdx !== undefined && itemIdx !== undefined) {
+    if (moduleIdx !== null && itemIdx !== null) {
       const module = processedMaterials.modules?.[parseInt(moduleIdx)];
       if (module && module.items) {
-        const item = module.items[parseInt(itemIdx)];
-        if (item) {
+        const fileItem = module.items[parseInt(itemIdx)];
+        if (fileItem) {
           // Use stored_name if available (has correct extension), otherwise use title
-          materialName = item.stored_name || item.title || item.name;
+          materialName = fileItem.stored_name || fileItem.title || fileItem.name;
         }
       }
     }
     // Handle standalone files, pages, assignments
-    else if (category && index !== undefined) {
-      const item = processedMaterials[category]?.[parseInt(index)];
-      if (item) {
+    else if (category && index !== null) {
+      const fileItem = processedMaterials[category]?.[parseInt(index)];
+      if (fileItem) {
         // Use stored_name if available (has correct extension), otherwise use name
-        materialName = item.stored_name || item.name || item.display_name || item.title;
+        materialName = fileItem.stored_name || fileItem.name || fileItem.display_name || fileItem.title;
       }
     }
 
@@ -1208,13 +1267,81 @@ function setupEventListeners() {
   elements.settingsBtn.addEventListener('click', showSettingsModal);
   elements.closeSettings.addEventListener('click', hideSettingsModal);
 
-  // Save settings
-  document.getElementById('save-settings-btn')?.addEventListener('click', async () => {
-    const webSearchToggle = document.getElementById('web-search-toggle');
-    await chrome.storage.local.set({
-      enable_web_search: webSearchToggle.checked
-    });
-    hideSettingsModal();
+  // Change Canvas Authentication
+  document.getElementById('change-canvas-auth-btn')?.addEventListener('click', async () => {
+    const confirmed = await showConfirmDialog(
+      'Change Canvas Login',
+      'This will clear your current Canvas session and you will need to log in again. Continue?'
+    );
+    if (confirmed) {
+      await StorageManager.clearAll();
+      // Redirect to popup to set up Canvas authentication
+      window.location.href = '../popup/popup-v2.html';
+    }
+  });
+
+  // Clear All Data
+  document.getElementById('clear-all-data-btn')?.addEventListener('click', async () => {
+    const confirmed = await showConfirmDialog(
+      'Clear All Data',
+      'This will delete all stored data including your Canvas session, course materials, and chat history. This action cannot be undone. Continue?'
+    );
+    if (confirmed) {
+      await StorageManager.clearAll();
+      // Redirect to popup to set up Canvas authentication
+      window.location.href = '../popup/popup-v2.html';
+    }
+  });
+
+  // Test API Key
+  document.getElementById('test-api-key-btn')?.addEventListener('click', async () => {
+    const apiKeyInput = document.getElementById('settings-api-key-input');
+    const statusElement = document.getElementById('settings-api-key-status');
+    const apiKey = apiKeyInput?.value?.trim();
+
+    if (!apiKey) {
+      showStatusMessage(statusElement, 'Please enter an API key', 'error');
+      return;
+    }
+
+    showStatusMessage(statusElement, 'Testing API key...', 'info');
+
+    try {
+      const isValid = await testGeminiApiKey(apiKey);
+      if (isValid) {
+        showStatusMessage(statusElement, '✅ API key is valid!', 'success');
+      } else {
+        showStatusMessage(statusElement, '❌ API key is invalid', 'error');
+      }
+    } catch (error) {
+      console.error('Error testing API key:', error);
+      showStatusMessage(statusElement, 'Error testing API key', 'error');
+    }
+  });
+
+  // Save API Key
+  document.getElementById('save-api-key-btn')?.addEventListener('click', async () => {
+    const apiKeyInput = document.getElementById('settings-api-key-input');
+    const statusElement = document.getElementById('settings-api-key-status');
+    const successElement = document.getElementById('settings-success');
+
+    const apiKey = apiKeyInput?.value?.trim();
+
+    if (!apiKey) {
+      showStatusMessage(statusElement, 'Please enter an API key', 'error');
+      return;
+    }
+
+    // Save API key
+    await chrome.storage.local.set({ gemini_api_key: apiKey });
+
+    showStatusMessage(successElement, 'API key saved successfully!', 'success');
+
+    // Clear status after a short delay
+    setTimeout(() => {
+      statusElement.textContent = '';
+      statusElement.className = 'status-message';
+    }, 2000);
   });
 
   // Export chat
@@ -1283,6 +1410,181 @@ function setupEventListeners() {
       const page = citationLink.dataset.page;
       if (docName && page) {
         openCitedDocument(docName, parseInt(page));
+      }
+    }
+  });
+
+  // Module collapse/expand - use event delegation on materials list
+  document.addEventListener('click', (e) => {
+    const moduleHeader = e.target.closest('.module-header');
+    if (moduleHeader) {
+      // Don't toggle if clicking on the checkbox itself
+      const moduleCheckbox = moduleHeader.querySelector('.module-checkbox');
+      if (e.target === moduleCheckbox) {
+        return;
+      }
+
+      const moduleDiv = moduleHeader.closest('.material-module');
+      const itemsDiv = moduleDiv.querySelector('.module-items');
+      const chevron = moduleDiv.querySelector('.module-chevron');
+
+      if (moduleDiv && itemsDiv && chevron) {
+        itemsDiv.classList.toggle('collapsed');
+        moduleDiv.classList.toggle('collapsed');
+        chevron.classList.toggle('rotated');
+      }
+    }
+  });
+
+  // Module checkbox - select/deselect all items in module using event delegation
+  document.addEventListener('change', (e) => {
+    if (e.target.classList.contains('module-checkbox')) {
+      e.stopPropagation();
+      const moduleDiv = e.target.closest('.material-module');
+      const itemsDiv = moduleDiv.querySelector('.module-items');
+      const checkboxes = itemsDiv.querySelectorAll('.material-checkbox');
+      checkboxes.forEach(cb => cb.checked = e.target.checked);
+    }
+  });
+
+  // Individual material checkbox - update module checkbox state using event delegation
+  document.addEventListener('change', (e) => {
+    if (e.target.classList.contains('material-checkbox')) {
+      const moduleDiv = e.target.closest('.material-module');
+      if (moduleDiv) {
+        const itemsDiv = moduleDiv.querySelector('.module-items');
+        const moduleCheckbox = moduleDiv.querySelector('.module-checkbox');
+        const itemCheckboxes = itemsDiv.querySelectorAll('.material-checkbox');
+
+        const allChecked = Array.from(itemCheckboxes).every(cb => cb.checked);
+        const noneChecked = Array.from(itemCheckboxes).every(cb => !cb.checked);
+
+        moduleCheckbox.checked = allChecked;
+        moduleCheckbox.indeterminate = !allChecked && !noneChecked;
+      }
+    }
+  });
+
+  // Keyboard delete handler for mass deletion of selected files
+  document.addEventListener('keydown', async (e) => {
+    // Only trigger if Delete or Backspace is pressed and focus is not in an input/textarea
+    if ((e.key === 'Delete' || e.key === 'Backspace') &&
+        !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
+
+      const selectedItems = document.querySelectorAll('.material-item[data-selected="true"]');
+
+      if (selectedItems.length === 0) return;
+
+      e.preventDefault(); // Prevent browser back navigation on Backspace
+
+      // Check if user has disabled confirmation
+      const prefs = await chrome.storage.local.get(['skipDeleteConfirmation']);
+      const skipConfirmation = prefs.skipDeleteConfirmation || false;
+
+      let confirmed = true;
+      if (!skipConfirmation) {
+        const fileCount = selectedItems.length;
+        const result = await showConfirmDialog(
+          `Remove ${fileCount} selected file${fileCount > 1 ? 's' : ''}?`,
+          'This will remove the files from AI memory. You can restore them from Settings later.',
+          { showDontAskAgain: true, dontAskAgainKey: 'skipDeleteConfirmation' }
+        );
+
+        confirmed = result.confirmed;
+
+        if (result.dontAskAgain) {
+          await chrome.storage.local.set({ skipDeleteConfirmation: true });
+        }
+      }
+
+      if (!confirmed) return;
+
+      // Delete each selected file
+      let successCount = 0;
+      let errorCount = 0;
+
+      for (const materialItem of selectedItems) {
+        const category = materialItem.getAttribute('data-category');
+        const index = materialItem.getAttribute('data-index');
+        const moduleIdx = materialItem.getAttribute('data-module-idx');
+        const itemIdx = materialItem.getAttribute('data-item-idx');
+
+        let material = null;
+        let materialName = '';
+        let fileId = null;
+
+        // Get material info based on type
+        if (moduleIdx !== null && itemIdx !== null) {
+          const module = processedMaterials.modules?.[parseInt(moduleIdx)];
+          if (module && module.items) {
+            material = module.items[parseInt(itemIdx)];
+            materialName = material?.title || material?.name || 'this file';
+            fileId = material?.id || material?.content_id || material?.file_id || material?.url;
+          }
+        } else if (category && index !== null) {
+          material = processedMaterials[category]?.[parseInt(index)];
+          materialName = material?.name || material?.display_name || material?.title || 'this file';
+          fileId = material?.id || material?.content_id || material?.file_id || material?.url;
+        }
+
+        if (!material || !fileId) {
+          errorCount++;
+          continue;
+        }
+
+        try {
+          // Send soft delete to backend
+          const response = await fetch(
+            `https://web-production-9aaba7.up.railway.app/courses/${courseId}/materials/${fileId}`,
+            { method: 'DELETE' }
+          );
+
+          if (!response.ok) {
+            throw new Error(`Failed to delete: ${response.statusText}`);
+          }
+
+          // Store in soft_deleted_files for restore functionality
+          const result = await chrome.storage.local.get(['soft_deleted_files']);
+          const deletedFiles = result.soft_deleted_files || {};
+
+          deletedFiles[fileId] = {
+            name: materialName,
+            courseId: String(courseId),
+            deletedAt: Date.now(),
+            materialData: material
+          };
+
+          await chrome.storage.local.set({ soft_deleted_files: deletedFiles });
+
+          // Remove from frontend data
+          if (moduleIdx !== null && itemIdx !== null) {
+            const module = processedMaterials.modules[parseInt(moduleIdx)];
+            module.items.splice(parseInt(itemIdx), 1);
+          } else if (category && index !== null) {
+            processedMaterials[category].splice(parseInt(index), 1);
+          }
+
+          successCount++;
+        } catch (error) {
+          console.error('Error deleting material:', error);
+          errorCount++;
+        }
+      }
+
+      // Update IndexedDB with the modified materials
+      if (successCount > 0) {
+        const materialsDB = new MaterialsDB();
+        await materialsDB.saveMaterials(courseId, courseName, processedMaterials);
+        await materialsDB.close();
+
+        // Re-render the materials list
+        displayMaterials();
+
+        showTemporaryMessage(
+          `Removed ${successCount} file${successCount > 1 ? 's' : ''}${errorCount > 0 ? `, ${errorCount} failed` : ''}. Restore from Settings if needed.`
+        );
+      } else if (errorCount > 0) {
+        showTemporaryMessage(`Error removing files: ${errorCount} failed`);
       }
     }
   });
@@ -1562,7 +1864,7 @@ function normalizeFilename(name) {
 }
 
 /**
- * Open a cited document from local storage
+ * Open a cited document from GCS with page anchor
  */
 async function openCitedDocument(docName, pageNum) {
   try {
@@ -1570,6 +1872,7 @@ async function openCitedDocument(docName, pageNum) {
 
     // Find the file in processedMaterials
     let fileItem = null;
+    let fileName = null;
 
     // Check modules
     if (processedMaterials.modules) {
@@ -1582,6 +1885,7 @@ async function openCitedDocument(docName, pageNum) {
               // Try exact match first, then partial match
               if (normalizedTitle === normalizedDocName || normalizedTitle.includes(normalizedDocName) || normalizedDocName.includes(normalizedTitle)) {
                 fileItem = item;
+                fileName = item.title || item.display_name || item.name;
                 break;
               }
             }
@@ -1594,37 +1898,32 @@ async function openCitedDocument(docName, pageNum) {
     // Check standalone files
     if (!fileItem && processedMaterials.files) {
       for (const file of processedMaterials.files) {
-        const fileName = file.name || file.display_name || '';
-        if (fileName) {
-          const normalizedFileName = normalizeFilename(fileName);
+        const fileNameCheck = file.name || file.display_name || '';
+        if (fileNameCheck) {
+          const normalizedFileName = normalizeFilename(fileNameCheck);
 
           // Try exact match first, then partial match
           if (normalizedFileName === normalizedDocName || normalizedFileName.includes(normalizedDocName) || normalizedDocName.includes(normalizedFileName)) {
             fileItem = file;
+            fileName = fileNameCheck;
             break;
           }
         }
       }
     }
 
-    if (!fileItem) {
+    if (!fileItem || !fileName) {
       showError(`File not found: ${docName}`);
       return;
     }
 
-    // Get the blob
-    const blob = fileItem.blob;
-    if (!blob) {
-      showError(`File data not available: ${docName}`);
-      return;
-    }
+    // Open file from backend/GCS with page parameter
+    // Backend will append #page=X to the GCS signed URL
+    const backendUrl = 'https://web-production-9aaba7.up.railway.app';
+    const fileUrl = `${backendUrl}/pdfs/${encodeURIComponent(courseId)}/${encodeURIComponent(fileName)}?page=${pageNum}`;
 
-    // Create object URL from blob
-    const blobUrl = URL.createObjectURL(blob);
-
-    // Open in new tab with page anchor (works for PDFs)
-    const finalUrl = `${blobUrl}#page=${pageNum}`;
-    window.open(finalUrl, '_blank');
+    console.log(`Opening citation: ${fileName} at page ${pageNum}`);
+    window.open(fileUrl, '_blank');
   } catch (error) {
     console.error('Error opening cited document:', error);
     showError(`Error opening document: ${error.message}`);
@@ -1971,10 +2270,19 @@ async function loadAvailableCourses() {
     for (const courseId of courseIds) {
       try {
         const courseData = await materialsDB.loadMaterials(courseId);
-        if (courseData && courseData.courseId && courseData.courseName) {
+        if (courseData) {
+          // Ensure courseName is a string (defensive check)
+          let courseName = 'Unknown Course';
+          if (typeof courseData.courseName === 'string') {
+            courseName = courseData.courseName;
+          } else if (typeof courseData.courseName === 'object' && courseData.courseName !== null) {
+            courseName = courseData.courseName.name || courseData.courseName.courseName || 'Unknown Course';
+            console.warn('⚠️ Course name was an object for courseId:', courseId, courseData.courseName);
+          }
+
           availableCourses.push({
-            id: courseData.courseId,
-            name: courseData.courseName
+            id: courseData.courseId || courseId,
+            name: courseName
           });
         }
       } catch (error) {
@@ -2068,16 +2376,273 @@ function escapeHtml(text) {
 async function showSettingsModal() {
   elements.settingsModal.classList.remove('hidden');
 
-  // Load current settings
-  const settings = await chrome.storage.local.get(['enable_web_search']);
-  const webSearchToggle = document.getElementById('web-search-toggle');
-  if (webSearchToggle) {
-    webSearchToggle.checked = settings.enable_web_search || false;
+  // Load Canvas URL
+  const url = await StorageManager.getCanvasUrl();
+  const canvasUrlSpan = document.getElementById('settings-canvas-url');
+  if (canvasUrlSpan) {
+    canvasUrlSpan.textContent = url || 'Not set';
   }
+
+  // Load API key
+  const settings = await chrome.storage.local.get(['gemini_api_key']);
+  const apiKeyInput = document.getElementById('settings-api-key-input');
+  if (apiKeyInput && settings.gemini_api_key) {
+    apiKeyInput.value = settings.gemini_api_key;
+  }
+
+  // Load deleted files
+  await loadDeletedFiles();
 }
 
 function hideSettingsModal() {
   elements.settingsModal.classList.add('hidden');
+}
+
+async function loadDeletedFiles() {
+  const deletedFilesContainer = document.getElementById('deleted-files-list');
+  if (!deletedFilesContainer) {
+    console.warn('deleted-files-list element not found in DOM');
+    return;
+  }
+
+  try {
+    // Get soft-deleted files from storage
+    const result = await chrome.storage.local.get(['soft_deleted_files']);
+    const deletedFiles = result.soft_deleted_files || {};
+
+    console.log('📁 [Settings] All deleted files from storage:', deletedFiles);
+    console.log('📁 [Settings] Current courseId:', courseId);
+
+    // Filter for current course (compare as strings for consistency)
+    const courseDeletedFiles = Object.entries(deletedFiles)
+      .filter(([fileId, data]) => {
+        const matches = String(data.courseId) === String(courseId);
+        console.log(`  File ${fileId}: courseId=${data.courseId} (${typeof data.courseId}), current=${courseId} (${typeof courseId}), matches=${matches}`);
+        return matches;
+      })
+      .map(([fileId, data]) => ({ fileId, ...data }));
+
+    console.log('📁 [Settings] Filtered deleted files for this course:', courseDeletedFiles);
+
+    if (courseDeletedFiles.length === 0) {
+      deletedFilesContainer.innerHTML = '<p class="no-deleted-files">No deleted files</p>';
+      return;
+    }
+
+    // Create list of deleted files with restore/delete buttons
+    deletedFilesContainer.innerHTML = courseDeletedFiles.map(file => `
+      <div class="deleted-file-item" data-file-id="${file.fileId}">
+        <div class="deleted-file-info">
+          <span class="deleted-file-name">${escapeHtml(file.name)}</span>
+          <span class="deleted-file-date">${new Date(file.deletedAt).toLocaleDateString()}</span>
+        </div>
+        <div class="deleted-file-actions">
+          <button type="button" class="btn btn-small btn-secondary restore-file-btn" data-file-id="${file.fileId}">
+            Restore
+          </button>
+          <button type="button" class="btn btn-small btn-danger hard-delete-file-btn" data-file-id="${file.fileId}">
+            Delete Forever
+          </button>
+        </div>
+      </div>
+    `).join('');
+
+    // Add event listeners
+    deletedFilesContainer.querySelectorAll('.restore-file-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        restoreDeletedFile(btn.dataset.fileId);
+      });
+    });
+
+    deletedFilesContainer.querySelectorAll('.hard-delete-file-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        hardDeleteFile(btn.dataset.fileId);
+      });
+    });
+
+  } catch (error) {
+    console.error('Error loading deleted files:', error);
+    deletedFilesContainer.innerHTML = '<p class="error-text">Error loading deleted files</p>';
+  }
+}
+
+async function restoreDeletedFile(fileId) {
+  try {
+    // Get deleted files
+    const result = await chrome.storage.local.get(['soft_deleted_files']);
+    const deletedFiles = result.soft_deleted_files || {};
+
+    if (!deletedFiles[fileId]) {
+      console.error('File not found in deleted files:', fileId);
+      return;
+    }
+
+    const fileData = deletedFiles[fileId];
+    const materialData = fileData.materialData;
+
+    // Send restore request to backend
+    if (wsClient && wsClient.isConnected && wsClient.ws) {
+      try {
+        wsClient.ws.send(JSON.stringify({
+          type: 'restore_file',
+          file_id: fileId,
+          course_id: courseId
+        }));
+      } catch (error) {
+        console.error('Error sending restore request:', error);
+      }
+    }
+
+    // Add the file back to processedMaterials
+    if (materialData) {
+      // Determine where to add it back based on its type
+      if (materialData.module_name) {
+        // It's a module item - find or create the module
+        let module = processedMaterials.modules.find(m => m.name === materialData.module_name);
+        if (!module) {
+          // Module doesn't exist, create it
+          module = {
+            name: materialData.module_name,
+            items: []
+          };
+          processedMaterials.modules.push(module);
+        }
+        module.items.push(materialData);
+      } else if (materialData.type === 'file') {
+        processedMaterials.files.push(materialData);
+      } else if (materialData.type === 'page') {
+        processedMaterials.pages.push(materialData);
+      } else if (materialData.type === 'assignment') {
+        processedMaterials.assignments.push(materialData);
+      }
+
+      // Update IndexedDB with restored material
+      const materialsDB = new MaterialsDB();
+      await materialsDB.saveMaterials(courseId, courseName, processedMaterials);
+      await materialsDB.close();
+      console.log('Updated IndexedDB with restored file');
+    }
+
+    // Remove from soft deleted
+    delete deletedFiles[fileId];
+    await chrome.storage.local.set({ soft_deleted_files: deletedFiles });
+
+    // Refresh the deleted files list
+    await loadDeletedFiles();
+
+    // Show success message
+    showStatusMessage(
+      document.getElementById('settings-success'),
+      `Restored "${fileData.name}"`,
+      'success'
+    );
+
+    // Reload materials in sidebar
+    await loadMaterials();
+
+  } catch (error) {
+    console.error('Error restoring file:', error);
+    showStatusMessage(
+      document.getElementById('settings-error'),
+      'Error restoring file',
+      'error'
+    );
+  }
+}
+
+async function hardDeleteFile(fileId) {
+  // Check if user has disabled confirmation
+  const prefs = await chrome.storage.local.get(['skipHardDeleteConfirmation']);
+  const skipConfirmation = prefs.skipHardDeleteConfirmation || false;
+
+  let confirmed = true;
+  if (!skipConfirmation) {
+    // Show confirmation dialog with "Don't ask again" option
+    const result = await showConfirmDialog(
+      'Permanently Delete File',
+      'This will permanently remove this file from storage. This action cannot be undone. Continue?',
+      { showDontAskAgain: true, dontAskAgainKey: 'skipHardDeleteConfirmation' }
+    );
+
+    confirmed = result.confirmed;
+
+    // Save preference if user checked "Don't ask again"
+    if (result.dontAskAgain) {
+      await chrome.storage.local.set({ skipHardDeleteConfirmation: true });
+      console.log('Saved preference: skip hard delete confirmation');
+    }
+  }
+
+  if (!confirmed) return;
+
+  try {
+    // Get deleted files
+    const result = await chrome.storage.local.get(['soft_deleted_files']);
+    const deletedFiles = result.soft_deleted_files || {};
+
+    if (!deletedFiles[fileId]) {
+      console.error('File not found in deleted files:', fileId);
+      return;
+    }
+
+    const fileData = deletedFiles[fileId];
+
+    // Send hard delete to backend via HTTP (to delete from GCS)
+    try {
+      const response = await fetch(
+        `https://web-production-9aaba7.up.railway.app/courses/${courseId}/materials/${fileId}/hard-delete`,
+        { method: 'DELETE' }
+      );
+
+      if (!response.ok) {
+        throw new Error(`Failed to delete from storage: ${response.statusText}`);
+      }
+
+      console.log(`Hard deleted ${fileData.name} from GCS`);
+    } catch (error) {
+      console.error('Error deleting from GCS:', error);
+      // Continue anyway to remove from local storage
+    }
+
+    // Also send via WebSocket if connected
+    if (wsClient && wsClient.isConnected && wsClient.ws) {
+      try {
+        wsClient.ws.send(JSON.stringify({
+          type: 'hard_delete_file',
+          file_id: fileId,
+          course_id: courseId
+        }));
+      } catch (error) {
+        console.error('Error sending hard delete request:', error);
+      }
+    }
+
+    // Remove from storage
+    delete deletedFiles[fileId];
+    await chrome.storage.local.set({ soft_deleted_files: deletedFiles });
+
+    // Refresh the deleted files list
+    await loadDeletedFiles();
+
+    // Show success message
+    showStatusMessage(
+      document.getElementById('settings-success'),
+      `Permanently deleted "${fileData.name}"`,
+      'success'
+    );
+
+  } catch (error) {
+    console.error('Error permanently deleting file:', error);
+    showStatusMessage(
+      document.getElementById('settings-error'),
+      'Error deleting file',
+      'error'
+    );
+  }
 }
 
 
@@ -2094,9 +2659,12 @@ function showStatusMessage(element, message, type) {
  * Show confirmation dialog
  * @param {string} title - Dialog title
  * @param {string} message - Dialog message
- * @returns {Promise<boolean>} - True if confirmed, false if cancelled
+ * @param {Object} options - Optional configuration
+ * @param {boolean} options.showDontAskAgain - Show "Don't ask again" checkbox
+ * @param {string} options.dontAskAgainKey - Storage key for the preference
+ * @returns {Promise<{confirmed: boolean, dontAskAgain: boolean}>}
  */
-function showConfirmDialog(title, message) {
+function showConfirmDialog(title, message, options = {}) {
   return new Promise((resolve) => {
     // Create modal overlay
     const overlay = document.createElement('div');
@@ -2125,9 +2693,19 @@ function showConfirmDialog(title, message) {
       box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
     `;
 
+    const dontAskAgainHtml = options.showDontAskAgain ? `
+      <div style="margin-bottom: 16px;">
+        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--text-secondary, #aaa); font-size: 14px;">
+          <input type="checkbox" id="dont-ask-again" style="cursor: pointer; accent-color: var(--blue-primary, #3b82f6);">
+          Don't ask again
+        </label>
+      </div>
+    ` : '';
+
     dialog.innerHTML = `
       <h3 style="margin: 0 0 12px 0; font-size: 18px; color: var(--text-primary, #fff);">${title}</h3>
       <p style="margin: 0 0 24px 0; color: var(--text-secondary, #aaa); line-height: 1.5;">${message}</p>
+      ${dontAskAgainHtml}
       <div style="display: flex; gap: 12px; justify-content: flex-end;">
         <button id="confirm-cancel" style="
           padding: 10px 20px;
@@ -2155,9 +2733,19 @@ function showConfirmDialog(title, message) {
     document.body.appendChild(overlay);
 
     // Handle buttons
-    const handleClose = (result) => {
+    const handleClose = (confirmed) => {
+      const dontAskAgain = options.showDontAskAgain
+        ? dialog.querySelector('#dont-ask-again')?.checked || false
+        : false;
+
       overlay.remove();
-      resolve(result);
+
+      // For backward compatibility, resolve with boolean if no options were provided
+      if (!options.showDontAskAgain) {
+        resolve(confirmed);
+      } else {
+        resolve({ confirmed, dontAskAgain });
+      }
     };
 
     dialog.querySelector('#confirm-cancel').onclick = () => handleClose(false);
