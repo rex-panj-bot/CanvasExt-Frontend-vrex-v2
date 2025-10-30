@@ -1375,6 +1375,11 @@ async function sendMessage() {
     // Save conversation
     await saveConversation();
 
+    // Generate chat title if this is the first message
+    if (conversationHistory.length === 2) {
+      generateChatTitle(message);
+    }
+
     // Show usage info
     elements.tokenInfo.textContent = `Mode: Python Backend`;
 
@@ -1758,6 +1763,32 @@ async function loadChatSession(sessionId) {
   } catch (error) {
     console.error('Error loading chat session:', error);
     showError('Failed to load chat: ' + error.message);
+  }
+}
+
+/**
+ * Generate AI title for chat based on first message
+ */
+async function generateChatTitle(firstMessage) {
+  try {
+    console.log('✨ Generating chat title...');
+
+    const response = await fetch(`https://web-production-9aaba7.up.railway.app/chats/${courseId}/${currentSessionId}/generate-title`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ first_message: firstMessage })
+    });
+
+    const data = await response.json();
+
+    if (data.success && data.title) {
+      console.log('✅ Generated title:', data.title);
+      // Refresh recent chats to show new title
+      await loadRecentChats();
+    }
+  } catch (error) {
+    console.warn('Failed to generate chat title:', error);
+    // Non-critical, fail silently
   }
 }
 
