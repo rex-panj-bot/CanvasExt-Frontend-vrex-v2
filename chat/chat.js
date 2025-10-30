@@ -566,9 +566,10 @@ function displayMaterials() {
 
   // Setup delete button handlers using event delegation
   // Remove old listener by cloning the element
-  const oldMaterialsList = materialsList;
-  const newMaterialsList = materialsList.cloneNode(true);
-  oldMaterialsList.parentNode.replaceChild(newMaterialsList, oldMaterialsList);
+  // Get fresh reference from DOM to avoid stale references
+  const currentMaterialsList = document.querySelector('.materials-list');
+  const newMaterialsList = currentMaterialsList.cloneNode(true);
+  currentMaterialsList.parentNode.replaceChild(newMaterialsList, currentMaterialsList);
 
   // Now add the listener to the fresh element
   document.querySelector('.materials-list').addEventListener('click', async (e) => {
