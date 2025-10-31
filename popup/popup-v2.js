@@ -1061,72 +1061,20 @@ async function createStudyBot() {
 
     updateProgress('Collecting files...', PROGRESS_PERCENT.COLLECTING);
 
-    // NEVER SKIP: All files are processed - backend handles conversion and compatibility
-    // Collect ALL files for local download + determine which need backend upload
-    const allFilesToDownload = []; // For local blob storage (ALWAYS download)
-    const filesToUploadToBackend = []; // For backend AI processing (only if new)
+    // NEW APPROACH: Just collect Canvas URLs, backend will download and process
+    const filesToProcess = [];
 
-    // Helper function to process a single item
+    // Helper function to collect file info
     const processItem = (item) => {
-      // Prioritize stored_name (has correct extension from previous download)
       const itemName = item.stored_name || item.display_name || item.filename || item.name || item.title;
       if (!itemName || !item.url) {
         return;
       }
 
-      // OPTIMIZATION: Skip download if item already has blob from cache
-      const hasBlob = item.blob && item.blob instanceof Blob;
-
-      // Try to determine file extension from name
-      let ext = null;
-      if (itemName.includes('.')) {
-        ext = itemName.split('.').pop().toLowerCase();
-      }
-
-      // If no extension but item has a blob (from previous download), detect from MIME type
-      if (!ext && item.blob && item.blob.type) {
-        const mimeToExt = {
-          'application/pdf': 'pdf',
-          'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
-          'application/vnd.ms-powerpoint': 'ppt',
-          'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
-          'application/msword': 'doc',
-          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
-          'application/vnd.ms-excel': 'xls',
-          'text/plain': 'txt',
-          'text/markdown': 'md',
-          'text/csv': 'csv',
-          'image/png': 'png',
-          'image/jpeg': 'jpg',
-          'image/gif': 'gif',
-          'image/webp': 'webp',
-          'image/bmp': 'bmp'
-        };
-        ext = mimeToExt[item.blob.type];
-      }
-
-      const fileInfo = {
-        url: item.url,
+      filesToProcess.push({
         name: itemName,
-        type: ext || 'unknown'
-      };
-
-      // Only add to download list if we don't already have the blob
-      if (!hasBlob) {
-        allFilesToDownload.push(fileInfo);
-      }
-
-      // NEVER SKIP: Upload all files to backend, conversion happens server-side
-      // Backend will convert Office files to PDF and handle all formats
-      const fileNameWithoutExt = itemName.substring(0, itemName.lastIndexOf('.')) || itemName;
-      const fileId = `${currentCourse.id}_${fileNameWithoutExt}`;
-
-      if (!uploadedFileIds.has(fileId)) {
-        filesToUploadToBackend.push(fileInfo);
-        console.log(`Will upload ${itemName} (${ext || 'unknown'}) to backend`);
-      } else {
-        console.log(`File ${itemName} already on backend, skipping upload`);
-      }
+        url: item.url
+      });
     };
 
     // Process standalone files, pages, assignments
@@ -1262,400 +1210,57 @@ async function createStudyBot() {
       });
     }
 
-    // Log summary of what will be uploaded
-    const uploadSummary = {};
-    filesToUploadToBackend.forEach(f => {
-      uploadSummary[f.type] = (uploadSummary[f.type] || 0) + 1;
-    });
-    console.log(`📊 Files to upload to backend: ${filesToUploadToBackend.length}`, uploadSummary);
+    console.log(`📊 Files to process: ${filesToProcess.length}`);
 
-    // Count how many files already have cached blobs
-    let cachedFileCount = 0;
-    const countCachedBlobs = (items) => {
-      if (!Array.isArray(items)) return;
-      items.forEach(item => {
-        if (item.blob && item.blob instanceof Blob) cachedFileCount++;
-      });
-    };
+    // NEW APPROACH: Send Canvas URLs to backend, it will download and process
+    if (filesToProcess.length > 0) {
+      updateProgress(`Processing ${filesToProcess.length} files on backend...`, PROGRESS_PERCENT.UPLOADING);
 
-    for (const items of Object.values(materialsToProcess)) {
-      countCachedBlobs(items);
-    }
-    if (materialsToProcess.modules && Array.isArray(materialsToProcess.modules)) {
-      materialsToProcess.modules.forEach(module => {
-        if (module.items) countCachedBlobs(module.items);
-      });
-    }
+      try {
+        const response = await fetch(`https://web-production-9aaba7.up.railway.app/process_canvas_files`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            course_id: currentCourse.id,
+            files: filesToProcess
+          })
+        });
 
-    console.log(`🚀 OPTIMIZATION: ${cachedFileCount} files using cached blobs, ${allFilesToDownload.length} need downloading`);
-    console.log(`🚀 DEBUG: allFilesToDownload =`, allFilesToDownload);
-    console.log(`🚀 DEBUG: filesToUploadToBackend.length =`, filesToUploadToBackend.length);
+        const result = await response.json();
+        console.log(`✅ Backend processed files:`, result);
+        console.log(`   - Processed: ${result.processed}`);
+        console.log(`   - Skipped (already in GCS): ${result.skipped}`);
+        console.log(`   - Failed: ${result.failed}`);
 
-    // OPTIMIZATION: Skip downloads in main flow - will happen in background if needed
-    // Keep blob attachment logic for files that were already downloaded from cache
-    const downloadedFiles = [];
-
-    if (false) {
-      // This section disabled - downloads will happen in background function instead
-      // Kept for reference only
-      updateProgress(`Downloading ${allFilesToDownload.length} new files...`, PROGRESS_PERCENT.DOWNLOADING_START);
-
-      let completed = 0;
-      const total = allFilesToDownload.length;
-      const concurrency = 16;
-
-      // Download single file
-      const downloadFile = async (file) => {
-        try {
-          const blob = await canvasAPI.downloadFile(file.url);
-
-          // Ensure filename has an extension based on blob type
-          let fileName = file.name;
-          if (!fileName.includes('.')) {
-            // No extension - detect from blob MIME type
-            const mimeToExt = {
-              'application/pdf': '.pdf',
-              'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
-              'application/vnd.ms-powerpoint': '.ppt',
-              'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
-              'application/msword': '.doc',
-              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
-              'application/vnd.ms-excel': '.xls',
-              'text/plain': '.txt',
-              'text/markdown': '.md',
-              'text/csv': '.csv',
-              'image/png': '.png',
-              'image/jpeg': '.jpg',
-              'image/gif': '.gif',
-              'image/webp': '.webp',
-              'image/bmp': '.bmp'
-            };
-            const ext = mimeToExt[blob.type];
-            if (ext) {
-              fileName = fileName + ext;
-              console.log(`  ✓ Added extension: "${file.name}" → "${fileName}" (${blob.type})`);
-            }
-          }
-
-          downloadedFiles.push({ blob, name: fileName });
-          completed++;
-
-          // Update progress
-          const downloadProgressRange = PROGRESS_PERCENT.DOWNLOADING_END - PROGRESS_PERCENT.DOWNLOADING_START;
-          const progress = PROGRESS_PERCENT.DOWNLOADING_START + ((completed / total) * downloadProgressRange);
-          updateProgress(`Downloading files: ${completed}/${total}`, progress);
-
-          return { success: true, name: file.name, size: blob.size };
-        } catch (error) {
-          completed++;
-
-          // Update progress even on error
-          const downloadProgressRange = PROGRESS_PERCENT.DOWNLOADING_END - PROGRESS_PERCENT.DOWNLOADING_START;
-          const progress = PROGRESS_PERCENT.DOWNLOADING_START + ((completed / total) * downloadProgressRange);
-          updateProgress(`Downloading files: ${completed}/${total}`, progress);
-
-          console.error(`Failed to download ${file.name}:`, error);
-          return { success: false, name: file.name, error };
+        if (result.failed > 0) {
+          console.warn(`⚠️ ${result.failed} files failed to process`);
         }
-      };
-
-      // Process downloads in batches
-      const downloadBatch = async (batch) => {
-        return Promise.all(batch.map(file => downloadFile(file)));
-      };
-
-      // Split files into batches
-      const batches = [];
-      for (let i = 0; i < allFilesToDownload.length; i += concurrency) {
-        batches.push(allFilesToDownload.slice(i, i + concurrency));
-      }
-
-      // Download all batches sequentially (files within each batch in parallel)
-      for (const batch of batches) {
-        await downloadBatch(batch);
+      } catch (error) {
+        console.error('❌ Failed to process files on backend:', error);
+        throw new Error(`Backend processing failed: ${error.message}`);
       }
     } else {
-      console.log('⚡ FAST PATH: Skipping downloads, all files cached!');
-      updateProgress('Using cached files...', PROGRESS_PERCENT.DOWNLOADING_END);
+      console.log('⚡ No files to process');
     }
 
-    // Upload only NEW files to backend (respect backend cache)
-    // Collect files that need uploading: either from downloads or from direct blobs (assignments)
-    const filesToActuallyUpload = [];
+    // Open chat interface immediately - no downloads needed!
+    updateProgress('Opening chat...', PROGRESS_PERCENT.COMPLETE);
 
-    if (filesToUploadToBackend.length > 0) {
-      // First, add downloaded files that need uploading
-      if (downloadedFiles.length > 0) {
-        const uploadSet = new Set(filesToUploadToBackend.map(f => f.name));
-        const downloadedToUpload = downloadedFiles.filter(f => {
-          // Check if this file needs uploading (match by name or without extension)
-          const nameWithoutExt = f.name.replace(/\.(pdf|docx?|txt|xlsx?|pptx?|csv|md|rtf|png|jpe?g|gif|webp|bmp)$/i, '');
-          return uploadSet.has(f.name) || uploadSet.has(nameWithoutExt);
-        });
-        filesToActuallyUpload.push(...downloadedToUpload);
-      }
+    // Save materials metadata to IndexedDB (no blobs needed - files are in GCS)
+    const materialsDB = new MaterialsDB();
+    await materialsDB.saveMaterials(currentCourse.id, currentCourse.name, materialsToProcess);
+    await materialsDB.close();
 
-      // Second, add files that already have blobs (assignments, etc.)
-      filesToUploadToBackend.forEach(fileInfo => {
-        if (fileInfo.blob) {
-          // File already has a blob (e.g., assignment description converted to text)
-          filesToActuallyUpload.push({
-            blob: fileInfo.blob,
-            name: fileInfo.name
-          });
-          console.log(`📋 Added blob-based file to upload queue: ${fileInfo.name}`);
-        }
-      });
+    // Open chat
+    const chatUrl = chrome.runtime.getURL(`chat/chat.html?courseId=${currentCourse.id}`);
+    await chrome.tabs.create({ url: chatUrl });
 
-      if (filesToActuallyUpload.length > 0) {
-        updateProgress(`Uploading ${filesToActuallyUpload.length} new files to backend...`, PROGRESS_PERCENT.UPLOADING);
-
-        console.log(`📤 Uploading ${filesToActuallyUpload.length} new files to backend`);
-
-        // Log file types being uploaded
-        const uploadTypes = {};
-        filesToActuallyUpload.forEach(f => {
-          const ext = f.name.split('.').pop().toLowerCase();
-          uploadTypes[ext] = (uploadTypes[ext] || 0) + 1;
-        });
-        console.log(`📊 File types being uploaded:`, uploadTypes);
-
-        const uploadResult = await backendClient.uploadPDFs(currentCourse.id, filesToActuallyUpload);
-        console.log(`✅ Successfully uploaded ${filesToActuallyUpload.length} new files to backend`);
-
-        // Check for unreadable files and filter them out
-        if (uploadResult && uploadResult.files) {
-          const unreadableFiles = uploadResult.files.filter(f => f.unreadable === true);
-
-          if (unreadableFiles.length > 0) {
-            const unreadableNames = unreadableFiles.map(f => f.filename).join(', ');
-            console.warn(`⚠️ ${unreadableFiles.length} files could not be converted:`, unreadableNames);
-
-            // Show alert to user (simple notification)
-            alert(`⚠️ ${unreadableFiles.length} file(s) could not be converted and won't be available to the AI:\n\n${unreadableNames}\n\nThese files will not appear in your file list.`);
-
-            // Remove unreadable files from scannedMaterials
-            const unreadableSet = new Set(unreadableFiles.map(f => f.filename));
-            if (scannedMaterials) {
-              for (const [key, items] of Object.entries(scannedMaterials)) {
-                if (Array.isArray(items)) {
-                  scannedMaterials[key] = items.filter(item => {
-                    const itemName = item.display_name || item.filename || item.name || item.title;
-                    return !unreadableSet.has(itemName);
-                  });
-                }
-              }
-
-              // Remove from module items
-              if (scannedMaterials.modules && Array.isArray(scannedMaterials.modules)) {
-                scannedMaterials.modules.forEach((module) => {
-                  if (module.items && Array.isArray(module.items)) {
-                    module.items = module.items.filter(item => {
-                      const itemName = item.title || item.name || item.display_name;
-                      return !unreadableSet.has(itemName);
-                    });
-                  }
-                });
-              }
-            }
-          }
-        }
-      } else {
-        console.log('⚡ FAST PATH: No new files to upload to backend!');
-      }
-    } else {
-      console.log('⚡ FAST PATH: Skipping backend upload, all files already cached on backend!');
-      updateProgress('All files already on backend...', PROGRESS_PERCENT.UPLOADING);
-    }
-
-    // Attach blobs to materials
-    const blobMap = new Map();
-    downloadedFiles.forEach(df => {
-      blobMap.set(df.name, df.blob);
-      // Also store without extension for matching
-      const nameWithoutExt = df.name.replace(/\.(pdf|docx?|txt|xlsx?|pptx?|csv|md|rtf|png|jpe?g|gif|webp|bmp)$/i, '');
-      blobMap.set(nameWithoutExt, df.blob);
-    });
-
-    // Attach blobs to all matching items in materialsToProcess
-    for (const items of Object.values(materialsToProcess)) {
-      if (!Array.isArray(items)) continue;
-
-      items.forEach((item) => {
-        let itemName = item.display_name || item.filename || item.name || item.title;
-        if (itemName) {
-          // Try exact match first
-          if (blobMap.has(itemName)) {
-            item.blob = blobMap.get(itemName);
-            // Update the stored name to include extension
-            for (const [fileName, blob] of blobMap) {
-              if (blob === item.blob && fileName.includes('.')) {
-                item.stored_name = fileName;
-                break;
-              }
-            }
-          }
-        }
-      });
-    }
-
-    // ALSO attach blobs to module items
-    if (materialsToProcess.modules && Array.isArray(materialsToProcess.modules)) {
-      materialsToProcess.modules.forEach((module) => {
-        if (module.items && Array.isArray(module.items)) {
-          module.items.forEach((item) => {
-            let itemName = item.title || item.name || item.display_name;
-            if (itemName) {
-              // Try exact match first
-              if (blobMap.has(itemName)) {
-                item.blob = blobMap.get(itemName);
-                // Update the stored name to include extension
-                for (const [fileName, blob] of blobMap) {
-                  if (blob === item.blob && fileName.includes('.')) {
-                    item.stored_name = fileName;
-                    break;
-                  }
-                }
-              }
-            }
-          });
-        }
-      });
-    }
-
-    // OPTIMIZATION: Determine if we need background loading
-    const needsBackgroundLoading = allFilesToDownload.length > 0;
-
-    console.log(`🚀 [POPUP] needsBackgroundLoading = ${needsBackgroundLoading}`);
-    console.log(`🚀 [POPUP] allFilesToDownload.length = ${allFilesToDownload.length}`);
-    console.log(`🚀 [POPUP] filesToUploadToBackend.length = ${filesToUploadToBackend.length}`);
-
-    if (needsBackgroundLoading) {
-      console.log('🚀 [POPUP] BACKGROUND LOADING BRANCH: Opening chat immediately, will load files in background');
-
-      // Save skeleton materials to IndexedDB (with whatever blobs we already have from cache)
-      updateProgress('Preparing...', PROGRESS_PERCENT.COMPLETE - 5);
-      const materialsDB = new MaterialsDB();
-      await materialsDB.saveMaterials(currentCourse.id, currentCourse.name, materialsToProcess);
-      await materialsDB.close();
-
-      // Auto-detect and save syllabus
-      try {
-        const syllabusResponse = await fetch(`https://canvasext-backend-production.up.railway.app/courses/${currentCourse.id}/syllabus`);
-        const syllabusData = await syllabusResponse.json();
-        if (syllabusData.success && syllabusData.syllabus_id) {
-          console.log(`📚 Auto-detected syllabus: ${syllabusData.syllabus_name}`);
-        }
-      } catch (e) {
-        console.warn('Could not auto-detect syllabus:', e);
-      }
-
-      // Auto-detect and save syllabus BEFORE opening chat
-      updateProgress('Identifying syllabus...', PROGRESS_PERCENT.UPLOADING + 5);
-      try {
-        const syllabusResponse = await fetch(`https://web-production-9aaba7.up.railway.app/courses/${currentCourse.id}/syllabus`);
-        const syllabusData = await syllabusResponse.json();
-        if (syllabusData.success && syllabusData.syllabus_id) {
-          console.log(`📚 Auto-detected syllabus: ${syllabusData.syllabus_name}`);
-          updateProgress(`Found syllabus: ${syllabusData.syllabus_name}`, PROGRESS_PERCENT.UPLOADING + 8);
-        } else {
-          console.log('⚠️ No syllabus detected automatically');
-        }
-      } catch (e) {
-        console.warn('Could not auto-detect syllabus:', e);
-      }
-
-      // NEW APPROACH: Write download task to chrome.storage, service worker will handle it
-      updateProgress('Starting background downloads...', PROGRESS_PERCENT.DOWNLOADING_START);
-
-      // Prepare data for background loading
-      const filesToDownloadCopy = allFilesToDownload.map(f => ({
-        url: f.url,
-        name: f.name,
-        type: f.type
-      }));
-      const filesToUploadCopy = filesToUploadToBackend.map(f => ({
-        url: f.url,
-        name: f.name,
-        type: f.type
-      }));
-
-      // Write download task to storage for service worker
-      const downloadTask = {
-        courseId: currentCourse.id,
-        courseName: currentCourse.name,
-        filesToDownload: filesToDownloadCopy,
-        filesToUpload: filesToUploadCopy,
-        status: 'pending',
-        progress: { filesCompleted: 0, filesTotal: filesToDownloadCopy.length },
-        timestamp: Date.now()
-      };
-
-      console.log('📤 [POPUP] Writing download task to chrome.storage:', downloadTask);
-
-      await new Promise((resolve) => {
-        chrome.storage.local.set({ downloadTask }, () => {
-          console.log('✅ [POPUP] Download task written to storage');
-          resolve();
-        });
-      });
-
-      // Wake up service worker to start downloads BEFORE opening chat
-      // (Must be before chrome.tabs.create because that closes the popup)
-      await new Promise((resolve) => {
-        chrome.runtime.sendMessage({ type: 'START_DOWNLOADS' }, (response) => {
-          console.log('📤 [POPUP] Sent START_DOWNLOADS message, response:', response);
-          resolve();
-        });
-      });
-
-      // Now open chat - it will poll storage for progress
-      const chatUrl = chrome.runtime.getURL(`chat/chat.html?courseId=${currentCourse.id}&loading=true`);
-      await chrome.tabs.create({ url: chatUrl });
-
-      // Reset popup UI (may not execute if popup closes)
-      updateProgress('Chat opened! Downloads continuing in background...', 100);
-      setTimeout(() => {
-        document.getElementById('study-bot-progress').classList.add('hidden');
-        studyBotBtn.disabled = false;
-        studyBotBtn.title = 'Create an AI study bot for this course';
-      }, 1000);
-
-      console.log('✅ [POPUP] Background loading initiated, chat will open immediately');
-
-    } else {
-      // FAST PATH: Everything cached, no background loading needed
-      console.log('⚡ [POPUP] FAST PATH BRANCH: All files cached, opening chat immediately');
-      console.log('⚡ [POPUP] allFilesToDownload.length was:', allFilesToDownload.length);
-
-      updateProgress('Saving materials...', PROGRESS_PERCENT.COMPLETE);
-      const materialsDB = new MaterialsDB();
-      await materialsDB.saveMaterials(currentCourse.id, currentCourse.name, materialsToProcess);
-      await materialsDB.close();
-
-      // Auto-detect and save syllabus
-      try {
-        const syllabusResponse = await fetch(`https://canvasext-backend-production.up.railway.app/courses/${currentCourse.id}/syllabus`);
-        const syllabusData = await syllabusResponse.json();
-        if (syllabusData.success && syllabusData.syllabus_id) {
-          console.log(`📚 Auto-detected syllabus: ${syllabusData.syllabus_name}`);
-        }
-      } catch (e) {
-        console.warn('Could not auto-detect syllabus:', e);
-      }
-
-      // Open chat interface
-      const chatUrl = chrome.runtime.getURL(`chat/chat.html?courseId=${currentCourse.id}`);
-      chrome.tabs.create({ url: chatUrl });
-
-      // Reset UI
-      setTimeout(() => {
-        document.getElementById('study-bot-progress').classList.add('hidden');
-        studyBotBtn.disabled = false;
-        studyBotBtn.title = 'Create an AI study bot for this course';
-        document.getElementById('study-bot-progress-fill').style.width = '0%';
-      }, 500);
-    }
+    // Reset UI
+    document.getElementById('study-bot-progress').classList.add('hidden');
+    studyBotBtn.disabled = false;
+    studyBotBtn.title = 'Create an AI study bot for this course';
 
   } catch (error) {
     console.error('Error creating study bot:', error);
@@ -1665,11 +1270,6 @@ async function createStudyBot() {
     studyBotBtn.title = 'Create an AI study bot for this course';
   }
 }
-
-/**
- * Filter materials - now simplified to just pass through all content types
- * No more keyword-based filtering
- */
 function filterMaterialsByPreferences(materials, preferences) {
   const filtered = {
     modules: materials.modules || [],
