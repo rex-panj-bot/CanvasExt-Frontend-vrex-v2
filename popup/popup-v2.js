@@ -1064,6 +1064,7 @@ async function createStudyBot() {
     // NEW APPROACH: Just collect Canvas URLs, backend will download and process
     const filesToProcess = [];
     const skippedFiles = []; // Track files without URLs
+    const filesToUploadToBackend = []; // Pages/assignments converted to text blobs
 
     // Helper function to collect file info
     const processItem = (item) => {
