@@ -1865,7 +1865,9 @@ async function sendMessage() {
     }
 
     // Show usage info
-    elements.tokenInfo.textContent = `Mode: Python Backend`;
+    if (elements.tokenInfo) {
+      elements.tokenInfo.textContent = `Mode: Python Backend`;
+    }
 
   } catch (error) {
     console.error('Error sending message:', error);
