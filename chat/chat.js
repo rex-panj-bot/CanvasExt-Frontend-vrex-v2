@@ -1252,6 +1252,17 @@ function setupEventListeners() {
     });
   });
 
+  // Compact mode buttons
+  document.querySelectorAll('.mode-btn-compact').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const prompt = btn.getAttribute('data-prompt') || btn.textContent;
+      elements.messageInput.value = prompt;
+      elements.messageInput.focus();
+      // Auto-send the message
+      sendMessage();
+    });
+  });
+
   // New chat
   elements.newChatBtn.addEventListener('click', () => {
     // Generate new session ID
@@ -1384,9 +1395,48 @@ function setupEventListeners() {
     });
   }
 
+  // Refresh materials button
+  const refreshMaterialsBtn = document.getElementById('refresh-materials-btn');
+  if (refreshMaterialsBtn) {
+    refreshMaterialsBtn.addEventListener('click', async () => {
+      try {
+        // Show loading state
+        refreshMaterialsBtn.disabled = true;
+        refreshMaterialsBtn.style.opacity = '0.5';
+
+        // Reload materials from Canvas
+        await loadMaterials();
+
+        // Show success feedback (brief rotation animation is already in CSS)
+        setTimeout(() => {
+          refreshMaterialsBtn.disabled = false;
+          refreshMaterialsBtn.style.opacity = '1';
+        }, 500);
+      } catch (error) {
+        console.error('Error refreshing materials:', error);
+        refreshMaterialsBtn.disabled = false;
+        refreshMaterialsBtn.style.opacity = '1';
+      }
+    });
+  }
+
   // Enable send button when input has text
   elements.messageInput.addEventListener('input', () => {
     elements.sendBtn.disabled = !elements.messageInput.value.trim();
+  });
+
+  // Position tooltips dynamically to avoid clipping
+  const tooltipToggles = document.querySelectorAll('.toggle-compact.toggle-with-tooltip');
+  tooltipToggles.forEach(toggle => {
+    const tooltip = toggle.querySelector('.toggle-tooltip');
+    if (tooltip) {
+      toggle.addEventListener('mouseenter', () => {
+        const rect = toggle.getBoundingClientRect();
+        tooltip.style.left = `${rect.left + rect.width / 2}px`;
+        tooltip.style.top = `${rect.top - 8}px`;
+        tooltip.style.transform = 'translate(-50%, -100%)';
+      });
+    }
   });
 
   // File upload handler
@@ -2020,7 +2070,7 @@ async function openCitedDocument(docName, pageNum) {
     const fileUrl = `${backendUrl}/pdfs/${encodeURIComponent(courseId)}/${encodeURIComponent(fileName)}?page=${pageNum}`;
 
     console.log(`Opening citation: ${fileName} at page ${pageNum}`);
-    window.open(fileUrl, '_blank');
+    chrome.tabs.create({ url: fileUrl });
   } catch (error) {
     console.error('Error opening cited document:', error);
     showError(`Error opening document: ${error.message}`);
@@ -2418,7 +2468,6 @@ function populateCourseSwitcher() {
     const isActive = course.id === courseId;
     return `
       <div class="course-item ${isActive ? 'active' : ''}" data-course-id="${course.id}">
-        <div class="course-item-icon">📚</div>
         <div class="course-item-name">${escapeHtml(course.name)}</div>
         ${isActive ? '<div class="course-item-badge">Current</div>' : ''}
       </div>
