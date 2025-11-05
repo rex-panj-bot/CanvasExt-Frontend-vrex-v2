@@ -1080,7 +1080,8 @@ async function createStudyBot() {
 
       filesToProcess.push({
         name: itemName,
-        url: item.url
+        url: item.url,
+        id: item.id || item.file_id  // Canvas file ID for fresh URL generation
       });
     };
 
