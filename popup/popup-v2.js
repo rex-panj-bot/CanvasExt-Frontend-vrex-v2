@@ -1248,6 +1248,13 @@ async function createStudyBot() {
       updateProgress(`Processing ${filesToProcess.length} files on backend...`, PROGRESS_PERCENT.UPLOADING);
 
       try {
+        // Get Canvas URL and cookies for authentication
+        const canvasUrl = await StorageManager.getCanvasUrl();
+        const cookies = await chrome.cookies.getAll({ url: canvasUrl });
+
+        // Extract session cookies (Canvas uses various cookie names depending on institution)
+        const cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+
         const response = await fetch(`https://web-production-9aaba7.up.railway.app/process_canvas_files`, {
           method: 'POST',
           headers: {
@@ -1255,7 +1262,9 @@ async function createStudyBot() {
           },
           body: JSON.stringify({
             course_id: currentCourse.id,
-            files: filesToProcess
+            files: filesToProcess,
+            canvas_url: canvasUrl,
+            cookies: cookieString  // Send session cookies for authentication
           })
         });
 
