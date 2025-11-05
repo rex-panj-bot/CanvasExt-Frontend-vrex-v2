@@ -1063,11 +1063,17 @@ async function createStudyBot() {
 
     // NEW APPROACH: Just collect Canvas URLs, backend will download and process
     const filesToProcess = [];
+    const skippedFiles = []; // Track files without URLs
 
     // Helper function to collect file info
     const processItem = (item) => {
       const itemName = item.stored_name || item.display_name || item.filename || item.name || item.title;
-      if (!itemName || !item.url) {
+
+      if (!itemName) return;
+
+      if (!item.url) {
+        console.warn(`⚠️ Skipping "${itemName}" - no download URL from Canvas`);
+        skippedFiles.push(itemName);
         return;
       }
 
@@ -1077,9 +1083,10 @@ async function createStudyBot() {
       });
     };
 
-    // Process standalone files, pages, assignments
+    // Process standalone files only (NOT pages/assignments - they're handled separately below)
     for (const [category, items] of Object.entries(materialsToProcess)) {
-      if (category === 'modules' || !Array.isArray(items)) continue;
+      // Skip modules, pages, and assignments - they're processed separately
+      if (category === 'modules' || category === 'pages' || category === 'assignments' || !Array.isArray(items)) continue;
 
       for (const item of items) {
         processItem(item);
@@ -1210,7 +1217,29 @@ async function createStudyBot() {
       });
     }
 
+    // Log summary of files to process
     console.log(`📊 Files to process: ${filesToProcess.length}`);
+    if (skippedFiles.length > 0) {
+      console.warn(`⚠️ ${skippedFiles.length} files skipped (no Canvas download URL):`, skippedFiles);
+    }
+
+    // Upload pages/assignments text blobs that were created above
+    if (filesToUploadToBackend.length > 0) {
+      updateProgress(`Uploading ${filesToUploadToBackend.length} pages/assignments as text...`, PROGRESS_PERCENT.UPLOADING - 5);
+
+      try {
+        const backendClient = new BackendClient('https://web-production-9aaba7.up.railway.app');
+        const uploadResult = await backendClient.uploadPDFs(currentCourse.id, filesToUploadToBackend);
+        console.log(`✅ Uploaded ${filesToUploadToBackend.length} pages/assignments as text files`);
+
+        if (uploadResult.failed_count > 0) {
+          console.warn(`⚠️ ${uploadResult.failed_count} text files failed to upload`);
+        }
+      } catch (error) {
+        console.error('❌ Failed to upload pages/assignments:', error);
+        // Don't throw - continue with file processing
+      }
+    }
 
     // NEW APPROACH: Send Canvas URLs to backend, it will download and process
     if (filesToProcess.length > 0) {
@@ -1229,13 +1258,19 @@ async function createStudyBot() {
         });
 
         const result = await response.json();
-        console.log(`✅ Backend processed files:`, result);
-        console.log(`   - Processed: ${result.processed}`);
+        console.log(`✅ Backend Upload Summary:`);
+        console.log(`   - Total files sent: ${filesToProcess.length}`);
+        console.log(`   - Successfully processed: ${result.processed}`);
         console.log(`   - Skipped (already in GCS): ${result.skipped}`);
-        console.log(`   - Failed: ${result.failed}`);
+        console.log(`   - Failed to process: ${result.failed}`);
 
         if (result.failed > 0) {
-          console.warn(`⚠️ ${result.failed} files failed to process`);
+          console.error(`❌ ${result.failed} files failed to upload - check Railway backend logs for details`);
+        }
+
+        // Show summary to user
+        if (result.processed > 0 || result.skipped > 0) {
+          console.log(`✅ ${result.processed + result.skipped} files are now in GCS and ready for AI`);
         }
       } catch (error) {
         console.error('❌ Failed to process files on backend:', error);
