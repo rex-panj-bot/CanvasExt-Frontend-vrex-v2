@@ -1055,6 +1055,15 @@ function getSelectedDocIds() {
       if (fileItem) {
         // Use stored_name if available (has correct extension), otherwise use name
         materialName = fileItem.stored_name || fileItem.name || fileItem.display_name || fileItem.title;
+        console.log(`🔍 Material item:`, {
+          category,
+          index,
+          stored_name: fileItem.stored_name,
+          name: fileItem.name,
+          display_name: fileItem.display_name,
+          title: fileItem.title,
+          finalName: materialName
+        });
       }
     }
 

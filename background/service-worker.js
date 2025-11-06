@@ -8,6 +8,76 @@ console.log('Canvas Material Extractor: Service worker loaded');
 // Store current course info
 let currentCourseInfo = null;
 
+/**
+ * Update materials in storage with stored_name from backend upload response
+ * This ensures materials have the correct GCS filenames with extensions
+ */
+async function updateMaterialsWithStoredNames(courseId, uploadedFiles) {
+  try {
+    // Get current materials from storage
+    const storageKey = `course_${courseId}`;
+    const result = await chrome.storage.local.get([storageKey]);
+
+    if (!result[storageKey] || !result[storageKey].materials) {
+      console.warn('No materials found in storage to update');
+      return;
+    }
+
+    const materials = result[storageKey].materials;
+    let updatedCount = 0;
+
+    // Create mapping: original_name -> stored_name
+    const nameMap = new Map();
+    uploadedFiles.forEach(file => {
+      nameMap.set(file.original_name, file.stored_name);
+    });
+
+    // Update all material categories
+    const categories = ['files', 'pages', 'assignments', 'modules'];
+    for (const category of categories) {
+      if (!materials[category]) continue;
+
+      if (category === 'modules') {
+        // Handle module items
+        materials[category].forEach(module => {
+          if (module.items) {
+            module.items.forEach(item => {
+              const originalName = item.title || item.name || item.display_name;
+              if (originalName && nameMap.has(originalName)) {
+                item.stored_name = nameMap.get(originalName);
+                updatedCount++;
+                console.log(`  ✅ Updated: "${originalName}" → "${item.stored_name}"`);
+              }
+            });
+          }
+        });
+      } else {
+        // Handle standalone files/pages/assignments
+        materials[category].forEach(item => {
+          const originalName = item.name || item.display_name || item.title;
+          if (originalName && nameMap.has(originalName)) {
+            item.stored_name = nameMap.get(originalName);
+            updatedCount++;
+            console.log(`  ✅ Updated: "${originalName}" → "${item.stored_name}"`);
+          }
+        });
+      }
+    }
+
+    // Save updated materials back to storage
+    await chrome.storage.local.set({
+      [storageKey]: {
+        ...result[storageKey],
+        materials: materials
+      }
+    });
+
+    console.log(`✅ Updated ${updatedCount} materials with stored names`);
+  } catch (error) {
+    console.error('❌ Error updating materials with stored names:', error);
+  }
+}
+
 // Check for pending download tasks on startup
 chrome.storage.local.get(['downloadTask'], (result) => {
   if (result.downloadTask && result.downloadTask.status === 'pending') {
@@ -540,6 +610,13 @@ async function handleBackgroundUpload() {
         'Failed': result.failed,
         'Will count as uploaded': currentBatchFiles.length
       });
+
+      // CRITICAL: Update materials with stored_name from backend
+      // This ensures selected doc IDs have correct extensions
+      if (result.uploaded_files && result.uploaded_files.length > 0) {
+        console.log(`📝 Updating ${result.uploaded_files.length} materials with stored names...`);
+        await updateMaterialsWithStoredNames(courseId, result.uploaded_files);
+      }
 
       // Update progress (count all files in batch, whether processed, skipped, or failed)
       const newUploadedFiles = uploadedFiles + currentBatchFiles.length;
