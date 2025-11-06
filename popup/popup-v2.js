@@ -1261,10 +1261,13 @@ async function createStudyBot() {
 
       try {
         // Check files instantly - this is FAST (not batched with downloads)
-        const checkResponse = await fetch(`https://web-production-9aaba7.up.railway.app/check_files_exist?course_id=${currentCourse.id}`, {
+        const checkResponse = await fetch(`https://web-production-9aaba7.up.railway.app/check_files_exist`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ files: filesToProcess })
+          body: JSON.stringify({
+            course_id: currentCourse.id,
+            files: filesToProcess
+          })
         });
 
         if (checkResponse.ok) {
