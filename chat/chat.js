@@ -1059,12 +1059,11 @@ function getSelectedDocIds() {
     }
 
     if (materialName) {
-      // Remove file extension for document ID
-      const cleanName = materialName.replace(/\.(pdf|docx?|txt|xlsx?|pptx?|csv|md|rtf|png|jpe?g|gif|webp|bmp)$/i, '');
-
+      // CRITICAL: Keep the file extension in the document ID
+      // Backend catalog stores files WITH extensions (e.g., "lecture.pdf")
       // Sanitize: replace forward slashes (GCS doesn't allow them in blob names)
       // Must match backend sanitization in storage_manager.py
-      const sanitizedName = cleanName.replace(/\//g, '-');
+      const sanitizedName = materialName.replace(/\//g, '-');
 
       const docId = `${courseId}_${sanitizedName}`;
       docIds.push(docId);
@@ -1087,10 +1086,11 @@ function getSyllabusId() {
       for (const item of selected[category]) {
         const name = (item.name || item.display_name || '').toLowerCase();
         if (name.includes('syllabus')) {
-          let materialName = item.name || item.display_name;
-          if (materialName.endsWith('.pdf')) {
-            materialName = materialName.slice(0, -4);
-          }
+          // Use stored_name if available (has correct extension), otherwise use name
+          let materialName = item.stored_name || item.name || item.display_name;
+          // CRITICAL: Keep the file extension - backend catalog stores files WITH extensions
+          // Sanitize forward slashes to match backend
+          materialName = materialName.replace(/\//g, '-');
           return `${courseId}_${materialName}`;
         }
       }
