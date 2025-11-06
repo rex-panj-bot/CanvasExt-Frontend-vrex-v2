@@ -1255,6 +1255,22 @@ async function createStudyBot() {
     // NEW APPROACH: Send files to background worker for batched upload
     // This allows chat to open immediately while files upload in background
     if (filesToProcess.length > 0) {
+      // DEBUG: Check for duplicate filenames before sending to backend
+      const fileNames = filesToProcess.map(f => f.name);
+      const uniqueNames = new Set(fileNames);
+      if (fileNames.length !== uniqueNames.size) {
+        const duplicates = fileNames.filter((name, index) => fileNames.indexOf(name) !== index);
+        const duplicateCounts = {};
+        duplicates.forEach(name => {
+          duplicateCounts[name] = fileNames.filter(n => n === name).length;
+        });
+        console.warn(`⚠️ [POPUP-V2] WARNING: Found ${fileNames.length - uniqueNames.size} duplicate filenames!`);
+        console.warn(`   Duplicates:`, duplicateCounts);
+        console.warn(`   First 10 files:`, fileNames.slice(0, 10));
+      } else {
+        console.log(`✅ [POPUP-V2] No duplicate filenames detected (${filesToProcess.length} unique files)`);
+      }
+
       updateProgress(`Preparing ${filesToProcess.length} files for background upload...`, PROGRESS_PERCENT.UPLOADING);
 
       try {

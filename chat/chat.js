@@ -86,12 +86,11 @@ function setupBackgroundLoadingListener() {
       console.log(`📥 [CHAT] ${taskType} task status:`, task.status);
 
       if (task.status === 'uploading') {
-        // Show upload progress
+        // Show upload progress with individual file count
         const percent = task.totalFiles > 0
           ? Math.round((task.uploadedFiles / task.totalFiles) * 100)
           : 0;
-        const batchInfo = `Batch ${task.currentBatch + 1}/${task.totalBatches}`;
-        showLoadingBanner(`Uploading files... ${percent}% (${batchInfo})`);
+        showLoadingBanner(`Uploading ${task.uploadedFiles}/${task.totalFiles} files (${percent}%)`);
 
       } else if (task.status === 'downloading') {
         // Show download progress (legacy)

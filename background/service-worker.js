@@ -527,10 +527,21 @@ async function handleBackgroundUpload() {
       console.log(`✅ Batch ${currentBatch + 1} upload complete:`, {
         processed: result.processed,
         skipped: result.skipped,
-        failed: result.failed
+        failed: result.failed,
+        batchSize: currentBatchFiles.length
       });
 
-      // Update progress
+      // DEBUG: Log detailed upload stats
+      console.log(`📊 [DEBUG] Upload stats:`, {
+        'Previously uploaded': uploadedFiles,
+        'Current batch size': currentBatchFiles.length,
+        'Actually processed': result.processed,
+        'Skipped (already in GCS)': result.skipped,
+        'Failed': result.failed,
+        'Will count as uploaded': currentBatchFiles.length
+      });
+
+      // Update progress (count all files in batch, whether processed, skipped, or failed)
       const newUploadedFiles = uploadedFiles + currentBatchFiles.length;
       await chrome.storage.local.set({
         uploadTask: {
