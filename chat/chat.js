@@ -1044,8 +1044,17 @@ function getSelectedDocIds() {
       if (module && module.items) {
         const fileItem = module.items[parseInt(itemIdx)];
         if (fileItem) {
-          // Use stored_name if available (has correct extension), otherwise use title
-          materialName = fileItem.stored_name || fileItem.title || fileItem.name;
+          // CRITICAL: For materials that have stored_name, use it (has correct extension)
+          // For materials without stored_name, use original name and add .pdf if missing
+          if (fileItem.stored_name) {
+            materialName = fileItem.stored_name;
+          } else {
+            materialName = fileItem.title || fileItem.name;
+            // If no extension, add .pdf (most common case)
+            if (materialName && !materialName.match(/\.(pdf|docx?|txt|xlsx?|pptx?|csv|md|rtf|png|jpe?g|gif|webp|bmp)$/i)) {
+              materialName = materialName + '.pdf';
+            }
+          }
         }
       }
     }
@@ -1053,17 +1062,17 @@ function getSelectedDocIds() {
     else if (category && index !== null) {
       const fileItem = processedMaterials[category]?.[parseInt(index)];
       if (fileItem) {
-        // Use stored_name if available (has correct extension), otherwise use name
-        materialName = fileItem.stored_name || fileItem.name || fileItem.display_name || fileItem.title;
-        console.log(`🔍 Material item:`, {
-          category,
-          index,
-          stored_name: fileItem.stored_name,
-          name: fileItem.name,
-          display_name: fileItem.display_name,
-          title: fileItem.title,
-          finalName: materialName
-        });
+        // CRITICAL: For materials that have stored_name, use it (has correct extension)
+        // For materials without stored_name, use original name and add .pdf if missing
+        if (fileItem.stored_name) {
+          materialName = fileItem.stored_name;
+        } else {
+          materialName = fileItem.name || fileItem.display_name || fileItem.title;
+          // If no extension, add .pdf (most common case)
+          if (materialName && !materialName.match(/\.(pdf|docx?|txt|xlsx?|pptx?|csv|md|rtf|png|jpe?g|gif|webp|bmp)$/i)) {
+            materialName = materialName + '.pdf';
+          }
+        }
       }
     }
 
