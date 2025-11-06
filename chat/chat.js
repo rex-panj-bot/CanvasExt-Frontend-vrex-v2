@@ -47,24 +47,26 @@ function setupBackgroundLoadingListener() {
   console.log('📡 [CHAT] Setting up background loading polling for course:', courseId);
 
   // Show loading banner
-  showLoadingBanner('Loading course materials...');
+  showLoadingBanner('Uploading course materials...');
 
   // Track if we ever found a task
   let taskFound = false;
 
-  // Poll chrome.storage.local for download task updates
+  // Poll chrome.storage.local for upload/download task updates
   const pollInterval = setInterval(() => {
-    chrome.storage.local.get(['downloadTask'], async (result) => {
-      const task = result.downloadTask;
+    chrome.storage.local.get(['uploadTask', 'downloadTask'], async (result) => {
+      // Check for upload task first (new approach), then fall back to download task (legacy)
+      const task = result.uploadTask || result.downloadTask;
+      const taskType = result.uploadTask ? 'upload' : 'download';
 
       if (!task) {
-        console.log('⚠️ [CHAT] No download task found in storage');
+        console.log('⚠️ [CHAT] No upload/download task found in storage');
 
         // If we never found a task after a few seconds, hide the banner
         if (!taskFound) {
           setTimeout(() => {
             if (!taskFound) {
-              console.log('⏱️ [CHAT] No download task found, hiding banner');
+              console.log('⏱️ [CHAT] No task found, hiding banner');
               hideLoadingBanner();
               clearInterval(pollInterval);
             }
@@ -77,14 +79,22 @@ function setupBackgroundLoadingListener() {
 
       // Check if this task is for our course
       if (task.courseId !== courseId) {
-        console.log('📥 [CHAT] Ignoring task for different course:', task.courseId, 'vs', courseId);
+        console.log(`📥 [CHAT] Ignoring ${taskType} task for different course:`, task.courseId, 'vs', courseId);
         return;
       }
 
-      console.log('📥 [CHAT] Download task status:', task.status, task.progress);
+      console.log(`📥 [CHAT] ${taskType} task status:`, task.status);
 
-      if (task.status === 'downloading' || task.status === 'uploading') {
-        // Show progress
+      if (task.status === 'uploading') {
+        // Show upload progress
+        const percent = task.totalFiles > 0
+          ? Math.round((task.uploadedFiles / task.totalFiles) * 100)
+          : 0;
+        const batchInfo = `Batch ${task.currentBatch + 1}/${task.totalBatches}`;
+        showLoadingBanner(`Uploading files... ${percent}% (${batchInfo})`);
+
+      } else if (task.status === 'downloading') {
+        // Show download progress (legacy)
         const progress = task.progress;
         if (progress) {
           const percent = progress.filesTotal > 0
@@ -94,41 +104,33 @@ function setupBackgroundLoadingListener() {
         }
 
       } else if (task.status === 'complete') {
-        console.log('✅ [CHAT] Loading complete!');
+        console.log(`✅ [CHAT] ${taskType} complete!`);
         clearInterval(pollInterval); // Stop polling
-        showLoadingBanner('Materials loaded! Updating display...', 'success');
+        showLoadingBanner('All files uploaded! Ready to chat.', 'success');
 
-        // Reload materials from IndexedDB (blobs were already saved by service worker)
-        try {
-          await loadMaterials();
+        // Clear the task from storage
+        const taskKey = taskType === 'upload' ? 'uploadTask' : 'downloadTask';
+        chrome.storage.local.remove([taskKey], () => {
+          console.log(`🧹 [CHAT] Cleared ${taskType} task from storage`);
+        });
 
-          // Clear the download task from storage
-          chrome.storage.local.remove(['downloadTask'], () => {
-            console.log('🧹 [CHAT] Cleared download task from storage');
-          });
-
-          hideLoadingBanner();
-
-        } catch (error) {
-          console.error('❌ [CHAT] Error reloading materials:', error);
-          showLoadingBanner('Materials loaded but error updating display', 'error');
-          setTimeout(() => hideLoadingBanner(), 3000);
-        }
+        // Hide banner after 2 seconds
+        setTimeout(() => hideLoadingBanner(), 2000);
 
       } else if (task.status === 'error') {
-        console.error('❌ [CHAT] Loading error:', task.error);
+        console.error(`❌ [CHAT] ${taskType} error:`, task.error);
         clearInterval(pollInterval); // Stop polling
         showLoadingBanner(`Error: ${task.error || 'Unknown error'}`, 'error');
         setTimeout(() => hideLoadingBanner(), 5000);
       }
     });
-  }, 500); // Poll every 500ms
+  }, 1000); // Poll every 1 second
 
-  // Stop polling after 5 minutes (safety timeout)
+  // Stop polling after 10 minutes (safety timeout)
   setTimeout(() => {
     clearInterval(pollInterval);
     console.log('⏱️ [CHAT] Background loading poll timeout');
-  }, 5 * 60 * 1000);
+  }, 10 * 60 * 1000);
 }
 
 /**

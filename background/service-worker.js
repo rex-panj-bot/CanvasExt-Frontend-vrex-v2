@@ -34,6 +34,33 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // Clear stored course info
     currentCourseInfo = null;
     sendResponse({ success: true });
+  } else if (request.type === 'START_BACKGROUND_UPLOAD') {
+    // Handle background file upload with batching
+    console.log('🚀 [SERVICE-WORKER] Received START_BACKGROUND_UPLOAD message');
+    const { courseId, files, canvasUrl, cookies } = request.payload;
+
+    // Initialize upload task in storage
+    chrome.storage.local.set({
+      uploadTask: {
+        courseId,
+        files,
+        canvasUrl,
+        cookies,
+        status: 'uploading',
+        totalFiles: files.length,
+        uploadedFiles: 0,
+        currentBatch: 0,
+        totalBatches: Math.ceil(files.length / 8),
+        startTime: Date.now()
+      }
+    }, () => {
+      console.log(`📤 Starting background upload: ${files.length} files in ${Math.ceil(files.length / 8)} batches`);
+      // Start the upload process
+      handleBackgroundUpload();
+    });
+
+    sendResponse({ success: true });
+    return true; // Keep message channel open for async response
   } else if (request.type === 'START_DOWNLOADS') {
     // Handle new storage-based background downloads
     console.log('🚀 [SERVICE-WORKER] Received START_DOWNLOADS message');
@@ -440,6 +467,115 @@ async function updateDownloadTask(updates) {
       });
     });
   });
+}
+
+/**
+ * Handle background file upload with batching (8 files per batch)
+ */
+async function handleBackgroundUpload() {
+  const BATCH_SIZE = 8;
+
+  try {
+    // Get upload task from storage
+    const result = await chrome.storage.local.get(['uploadTask']);
+    const task = result.uploadTask;
+
+    if (!task || task.status !== 'uploading') {
+      console.log('⏹️ No active upload task');
+      return;
+    }
+
+    const { courseId, files, canvasUrl, cookies, uploadedFiles, currentBatch, totalBatches } = task;
+
+    // Check if all files uploaded
+    if (uploadedFiles >= files.length) {
+      console.log('✅ All files uploaded successfully!');
+      await chrome.storage.local.set({
+        uploadTask: {
+          ...task,
+          status: 'complete',
+          endTime: Date.now()
+        }
+      });
+      return;
+    }
+
+    // Get current batch
+    const batchStart = currentBatch * BATCH_SIZE;
+    const batchEnd = Math.min(batchStart + BATCH_SIZE, files.length);
+    const currentBatchFiles = files.slice(batchStart, batchEnd);
+
+    console.log(`📤 Uploading batch ${currentBatch + 1}/${totalBatches} (${currentBatchFiles.length} files)`);
+
+    // Upload batch to backend
+    try {
+      const response = await fetch('https://web-production-9aaba7.up.railway.app/process_canvas_files', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          course_id: courseId,
+          files: currentBatchFiles,
+          canvas_url: canvasUrl,
+          cookies: cookies
+        })
+      });
+
+      const result = await response.json();
+
+      console.log(`✅ Batch ${currentBatch + 1} upload complete:`, {
+        processed: result.processed,
+        skipped: result.skipped,
+        failed: result.failed
+      });
+
+      // Update progress
+      const newUploadedFiles = uploadedFiles + currentBatchFiles.length;
+      await chrome.storage.local.set({
+        uploadTask: {
+          ...task,
+          uploadedFiles: newUploadedFiles,
+          currentBatch: currentBatch + 1,
+          lastResult: result
+        }
+      });
+
+      // Continue with next batch
+      if (newUploadedFiles < files.length) {
+        // Small delay between batches to avoid overwhelming backend
+        setTimeout(() => handleBackgroundUpload(), 1000);
+      } else {
+        // All done!
+        console.log('✅ All batches uploaded successfully!');
+        await chrome.storage.local.set({
+          uploadTask: {
+            ...task,
+            uploadedFiles: newUploadedFiles,
+            currentBatch: currentBatch + 1,
+            status: 'complete',
+            endTime: Date.now()
+          }
+        });
+      }
+
+    } catch (error) {
+      console.error(`❌ Batch ${currentBatch + 1} upload failed:`, error);
+
+      // Mark as error and stop
+      await chrome.storage.local.set({
+        uploadTask: {
+          ...task,
+          status: 'error',
+          error: error.message,
+          endTime: Date.now()
+        }
+      });
+    }
+
+  } catch (error) {
+    console.error('❌ Background upload error:', error);
+  }
 }
 
 /**

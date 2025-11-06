@@ -498,7 +498,16 @@ function updateMaterialSummary() {
   const summary = fileProcessor.getSummary();
   const totalSize = fileProcessor.getTotalSize();
 
-  document.getElementById('total-count').textContent = summary.total;
+  // Show breakdown instead of just total (fixes count mismatch issue)
+  const fileCount = (summary.moduleFiles || 0) + (summary.standaloneFiles || 0);
+  const pageCount = summary.pages || 0;
+  const assignmentCount = summary.assignments || 0;
+
+  let countText = `${fileCount} files`;
+  if (pageCount > 0) countText += ` • ${pageCount} pages`;
+  if (assignmentCount > 0) countText += ` • ${assignmentCount} assignments`;
+
+  document.getElementById('total-count').textContent = countText;
   document.getElementById('total-size').textContent = fileProcessor.formatBytes(totalSize);
 
   document.getElementById('modules-count').textContent = summary.modules || 0;
@@ -1243,9 +1252,10 @@ async function createStudyBot() {
       }
     }
 
-    // NEW APPROACH: Send Canvas URLs to backend, it will download and process
+    // NEW APPROACH: Send files to background worker for batched upload
+    // This allows chat to open immediately while files upload in background
     if (filesToProcess.length > 0) {
-      updateProgress(`Processing ${filesToProcess.length} files on backend...`, PROGRESS_PERCENT.UPLOADING);
+      updateProgress(`Preparing ${filesToProcess.length} files for background upload...`, PROGRESS_PERCENT.UPLOADING);
 
       try {
         // Get Canvas URL and cookies for authentication
@@ -1255,43 +1265,27 @@ async function createStudyBot() {
         // Extract session cookies (Canvas uses various cookie names depending on institution)
         const cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
 
-        const response = await fetch(`https://web-production-9aaba7.up.railway.app/process_canvas_files`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            course_id: currentCourse.id,
+        // Send files to background worker for batched upload
+        await chrome.runtime.sendMessage({
+          type: 'START_BACKGROUND_UPLOAD',
+          payload: {
+            courseId: currentCourse.id,
             files: filesToProcess,
-            canvas_url: canvasUrl,
-            cookies: cookieString  // Send session cookies for authentication
-          })
+            canvasUrl: canvasUrl,
+            cookies: cookieString
+          }
         });
 
-        const result = await response.json();
-        console.log(`✅ Backend Upload Summary:`);
-        console.log(`   - Total files sent: ${filesToProcess.length}`);
-        console.log(`   - Successfully processed: ${result.processed}`);
-        console.log(`   - Skipped (already in GCS): ${result.skipped}`);
-        console.log(`   - Failed to process: ${result.failed}`);
-
-        if (result.failed > 0) {
-          console.error(`❌ ${result.failed} files failed to upload - check Railway backend logs for details`);
-        }
-
-        // Show summary to user
-        if (result.processed > 0 || result.skipped > 0) {
-          console.log(`✅ ${result.processed + result.skipped} files are now in GCS and ready for AI`);
-        }
+        console.log(`📤 Sent ${filesToProcess.length} files to background worker for upload`);
       } catch (error) {
-        console.error('❌ Failed to process files on backend:', error);
-        throw new Error(`Backend processing failed: ${error.message}`);
+        console.error('❌ Failed to start background upload:', error);
+        // Don't throw - still open chat, user can retry upload from chat
       }
     } else {
       console.log('⚡ No files to process');
     }
 
-    // Open chat interface immediately - no downloads needed!
+    // Open chat interface immediately - files will upload in background!
     updateProgress('Opening chat...', PROGRESS_PERCENT.COMPLETE);
 
     // Save materials metadata to IndexedDB (no blobs needed - files are in GCS)
@@ -1299,8 +1293,11 @@ async function createStudyBot() {
     await materialsDB.saveMaterials(currentCourse.id, currentCourse.name, materialsToProcess);
     await materialsDB.close();
 
-    // Open chat
-    const chatUrl = chrome.runtime.getURL(`chat/chat.html?courseId=${currentCourse.id}`);
+    // Open chat with loading=true parameter to show upload progress
+    const hasFilesToUpload = filesToProcess.length > 0;
+    const chatUrl = chrome.runtime.getURL(
+      `chat/chat.html?courseId=${currentCourse.id}${hasFilesToUpload ? '&loading=true' : ''}`
+    );
     await chrome.tabs.create({ url: chatUrl });
 
     // Reset UI
