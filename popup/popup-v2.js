@@ -1252,11 +1252,48 @@ async function createStudyBot() {
       }
     }
 
+    // INSTANT CHECK: Check which files already exist in GCS (no batching - instant!)
+    // This makes the chat open instantly for courses that already have all files uploaded
+    let filesToUpload = [];
+
+    if (filesToProcess.length > 0) {
+      updateProgress(`Checking which files need uploading (${filesToProcess.length} files)...`, PROGRESS_PERCENT.UPLOADING - 10);
+
+      try {
+        // Check files instantly - this is FAST (not batched with downloads)
+        const checkResponse = await fetch(`https://web-production-9aaba7.up.railway.app/check_files_exist?course_id=${currentCourse.id}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ files: filesToProcess })
+        });
+
+        if (checkResponse.ok) {
+          const { exists, missing } = await checkResponse.json();
+          console.log(`✅ [POPUP-V2] INSTANT CHECK: ${exists.length} files already in GCS, ${missing.length} need uploading`);
+
+          // Only upload files that are missing from GCS
+          filesToUpload = filesToProcess.filter(f => missing.includes(f.name));
+
+          if (exists.length > 0) {
+            console.log(`⚡ FAST PATH: Skipping ${exists.length} files already in GCS`);
+          }
+        } else {
+          // If check fails, upload all files
+          console.warn(`⚠️ [POPUP-V2] File check failed, will upload all files`);
+          filesToUpload = filesToProcess;
+        }
+      } catch (error) {
+        console.error('❌ [POPUP-V2] File check error:', error);
+        // If check fails, upload all files
+        filesToUpload = filesToProcess;
+      }
+    }
+
     // NEW APPROACH: Send files to background worker for batched upload
     // This allows chat to open immediately while files upload in background
-    if (filesToProcess.length > 0) {
+    if (filesToUpload.length > 0) {
       // DEBUG: Check for duplicate filenames before sending to backend
-      const fileNames = filesToProcess.map(f => f.name);
+      const fileNames = filesToUpload.map(f => f.name);
       const uniqueNames = new Set(fileNames);
       if (fileNames.length !== uniqueNames.size) {
         const duplicates = fileNames.filter((name, index) => fileNames.indexOf(name) !== index);
@@ -1268,10 +1305,10 @@ async function createStudyBot() {
         console.warn(`   Duplicates:`, duplicateCounts);
         console.warn(`   First 10 files:`, fileNames.slice(0, 10));
       } else {
-        console.log(`✅ [POPUP-V2] No duplicate filenames detected (${filesToProcess.length} unique files)`);
+        console.log(`✅ [POPUP-V2] No duplicate filenames detected (${filesToUpload.length} unique files)`);
       }
 
-      updateProgress(`Preparing ${filesToProcess.length} files for background upload...`, PROGRESS_PERCENT.UPLOADING);
+      updateProgress(`Preparing ${filesToUpload.length} files for background upload...`, PROGRESS_PERCENT.UPLOADING);
 
       try {
         // Get Canvas URL and cookies for authentication
@@ -1286,19 +1323,19 @@ async function createStudyBot() {
           type: 'START_BACKGROUND_UPLOAD',
           payload: {
             courseId: currentCourse.id,
-            files: filesToProcess,
+            files: filesToUpload,
             canvasUrl: canvasUrl,
             cookies: cookieString
           }
         });
 
-        console.log(`📤 Sent ${filesToProcess.length} files to background worker for upload`);
+        console.log(`📤 Sent ${filesToUpload.length} files to background worker for upload`);
       } catch (error) {
         console.error('❌ Failed to start background upload:', error);
         // Don't throw - still open chat, user can retry upload from chat
       }
     } else {
-      console.log('⚡ No files to process');
+      console.log('⚡ All files already in GCS - no uploads needed!');
     }
 
     // Open chat interface immediately - files will upload in background!
@@ -1309,8 +1346,8 @@ async function createStudyBot() {
     await materialsDB.saveMaterials(currentCourse.id, currentCourse.name, materialsToProcess);
     await materialsDB.close();
 
-    // Open chat with loading=true parameter to show upload progress
-    const hasFilesToUpload = filesToProcess.length > 0;
+    // Open chat with loading=true parameter only if files are being uploaded
+    const hasFilesToUpload = filesToUpload.length > 0;
     const chatUrl = chrome.runtime.getURL(
       `chat/chat.html?courseId=${currentCourse.id}${hasFilesToUpload ? '&loading=true' : ''}`
     );

@@ -910,30 +910,6 @@ body {
   align-items: center;
 }
 
-.btn-refresh {
-  padding: 8px;
-  background: var(--background);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all 0.2s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.btn-refresh:hover {
-  background: var(--surface-hover);
-  border-color: var(--blue-primary);
-  color: var(--blue-primary);
-  transform: rotate(90deg);
-}
-
-.btn-refresh:active {
-  transform: rotate(180deg);
-}
-
 /* Messages */
 .messages-container {
   flex: 1;

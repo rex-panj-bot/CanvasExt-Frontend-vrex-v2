@@ -588,7 +588,8 @@ async function handleBackgroundUpload() {
           course_id: courseId,
           files: currentBatchFiles,
           canvas_url: canvasUrl,
-          cookies: cookies
+          cookies: cookies,
+          skip_check: true  // Frontend already checked which files exist - skip redundant backend check
         })
       });
 

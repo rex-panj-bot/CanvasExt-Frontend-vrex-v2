@@ -1414,30 +1414,6 @@ function setupEventListeners() {
     });
   }
 
-  // Refresh materials button
-  const refreshMaterialsBtn = document.getElementById('refresh-materials-btn');
-  if (refreshMaterialsBtn) {
-    refreshMaterialsBtn.addEventListener('click', async () => {
-      try {
-        // Show loading state
-        refreshMaterialsBtn.disabled = true;
-        refreshMaterialsBtn.style.opacity = '0.5';
-
-        // Reload materials from Canvas
-        await loadMaterials();
-
-        // Show success feedback (brief rotation animation is already in CSS)
-        setTimeout(() => {
-          refreshMaterialsBtn.disabled = false;
-          refreshMaterialsBtn.style.opacity = '1';
-        }, 500);
-      } catch (error) {
-        console.error('Error refreshing materials:', error);
-        refreshMaterialsBtn.disabled = false;
-        refreshMaterialsBtn.style.opacity = '1';
-      }
-    });
-  }
 
   // Enable send button when input has text
   elements.messageInput.addEventListener('input', () => {
