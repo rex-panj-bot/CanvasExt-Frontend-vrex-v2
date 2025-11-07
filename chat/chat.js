@@ -1819,11 +1819,14 @@ function stopGeneration() {
 
   hideLoadingBanner();
 
-  // Mark last message as stopped
+  // Mark last message as stopped and display system message
   const lastMessage = conversationHistory[conversationHistory.length - 1];
   if (lastMessage && lastMessage.role === 'assistant') {
     lastMessage.content += '\n\n_(Generation stopped by user)_';
   }
+
+  // Display system message in UI
+  addMessage('system', 'Response stopped by user');
 }
 
 /**
@@ -2156,6 +2159,18 @@ async function openCitedDocument(docName, pageNum) {
 function addMessage(role, content) {
   const messageDiv = document.createElement('div');
   messageDiv.className = `message ${role}-message`;
+
+  // System messages have a simpler layout
+  if (role === 'system') {
+    messageDiv.innerHTML = `
+      <div class="message-content">
+        <div class="message-text">${content}</div>
+      </div>
+    `;
+    elements.messagesContainer.appendChild(messageDiv);
+    elements.messagesContainer.scrollTop = elements.messagesContainer.scrollHeight;
+    return;
+  }
 
   const avatar = role === 'assistant' ? '🤖' : '👤';
   const roleName = role === 'assistant' ? 'AI Assistant' : 'You';
