@@ -674,48 +674,6 @@ body {
 }
 
 
-.sidebar-footer {
-  padding: 12px;
-  border-top: 1px solid var(--border);
-}
-
-.api-status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.status-indicator {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--text-light);
-}
-
-.status-indicator.connected {
-  background: var(--success);
-}
-
-.status-indicator.warning {
-  background: #f59e0b; /* Orange/amber for unstable/reconnecting */
-  animation: pulse-warning 2s ease-in-out infinite;
-}
-
-@keyframes pulse-warning {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.6;
-  }
-}
-
-.status-indicator.error {
-  background: var(--error);
-}
-
 /* Sidebar Resize Handle */
 .sidebar-resize-handle {
   position: absolute;
@@ -1483,6 +1441,11 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.btn-stop svg {
+  width: 18px;
+  height: 18px;
 }
 
 .btn-stop:hover {

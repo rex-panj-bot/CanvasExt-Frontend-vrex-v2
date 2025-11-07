@@ -26,8 +26,6 @@ const elements = {
   settingsBtn: document.getElementById('settings-btn'),
   exportChatBtn: document.getElementById('export-chat-btn'),
   clearChatBtn: document.getElementById('clear-chat-btn'),
-  apiStatusIndicator: document.getElementById('api-status-indicator'),
-  apiStatusText: document.getElementById('api-status-text'),
   tokenInfo: document.getElementById('token-info'),
   loadingBanner: document.getElementById('loading-banner'),
   loadingBannerText: document.getElementById('loading-banner-text'),
@@ -1187,7 +1185,6 @@ async function loadAPIKey() {
     const isBackendReady = await backendClient.healthCheck();
 
     if (!isBackendReady) {
-      setAPIStatus('error', 'Backend Offline');
       showError('Python backend is not running. Please start the backend server.');
       return;
     }
@@ -1198,41 +1195,29 @@ async function loadAPIKey() {
       wsClient.onConnectionStateChange = (state) => {
         switch (state) {
           case 'connected':
-            setAPIStatus('connected', 'Backend Connected');
             elements.sendBtn.disabled = false;
             break;
           case 'reconnecting':
-            setAPIStatus('warning', 'Reconnecting...');
             break;
           case 'stale':
-            setAPIStatus('warning', 'Connection Unstable');
             break;
           case 'offline':
-            setAPIStatus('error', 'Offline');
             elements.sendBtn.disabled = true;
             break;
         }
       };
 
       await wsClient.connect(courseId);
-      setAPIStatus('connected', 'Backend Connected');
       elements.sendBtn.disabled = false;
       console.log('Connected to backend');
     } catch (error) {
       console.error('WebSocket connection failed:', error);
-      setAPIStatus('error', 'Backend Connection Failed');
       showError('Failed to connect to backend: ' + error.message);
     }
   } catch (error) {
     console.error('Error connecting to backend:', error);
-    setAPIStatus('error', 'Backend Error');
     showError('Failed to initialize backend connection: ' + error.message);
   }
-}
-
-function setAPIStatus(status, text) {
-  elements.apiStatusIndicator.className = `status-indicator ${status}`;
-  elements.apiStatusText.textContent = text;
 }
 
 function setupEventListeners() {
