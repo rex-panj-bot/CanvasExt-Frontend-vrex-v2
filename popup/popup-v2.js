@@ -20,6 +20,7 @@ let fileProcessor = null;
 let currentCourse = null;
 let scannedMaterials = null;
 let currentAuthMethod = null;
+let preCheckedFiles = null; // Cache for pre-checked file existence results
 
 // Screen management
 const screens = {
@@ -478,6 +479,10 @@ async function scanCourseMaterials(courseId, courseName) {
     // Re-enable study bot button after materials are loaded
     studyBotBtn.disabled = false;
     studyBotBtn.title = 'Create an AI study bot for this course';
+
+    // PRE-EMPTIVE OPTIMIZATION: Start checking files in background before user clicks button
+    // This makes the subsequent "Create Study Bot" click feel instant
+    preCheckFilesInBackground(courseId, courseName);
   } catch (error) {
     console.error('Error scanning materials:', error);
     document.getElementById('scan-loading').classList.add('hidden');
@@ -520,45 +525,6 @@ function updateMaterialSummary() {
 function getPreferencesFromUI() {
   // No preferences needed anymore - we include all modules and files
   return {};
-}
-
-async function downloadMaterials() {
-  try {
-    document.getElementById('download-btn').disabled = true;
-    document.getElementById('download-progress').classList.remove('hidden');
-
-    const zipBlob = await fileProcessor.downloadAllAsZip(
-      canvasAPI,
-      currentCourse.name,
-      (status, progress) => {
-        document.getElementById('progress-text').textContent = status;
-        document.getElementById('progress-fill').style.width = progress + '%';
-      }
-    );
-
-    const url = URL.createObjectURL(zipBlob);
-    const filename = `${fileProcessor.sanitizeFilename(currentCourse.name)}_materials.zip`;
-
-    chrome.downloads.download({
-      url: url,
-      filename: filename,
-      saveAs: true
-    }, (downloadId) => {
-      console.log('Download started:', downloadId);
-      URL.revokeObjectURL(url);
-
-      setTimeout(() => {
-        document.getElementById('download-progress').classList.add('hidden');
-        document.getElementById('download-btn').disabled = false;
-        document.getElementById('progress-fill').style.width = '0%';
-      }, 2000);
-    });
-  } catch (error) {
-    console.error('Error downloading materials:', error);
-    showError(document.getElementById('material-error'), 'Failed to download: ' + error.message);
-    document.getElementById('download-progress').classList.add('hidden');
-    document.getElementById('download-btn').disabled = false;
-  }
 }
 
 // ========== AI STUDY BOT ==========
@@ -614,6 +580,92 @@ async function downloadPDFsInParallel(pdfFiles, canvasAPI, progressCallback, con
 
   console.log(`📦 Downloaded ${filesToUpload.length}/${total} PDFs successfully`);
   return filesToUpload;
+}
+
+/**
+ * Pre-emptively check which files exist in GCS in background
+ * This runs after course materials are scanned, before user clicks "Create Study Bot"
+ * Makes the button click feel instant since checking is already done!
+ *
+ * @param {string} courseId - Course identifier
+ * @param {string} courseName - Course name
+ */
+async function preCheckFilesInBackground(courseId, courseName) {
+  try {
+    console.log('⚡ [PRE-CHECK] Starting background file check...');
+
+    // Build file list (same logic as createStudyBot)
+    const materialsToProcess = filterMaterialsByPreferences(scannedMaterials, {});
+
+    const filesToProcess = [];
+
+    // Collect files from materials
+    const processItem = (item) => {
+      const itemName = item.stored_name || item.display_name || item.filename || item.name || item.title;
+      if (!itemName || !item.url) return;
+
+      filesToProcess.push({
+        name: itemName,
+        url: item.url,
+        id: item.id || item.file_id
+      });
+    };
+
+    // Process standalone files
+    for (const [category, items] of Object.entries(materialsToProcess)) {
+      if (category === 'modules' || category === 'pages' || category === 'assignments' || !Array.isArray(items)) continue;
+      items.forEach(processItem);
+    }
+
+    // Process module items
+    if (materialsToProcess.modules && Array.isArray(materialsToProcess.modules)) {
+      materialsToProcess.modules.forEach((module) => {
+        if (module.items && Array.isArray(module.items)) {
+          module.items.forEach(item => {
+            if (item.type === 'File' && item.url) {
+              processItem(item);
+            }
+          });
+        }
+      });
+    }
+
+    if (filesToProcess.length === 0) {
+      console.log('⚡ [PRE-CHECK] No files to check');
+      preCheckedFiles = { exists: [], missing: [] };
+      return;
+    }
+
+    console.log(`⚡ [PRE-CHECK] Checking ${filesToProcess.length} files...`);
+
+    // Make the check request (this happens in background while user is reading the summary)
+    const checkResponse = await fetch(`https://web-production-9aaba7.up.railway.app/check_files_exist`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        course_id: courseId,
+        files: filesToProcess
+      })
+    });
+
+    if (checkResponse.ok) {
+      const result = await checkResponse.json();
+      preCheckedFiles = {
+        exists: result.exists || [],
+        missing: result.missing || [],
+        timestamp: Date.now(),
+        courseId: courseId
+      };
+      console.log(`✅ [PRE-CHECK] Complete! ${result.exists.length} in GCS, ${result.missing.length} need uploading`);
+      console.log('⚡ [PRE-CHECK] Next "Create Study Bot" click will be INSTANT!');
+    } else {
+      console.warn('⚠️ [PRE-CHECK] Failed, will check on button click');
+      preCheckedFiles = null;
+    }
+  } catch (error) {
+    console.warn('⚠️ [PRE-CHECK] Error:', error.message);
+    preCheckedFiles = null;
+  }
 }
 
 /**
@@ -1252,43 +1304,59 @@ async function createStudyBot() {
       }
     }
 
-    // INSTANT CHECK: Check which files already exist in GCS (no batching - instant!)
-    // This makes the chat open instantly for courses that already have all files uploaded
+    // INSTANT CHECK: Use pre-checked results if available (makes this INSTANT!)
+    // Otherwise fall back to checking now
     let filesToUpload = [];
 
     if (filesToProcess.length > 0) {
-      updateProgress(`Checking which files need uploading (${filesToProcess.length} files)...`, PROGRESS_PERCENT.UPLOADING - 10);
+      // Check if we have pre-checked results (from background check)
+      if (preCheckedFiles && preCheckedFiles.courseId === currentCourse.id) {
+        // PRE-CHECKED RESULTS AVAILABLE - USE THEM INSTANTLY!
+        console.log('⚡⚡⚡ [INSTANT] Using pre-checked results (0ms)!');
+        const { exists, missing } = preCheckedFiles;
+        console.log(`✅ [PRE-CHECK-CACHED] ${exists.length} files in GCS, ${missing.length} need uploading`);
 
-      try {
-        // Check files instantly - this is FAST (not batched with downloads)
-        const checkResponse = await fetch(`https://web-production-9aaba7.up.railway.app/check_files_exist`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            course_id: currentCourse.id,
-            files: filesToProcess
-          })
-        });
+        // Only upload files that are missing from GCS
+        filesToUpload = filesToProcess.filter(f => missing.includes(f.name));
 
-        if (checkResponse.ok) {
-          const { exists, missing } = await checkResponse.json();
-          console.log(`✅ [POPUP-V2] INSTANT CHECK: ${exists.length} files already in GCS, ${missing.length} need uploading`);
+        if (exists.length > 0) {
+          console.log(`⚡ FAST PATH: Skipping ${exists.length} files already in GCS`);
+        }
+      } else {
+        // No pre-check available, check now (slower path)
+        updateProgress(`Checking which files need uploading (${filesToProcess.length} files)...`, PROGRESS_PERCENT.UPLOADING - 10);
 
-          // Only upload files that are missing from GCS
-          filesToUpload = filesToProcess.filter(f => missing.includes(f.name));
+        try {
+          // Check files instantly - this is FAST (not batched with downloads)
+          const checkResponse = await fetch(`https://web-production-9aaba7.up.railway.app/check_files_exist`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              course_id: currentCourse.id,
+              files: filesToProcess
+            })
+          });
 
-          if (exists.length > 0) {
-            console.log(`⚡ FAST PATH: Skipping ${exists.length} files already in GCS`);
+          if (checkResponse.ok) {
+            const { exists, missing } = await checkResponse.json();
+            console.log(`✅ [POPUP-V2] INSTANT CHECK: ${exists.length} files already in GCS, ${missing.length} need uploading`);
+
+            // Only upload files that are missing from GCS
+            filesToUpload = filesToProcess.filter(f => missing.includes(f.name));
+
+            if (exists.length > 0) {
+              console.log(`⚡ FAST PATH: Skipping ${exists.length} files already in GCS`);
+            }
+          } else {
+            // If check fails, upload all files
+            console.warn(`⚠️ [POPUP-V2] File check failed, will upload all files`);
+            filesToUpload = filesToProcess;
           }
-        } else {
+        } catch (error) {
+          console.error('❌ [POPUP-V2] File check error:', error);
           // If check fails, upload all files
-          console.warn(`⚠️ [POPUP-V2] File check failed, will upload all files`);
           filesToUpload = filesToProcess;
         }
-      } catch (error) {
-        console.error('❌ [POPUP-V2] File check error:', error);
-        // If check fails, upload all files
-        filesToUpload = filesToProcess;
       }
     }
 
