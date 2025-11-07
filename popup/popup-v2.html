@@ -167,13 +167,6 @@
               <span>Create Study Bot</span>
             </button>
 
-            <div id="download-progress" class="progress-container hidden">
-              <div class="progress-bar">
-                <div id="progress-fill" class="progress-fill"></div>
-              </div>
-              <p id="progress-text" class="progress-text">Preparing download...</p>
-            </div>
-
             <div id="study-bot-progress" class="progress-container hidden">
               <div class="progress-bar">
                 <div id="study-bot-progress-fill" class="progress-fill"></div>
@@ -235,22 +228,20 @@
   <!-- Scripts -->
   <script src="../lib/jszip.min.js"></script>
   <!-- PDF.js for text extraction -->
-  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+  <script src="../lib/pdf.min.js"></script>
   <!-- Mammoth.js for DOCX extraction -->
-  <script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js"></script>
+  <script src="../lib/mammoth.browser.min.js"></script>
   <script>
     // Set PDF.js worker
     if (typeof pdfjsLib !== 'undefined') {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+      pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('lib/pdf.worker.min.js');
     }
   </script>
   <script src="../utils/storage.js"></script>
   <script src="../utils/indexed-db-storage.js"></script>
   <script src="../utils/canvas-api.js"></script>
-  <script src="../utils/oauth.js"></script>
   <script src="../utils/session-auth.js"></script>
   <script src="../utils/file-processor.js"></script>
-  <script src="../utils/text-extractor.js"></script>
   <script src="../chat/websocket-client.js"></script>
   <script src="popup-v2.js"></script>
 </body>

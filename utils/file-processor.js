@@ -1,6 +1,6 @@
 /**
  * File Processor
- * Handles material filtering, categorization, downloading, and ZIP creation
+ * Handles material filtering, categorization, and file processing
  */
 
 class FileProcessor {
@@ -301,97 +301,6 @@ class FileProcessor {
   createTextFile(content, filename) {
     const blob = new Blob([content], { type: 'text/plain' });
     return blob;
-  }
-
-  /**
-   * Download all materials and create ZIP
-   */
-  async downloadAllAsZip(canvasAPI, courseName, progressCallback) {
-    try {
-      // Load JSZip dynamically
-      const JSZip = window.JSZip;
-      if (!JSZip) {
-        throw new Error('JSZip library not loaded');
-      }
-
-      const zip = new JSZip();
-      const courseFolder = zip.folder(this.sanitizeFilename(courseName));
-
-      let processed = 0;
-      let total = this.getSummary().total;
-
-      // Process modules
-      if (this.materials.modules && this.materials.modules.length > 0) {
-        for (const module of this.materials.modules) {
-          if (!module.items || module.items.length === 0) continue;
-
-          const moduleFolder = courseFolder.folder(this.sanitizeFilename(module.name));
-
-          for (const item of module.items) {
-            try {
-              if (progressCallback) {
-                progressCallback(`Downloading ${item.title} (${processed + 1}/${total})`,
-                               (processed / total) * 100);
-              }
-
-              if (item.type === 'File' && item.url) {
-                // Download actual file
-                const blob = await canvasAPI.downloadFile(item.url);
-                moduleFolder.file(this.sanitizeFilename(item.title), blob);
-              }
-
-              processed++;
-            } catch (error) {
-              console.error(`Error processing ${item.title}:`, error);
-              // Continue with other files
-            }
-          }
-        }
-      }
-
-      // Process standalone files
-      if (this.materials.files && this.materials.files.length > 0) {
-        const filesFolder = courseFolder.folder('Course Files');
-
-        for (const file of this.materials.files) {
-          try {
-            if (progressCallback) {
-              progressCallback(`Downloading ${file.name} (${processed + 1}/${total})`,
-                             (processed / total) * 100);
-            }
-
-            // Download actual file
-            const blob = await canvasAPI.downloadFile(file.url);
-            filesFolder.file(this.sanitizeFilename(file.name), blob);
-
-            processed++;
-          } catch (error) {
-            console.error(`Error processing ${file.name}:`, error);
-            // Continue with other files
-          }
-        }
-      }
-
-      if (progressCallback) {
-        progressCallback('Creating ZIP file...', 95);
-      }
-
-      // Generate ZIP
-      const zipBlob = await zip.generateAsync({ type: 'blob' }, (metadata) => {
-        if (progressCallback) {
-          progressCallback(`Creating ZIP file... ${metadata.percent.toFixed(0)}%`, 95 + (metadata.percent * 0.05));
-        }
-      });
-
-      if (progressCallback) {
-        progressCallback('Download complete!', 100);
-      }
-
-      return zipBlob;
-    } catch (error) {
-      console.error('Error creating ZIP:', error);
-      throw error;
-    }
   }
 
   /**

@@ -7,7 +7,7 @@ class CanvasAPI {
   constructor(baseUrl, apiToken, authMode = 'token') {
     this.baseUrl = baseUrl.replace(/\/$/, ''); // Remove trailing slash
     this.apiToken = apiToken;
-    this.authMode = authMode; // 'token', 'oauth', or 'session'
+    this.authMode = authMode; // 'token' or 'session'
     this.requestDelay = 100; // ms between requests to avoid rate limiting
     this.lastRequestTime = 0;
     this.concurrentRequests = 0; // Track concurrent requests
@@ -46,7 +46,7 @@ class CanvasAPI {
       'Accept': 'application/json'
     };
 
-    if (this.authMode === 'token' || this.authMode === 'oauth') {
+    if (this.authMode === 'token') {
       headers['Authorization'] = `Bearer ${this.apiToken}`;
     }
     // For session mode, credentials are handled via cookies

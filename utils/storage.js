@@ -98,118 +98,6 @@ const StorageManager = {
     return !!(token && url);
   },
 
-  // ========== OAuth 2.0 Methods ==========
-
-  /**
-   * Save OAuth credentials
-   */
-  async saveOAuthCredentials(clientId, clientSecret, url) {
-    return new Promise((resolve, reject) => {
-      chrome.storage.local.set({
-        oauthClientId: clientId,
-        oauthClientSecret: clientSecret,
-        canvasInstanceUrl: url.trim().replace(/\/$/, '')
-      }, () => {
-        if (chrome.runtime.lastError) {
-          reject(chrome.runtime.lastError);
-        } else {
-          console.log('OAuth credentials saved');
-          resolve();
-        }
-      });
-    });
-  },
-
-  /**
-   * Get OAuth credentials
-   */
-  async getOAuthCredentials() {
-    return new Promise((resolve, reject) => {
-      chrome.storage.local.get(['oauthClientId', 'oauthClientSecret', 'canvasInstanceUrl'], (result) => {
-        if (chrome.runtime.lastError) {
-          reject(chrome.runtime.lastError);
-        } else {
-          resolve({
-            clientId: result.oauthClientId || null,
-            clientSecret: result.oauthClientSecret || null,
-            url: result.canvasInstanceUrl || null
-          });
-        }
-      });
-    });
-  },
-
-  /**
-   * Save OAuth access token
-   */
-  async saveOAuthTokens(accessToken, refreshToken, expiresIn) {
-    const expiresAt = Date.now() + (expiresIn * 1000);
-
-    return new Promise((resolve, reject) => {
-      chrome.storage.local.set({
-        oauthAccessToken: accessToken,
-        oauthRefreshToken: refreshToken,
-        oauthExpiresAt: expiresAt
-      }, () => {
-        if (chrome.runtime.lastError) {
-          reject(chrome.runtime.lastError);
-        } else {
-          console.log('OAuth tokens saved');
-          resolve();
-        }
-      });
-    });
-  },
-
-  /**
-   * Get OAuth access token
-   */
-  async getOAuthTokens() {
-    return new Promise((resolve, reject) => {
-      chrome.storage.local.get(['oauthAccessToken', 'oauthRefreshToken', 'oauthExpiresAt'], (result) => {
-        if (chrome.runtime.lastError) {
-          reject(chrome.runtime.lastError);
-        } else {
-          resolve({
-            accessToken: result.oauthAccessToken || null,
-            refreshToken: result.oauthRefreshToken || null,
-            expiresAt: result.oauthExpiresAt || null
-          });
-        }
-      });
-    });
-  },
-
-  /**
-   * Check if OAuth access token is expired
-   */
-  async isOAuthTokenExpired() {
-    const { expiresAt } = await this.getOAuthTokens();
-    if (!expiresAt) return true;
-
-    // Add 5 minute buffer
-    return Date.now() >= (expiresAt - 5 * 60 * 1000);
-  },
-
-  /**
-   * Check if OAuth is configured
-   */
-  async hasOAuthCredentials() {
-    const { clientId, clientSecret, url } = await this.getOAuthCredentials();
-    return !!(clientId && clientSecret && url);
-  },
-
-  /**
-   * Check if OAuth is authenticated
-   */
-  async isOAuthAuthenticated() {
-    const hasCredentials = await this.hasOAuthCredentials();
-    const { accessToken } = await this.getOAuthTokens();
-    const isExpired = await this.isOAuthTokenExpired();
-
-    return hasCredentials && accessToken && !isExpired;
-  },
-
   // ========== Authentication Method Selection ==========
 
   /**
@@ -249,9 +137,7 @@ const StorageManager = {
   async hasAnyAuth() {
     const authMethod = await this.getAuthMethod();
 
-    if (authMethod === 'oauth') {
-      return await this.isOAuthAuthenticated();
-    } else if (authMethod === 'session') {
+    if (authMethod === 'session') {
       const url = await this.getCanvasUrl();
       return !!url;
     } else if (authMethod === 'token') {

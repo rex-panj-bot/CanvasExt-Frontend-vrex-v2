@@ -1,0 +1,34 @@
+THIRD-PARTY SOFTWARE LICENSES
+================================
+
+This extension includes the following third-party libraries:
+
+1. JSZip v3.10.1
+   License: MIT or GPLv3
+   Source: https://github.com/Stuk/jszip
+   Description: JavaScript library for creating, reading and editing .zip files
+
+2. Marked.js v15.0.12
+   License: MIT
+   Source: https://github.com/markedjs/marked
+   Description: Markdown parser and compiler
+
+3. KaTeX v0.16.x
+   License: MIT
+   Source: https://github.com/KaTeX/KaTeX
+   Description: Fast math typesetting library for the web
+
+4. PDF.js v3.11.174
+   License: Apache License 2.0
+   Source: https://github.com/mozilla/pdf.js
+   Description: PDF rendering and text extraction library by Mozilla
+
+5. Mammoth.js v1.6.0
+   License: BSD 2-Clause License
+   Source: https://github.com/mwilliamson/mammoth.js
+   Description: Convert Word documents (.docx) to HTML
+
+================================
+
+All libraries are used in accordance with their respective licenses.
+For full license text of each library, please visit their respective repositories.

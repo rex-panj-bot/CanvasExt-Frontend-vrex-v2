@@ -1,23 +1,17 @@
 {
   "manifest_version": 3,
-  "name": "Canvas LMS Material Extractor",
-  "version": "3.0.0",
-  "description": "Extract and organize course materials from Canvas LMS with AI study assistant",
+  "name": "AI Assistant for Canvas Courses",
+  "version": "1.0.2",
+  "description": "Extract and organize course materials from Canvas LMS to use with an AI study assistant.",
   "permissions": [
     "storage",
     "downloads",
-    "activeTab",
-    "scripting",
-    "identity",
-    "cookies",
-    "tabs"
+    "cookies"
   ],
   "host_permissions": [
     "https://*.instructure.com/*",
     "https://*.canvas.com/*",
-    "https://*.edu/*",
-    "https://api.anthropic.com/*",
-    "https://cdn.jsdelivr.net/*"
+    "https://web-production-9aaba7.up.railway.app/*"
   ],
   "background": {
     "service_worker": "background/service-worker.js"
@@ -49,9 +43,15 @@
     {
       "resources": [
         "lib/jszip.min.js",
-        "lib/marked.min.js"
+        "lib/marked.min.js",
+        "lib/pdf.min.js",
+        "lib/pdf.worker.min.js",
+        "lib/mammoth.browser.min.js"
       ],
-      "matches": ["<all_urls>"]
+      "matches": [
+        "https://*.instructure.com/*",
+        "https://*.canvas.com/*"
+      ]
     }
   ]
 }
