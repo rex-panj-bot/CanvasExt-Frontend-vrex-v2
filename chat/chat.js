@@ -541,22 +541,56 @@ function displayMaterials() {
   // Show first-time user hint
   showFirstTimeHint();
 
-  // Setup select all/deselect all buttons (remove old listeners first)
-  const selectAllBtn = document.getElementById('select-all-materials');
-  const deselectAllBtn = document.getElementById('deselect-all-materials');
+  // Setup select all/deselect all checkbox (combined into one)
+  const selectAllCheckbox = document.getElementById('select-all-materials-checkbox');
 
-  if (selectAllBtn) {
-    selectAllBtn.replaceWith(selectAllBtn.cloneNode(true));
-    document.getElementById('select-all-materials').addEventListener('click', () => {
-      document.querySelectorAll('.material-item').forEach(item => item.setAttribute('data-selected', 'true'));
+  if (selectAllCheckbox) {
+    selectAllCheckbox.addEventListener('change', (e) => {
+      const isChecked = e.target.checked;
+      console.log('[DEBUG] Select All checkbox toggled:', isChecked);
+
+      // Select or deselect all material items
+      const selectedValue = isChecked ? 'true' : 'false';
+      document.querySelectorAll('.material-item').forEach(item => item.setAttribute('data-selected', selectedValue));
+
+      // Update all module checkboxes
+      document.querySelectorAll('.material-module').forEach(moduleDiv => {
+        updateModuleCheckboxState(moduleDiv);
+      });
+
+      console.log('[DEBUG] Select All checkbox complete');
     });
   }
 
-  if (deselectAllBtn) {
-    deselectAllBtn.replaceWith(deselectAllBtn.cloneNode(true));
-    document.getElementById('deselect-all-materials').addEventListener('click', () => {
-      document.querySelectorAll('.material-item').forEach(item => item.setAttribute('data-selected', 'false'));
+  // Function to update the select all checkbox state
+  function updateSelectAllCheckboxState() {
+    if (!selectAllCheckbox) return;
+
+    const allItems = document.querySelectorAll('.material-item');
+    const selectedItems = Array.from(allItems).filter(item => item.getAttribute('data-selected') === 'true');
+
+    const allSelected = selectedItems.length === allItems.length && allItems.length > 0;
+    const someSelected = selectedItems.length > 0 && selectedItems.length < allItems.length;
+    const noneSelected = selectedItems.length === 0;
+
+    console.log('[DEBUG] Updating Select All checkbox:', {
+      totalItems: allItems.length,
+      selectedItems: selectedItems.length,
+      allSelected,
+      someSelected,
+      noneSelected
     });
+
+    if (allSelected) {
+      selectAllCheckbox.checked = true;
+      selectAllCheckbox.indeterminate = false;
+    } else if (someSelected) {
+      selectAllCheckbox.checked = false;
+      selectAllCheckbox.indeterminate = true; // Show minus
+    } else {
+      selectAllCheckbox.checked = false;
+      selectAllCheckbox.indeterminate = false;
+    }
   }
 
   // Setup delete button handlers using event delegation
@@ -729,6 +763,11 @@ function displayMaterials() {
           // Select/deselect all items in range
           for (let i = start; i <= end; i++) {
             allItems[i].setAttribute('data-selected', targetState ? 'true' : 'false');
+            // Update module checkbox for each affected module
+            const itemModuleDiv = allItems[i].closest('.material-module');
+            if (itemModuleDiv) {
+              updateModuleCheckboxState(itemModuleDiv);
+            }
           }
         }
       } else {
@@ -736,6 +775,15 @@ function displayMaterials() {
         const isSelected = materialItem.getAttribute('data-selected') === 'true';
         materialItem.setAttribute('data-selected', isSelected ? 'false' : 'true');
       }
+
+      // Update module checkbox state after selection change
+      const moduleDiv = materialItem.closest('.material-module');
+      if (moduleDiv) {
+        updateModuleCheckboxState(moduleDiv);
+      }
+
+      // Update select all checkbox state
+      updateSelectAllCheckboxState();
 
       // Store last selected item for shift-click
       window._lastSelectedItem = materialItem;
@@ -1466,20 +1514,65 @@ function setupEventListeners() {
     }
   });
 
+  // Helper function to update module checkbox state based on selected items
+  function updateModuleCheckboxState(moduleDiv) {
+    const moduleCheckbox = moduleDiv.querySelector('.module-checkbox');
+    const itemsDiv = moduleDiv.querySelector('.module-items');
+    const materialItems = itemsDiv.querySelectorAll('.material-item');
+
+    const selectedItems = Array.from(materialItems).filter(item => item.getAttribute('data-selected') === 'true');
+    const allSelected = selectedItems.length === materialItems.length;
+    const someSelected = selectedItems.length > 0 && selectedItems.length < materialItems.length;
+    const noneSelected = selectedItems.length === 0;
+
+    console.log('[DEBUG] Updating module checkbox:', {
+      totalItems: materialItems.length,
+      selectedItems: selectedItems.length,
+      allSelected,
+      someSelected,
+      noneSelected
+    });
+
+    if (allSelected) {
+      moduleCheckbox.checked = true;
+      moduleCheckbox.indeterminate = false;
+    } else if (someSelected) {
+      moduleCheckbox.checked = false;
+      moduleCheckbox.indeterminate = true; // Show dash/minus
+    } else {
+      moduleCheckbox.checked = false;
+      moduleCheckbox.indeterminate = false;
+    }
+  }
+
   // Module checkbox - select/deselect all items in module using event delegation
   document.addEventListener('change', (e) => {
     if (e.target.classList.contains('module-checkbox')) {
+      console.log('[DEBUG] Module checkbox change detected!', e.target.id, 'checked:', e.target.checked);
       e.stopPropagation();
       const moduleDiv = e.target.closest('.material-module');
+      console.log('[DEBUG] Module div found:', moduleDiv);
       const itemsDiv = moduleDiv.querySelector('.module-items');
-      const checkboxes = itemsDiv.querySelectorAll('.material-checkbox');
-      checkboxes.forEach(cb => cb.checked = e.target.checked);
+      const materialItems = itemsDiv.querySelectorAll('.material-item');
+      console.log('[DEBUG] Found', materialItems.length, 'material items to toggle');
+
+      // Set data-selected attribute on all material items
+      const selectedValue = e.target.checked ? 'true' : 'false';
+      materialItems.forEach(item => {
+        item.setAttribute('data-selected', selectedValue);
+      });
+
+      // Update select all checkbox state
+      updateSelectAllCheckboxState();
+
+      console.log('[DEBUG] Module checkbox toggling complete - set all items to', selectedValue);
     }
   });
 
   // Individual material checkbox - update module checkbox state using event delegation
   document.addEventListener('change', (e) => {
     if (e.target.classList.contains('material-checkbox')) {
+      console.log('[DEBUG] Material checkbox change detected!', e.target.id, 'checked:', e.target.checked);
       const moduleDiv = e.target.closest('.material-module');
       if (moduleDiv) {
         const itemsDiv = moduleDiv.querySelector('.module-items');
@@ -1489,6 +1582,7 @@ function setupEventListeners() {
         const allChecked = Array.from(itemCheckboxes).every(cb => cb.checked);
         const noneChecked = Array.from(itemCheckboxes).every(cb => !cb.checked);
 
+        console.log('[DEBUG] Updating module checkbox - allChecked:', allChecked, 'noneChecked:', noneChecked);
         moduleCheckbox.checked = allChecked;
         moduleCheckbox.indeterminate = !allChecked && !noneChecked;
       }

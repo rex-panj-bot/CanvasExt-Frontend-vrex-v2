@@ -172,7 +172,16 @@ function setupEventListeners() {
     }
   }
 
-  // No checkboxes needed anymore - materials are always included
+  // Add listeners to category checkboxes in simple view
+  const categoryCheckboxes = document.querySelectorAll('.category-checkbox');
+  console.log('[DEBUG] Found category checkboxes in simple view:', categoryCheckboxes.length);
+
+  categoryCheckboxes.forEach((checkbox) => {
+    console.log('[DEBUG] Adding listener to category checkbox:', checkbox.id);
+    checkbox.addEventListener('change', (e) => {
+      console.log('[DEBUG] Category checkbox clicked:', e.target.id, 'checked:', e.target.checked);
+    });
+  });
 
   // Detailed view toggle
   document.getElementById('toggle-detailed-view').addEventListener('click', toggleDetailedView);
@@ -1542,8 +1551,9 @@ function populateDetailedView() {
 
     const label = categoryLabels[category] || { name: category, icon: '📦' };
 
-    html += `<div class="file-category-section">`;
+    html += `<div class="file-category-section" data-category="${category}">`;
     html += `<div class="file-category-header">`;
+    html += `<input type="checkbox" class="module-checkbox" id="module-${category}" data-category="${category}">`;
     html += `<span class="category-icon">${label.icon}</span>`;
     html += `<h4>${label.name} (${items.length})</h4>`;
     html += `</div>`;
@@ -1607,8 +1617,37 @@ function populateDetailedView() {
   document.getElementById('select-all-files')?.addEventListener('click', selectAllFiles);
   document.getElementById('deselect-all-files')?.addEventListener('click', deselectAllFiles);
 
-  // Add listeners to all checkboxes
-  detailedView.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+  // Add listeners to module-level checkboxes (detailed view)
+  const moduleCheckboxes = detailedView.querySelectorAll('.module-checkbox');
+  console.log('[DEBUG] Found module checkboxes in detailed view:', moduleCheckboxes.length);
+
+  moduleCheckboxes.forEach((moduleCheckbox, index) => {
+    console.log('[DEBUG] Adding listener to module checkbox', index, moduleCheckbox.id);
+    moduleCheckbox.addEventListener('change', (e) => {
+      const category = e.target.dataset.category;
+      const isChecked = e.target.checked;
+      console.log('[DEBUG] Module checkbox clicked:', category, 'checked:', isChecked);
+
+      // Find all file checkboxes in this category and toggle them
+      const categorySection = e.target.closest('.file-category-section');
+      const fileCheckboxes = categorySection.querySelectorAll('.file-items input[type="checkbox"]');
+      console.log('[DEBUG] Toggling', fileCheckboxes.length, 'file checkboxes in category:', category);
+
+      fileCheckboxes.forEach(checkbox => {
+        checkbox.checked = isChecked;
+        const fileId = checkbox.id.replace('file-', '');
+        if (isChecked) {
+          selectedFiles.add(fileId);
+        } else {
+          selectedFiles.delete(fileId);
+        }
+      });
+      console.log('[DEBUG] Selected files after toggle:', selectedFiles.size);
+    });
+  });
+
+  // Add listeners to individual file checkboxes
+  detailedView.querySelectorAll('.file-items input[type="checkbox"]').forEach(checkbox => {
     checkbox.addEventListener('change', (e) => {
       const fileId = e.target.id.replace('file-', '');
       if (e.target.checked) {
@@ -1616,7 +1655,45 @@ function populateDetailedView() {
       } else {
         selectedFiles.delete(fileId);
       }
+
+      // Update the module-level checkbox state based on its children
+      const category = e.target.dataset.category;
+      const categorySection = e.target.closest('.file-category-section');
+      const moduleCheckbox = categorySection.querySelector('.module-checkbox');
+      const fileCheckboxes = categorySection.querySelectorAll('.file-items input[type="checkbox"]');
+      const allChecked = Array.from(fileCheckboxes).every(cb => cb.checked);
+      const someChecked = Array.from(fileCheckboxes).some(cb => cb.checked);
+
+      if (allChecked) {
+        moduleCheckbox.checked = true;
+        moduleCheckbox.indeterminate = false;
+      } else if (someChecked) {
+        moduleCheckbox.checked = false;
+        moduleCheckbox.indeterminate = true;
+      } else {
+        moduleCheckbox.checked = false;
+        moduleCheckbox.indeterminate = false;
+      }
     });
+  });
+
+  // Initialize module checkbox states
+  detailedView.querySelectorAll('.module-checkbox').forEach(moduleCheckbox => {
+    const categorySection = moduleCheckbox.closest('.file-category-section');
+    const fileCheckboxes = categorySection.querySelectorAll('.file-items input[type="checkbox"]');
+    const allChecked = Array.from(fileCheckboxes).every(cb => cb.checked);
+    const someChecked = Array.from(fileCheckboxes).some(cb => cb.checked);
+
+    if (allChecked) {
+      moduleCheckbox.checked = true;
+      moduleCheckbox.indeterminate = false;
+    } else if (someChecked) {
+      moduleCheckbox.checked = false;
+      moduleCheckbox.indeterminate = true;
+    } else {
+      moduleCheckbox.checked = false;
+      moduleCheckbox.indeterminate = false;
+    }
   });
 }
 
@@ -1650,6 +1727,18 @@ function selectAllFiles() {
     const fileId = cb.id.replace('file-', '');
     selectedFiles.add(fileId);
   });
+
+  // Also check all category checkboxes in simple view
+  const categoryCheckboxes = document.querySelectorAll('.category-checkbox');
+  categoryCheckboxes.forEach(cb => {
+    cb.checked = true;
+  });
+
+  // Also check all module-level checkboxes in detailed view
+  const moduleCheckboxes = document.querySelectorAll('.module-checkbox');
+  moduleCheckboxes.forEach(cb => {
+    cb.checked = true;
+  });
 }
 
 function deselectAllFiles() {
@@ -1658,6 +1747,18 @@ function deselectAllFiles() {
     cb.checked = false;
   });
   selectedFiles.clear();
+
+  // Also uncheck all category checkboxes in simple view
+  const categoryCheckboxes = document.querySelectorAll('.category-checkbox');
+  categoryCheckboxes.forEach(cb => {
+    cb.checked = false;
+  });
+
+  // Also uncheck all module-level checkboxes in detailed view
+  const moduleCheckboxes = document.querySelectorAll('.module-checkbox');
+  moduleCheckboxes.forEach(cb => {
+    cb.checked = false;
+  });
 }
 
 // Theme Management - removed (now handled at top of file with system preference detection)

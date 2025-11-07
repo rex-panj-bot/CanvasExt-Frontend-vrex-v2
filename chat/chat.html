@@ -24,17 +24,7 @@
               <path d="M2 13V14C2 14.5523 2.44772 15 3 15H13C13.5523 15 14 14.5523 14 14V13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
             </svg>
           </button>
-          <button id="select-all-materials" class="materials-control-btn" title="Select all">
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-              <rect x="2" y="2" width="12" height="12" rx="1" stroke="currentColor" stroke-width="1.5"/>
-              <path d="M5 8L7 10L11 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-          </button>
-          <button id="deselect-all-materials" class="materials-control-btn" title="Deselect all">
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-              <rect x="2" y="2" width="12" height="12" rx="1" stroke="currentColor" stroke-width="1.5"/>
-            </svg>
-          </button>
+          <input type="checkbox" id="select-all-materials-checkbox" class="select-all-checkbox" title="Select/Deselect all">
         </div>
         <!-- Hidden file input -->
         <input type="file" id="file-upload-input" multiple accept=".pdf,.docx,.doc,.pptx,.ppt,.txt,.md,.xlsx,.xls,.csv,.png,.jpg,.jpeg,.gif,.webp" hidden>
