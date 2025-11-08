@@ -1388,6 +1388,25 @@ async function createStudyBot() {
         console.log(`✅ [POPUP-V2] No duplicate filenames detected (${filesToUpload.length} unique files)`);
       }
 
+      // OPTIMIZATION: Prioritize important files (syllabus, small files) for faster perceived speed
+      filesToUpload.sort((a, b) => {
+        const aName = a.name.toLowerCase();
+        const bName = b.name.toLowerCase();
+        const aSize = a.blob?.size || 0;
+        const bSize = b.blob?.size || 0;
+
+        // Priority keywords (syllabus, outline, schedule)
+        const aPriority = aName.includes('syllabus') || aName.includes('outline') || aName.includes('schedule');
+        const bPriority = bName.includes('syllabus') || bName.includes('outline') || bName.includes('schedule');
+
+        if (aPriority && !bPriority) return -1;  // a first
+        if (!aPriority && bPriority) return 1;   // b first
+
+        // If both priority or both not priority, sort by size (small first)
+        return aSize - bSize;
+      });
+      console.log(`⚡ Prioritized ${filesToUpload.length} files (priority keywords + small files first)`);
+
       updateProgress(`Preparing ${filesToUpload.length} files for background upload...`, PROGRESS_PERCENT.UPLOADING);
 
       try {
