@@ -632,8 +632,8 @@ async function handleBackgroundUpload() {
 
       // Continue with next batch
       if (newUploadedFiles < files.length) {
-        // Small delay between batches to avoid overwhelming backend
-        setTimeout(() => handleBackgroundUpload(), 1000);
+        // Process next batch immediately (backend handles rate limiting)
+        handleBackgroundUpload();
       } else {
         // All done!
         console.log('✅ All batches uploaded successfully!');
