@@ -153,6 +153,40 @@ function setupEventListeners() {
     });
   }
 
+  // Logout button - clear all data and reset to initial setup
+  const logoutBtn = document.getElementById('logout-btn');
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', async () => {
+      // Confirm with user
+      const confirmed = confirm(
+        'Are you sure you want to logout?\n\n' +
+        'This will clear all saved data including:\n' +
+        '• Canvas domain and API key\n' +
+        '• Gemini API key\n' +
+        '• Course materials\n' +
+        '• Chat history\n' +
+        '• All settings\n\n' +
+        'You will need to set everything up again.'
+      );
+
+      if (confirmed) {
+        try {
+          // Clear all chrome.storage.local data
+          await chrome.storage.local.clear();
+
+          // Clear all localStorage data
+          localStorage.clear();
+
+          // Reload the extension to initial setup state
+          window.location.reload();
+        } catch (error) {
+          console.error('Error during logout:', error);
+          alert('Error clearing data. Please try again.');
+        }
+      }
+    });
+  }
+
   function updateThemeButtons() {
     const savedTheme = localStorage.getItem('theme');
     let currentTheme;
