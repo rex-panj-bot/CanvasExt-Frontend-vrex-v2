@@ -397,6 +397,70 @@ body {
   margin-bottom: 0;
 }
 
+/* Materials Search Bar */
+.materials-search-container {
+  position: relative;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.materials-search-input {
+  width: 100%;
+  padding: 6px 30px 6px 28px;
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: inherit;
+  transition: all 0.2s;
+}
+
+.materials-search-input:focus {
+  outline: none;
+  border-color: var(--blue-primary);
+  background: var(--surface);
+}
+
+.materials-search-input::placeholder {
+  color: var(--text-light);
+}
+
+.materials-search-container .search-icon {
+  position: absolute;
+  left: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-light);
+  pointer-events: none;
+}
+
+.search-clear-btn {
+  position: absolute;
+  right: 18px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--text-light);
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.search-clear-btn:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.search-clear-btn.hidden {
+  display: none;
+}
+
 .section-header {
   display: flex;
   align-items: center;
@@ -1222,7 +1286,6 @@ body {
 .input-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 16px;
   margin-bottom: 12px;
   font-size: 12px;
@@ -1250,12 +1313,6 @@ body {
   flex: 1;
 }
 
-.toggles-group {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-}
-
 :root[data-theme="light"] .mode-btn-compact {
   background: rgba(226, 232, 240, 0.5);
 }
@@ -1276,108 +1333,19 @@ body {
   transform: translateY(0);
 }
 
-.toggle-compact {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-  user-select: none;
-}
-
-.toggle-compact input[type="checkbox"] {
-  display: none;
-}
-
-.toggle-switch-compact {
-  position: relative;
-  width: 32px;
-  height: 18px;
-  background: var(--border-color);
-  border-radius: 9px;
-  transition: background 0.2s;
-}
-
-.toggle-switch-compact::after {
-  content: '';
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 14px;
-  height: 14px;
-  background: white;
-  border-radius: 50%;
-  transition: left 0.2s;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-}
-
-.toggle-compact input[type="checkbox"]:checked + .toggle-switch-compact {
+.mode-btn-compact.active {
   background: var(--blue-primary);
+  border-color: var(--blue-primary);
+  color: white;
+  font-weight: 600;
 }
 
-.toggle-compact input[type="checkbox"]:checked + .toggle-switch-compact::after {
-  left: 16px;
-}
-
-.toggle-label-compact {
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-/* Tooltip for compact toggles */
-.toggle-compact.toggle-with-tooltip {
-  position: relative;
-}
-
-.toggle-compact .toggle-tooltip {
-  position: fixed;
-  bottom: auto;
-  left: auto;
-  background: var(--surface);
-  color: var(--text-primary);
-  padding: 10px 16px;
-  border-radius: 8px;
-  font-size: 13px;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.2s;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  border: 1px solid var(--border);
-  z-index: 10000;
-  width: 280px;
-  text-align: center;
-  line-height: 1.4;
-  white-space: normal;
-}
-
-.toggle-compact.toggle-with-tooltip:hover .toggle-tooltip {
-  opacity: 1;
-}
-
-/* Tooltip arrow */
-.toggle-compact .toggle-tooltip::after {
-  content: '';
-  position: absolute;
-  top: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  border: 6px solid transparent;
-  border-top-color: var(--border);
-}
-
-.toggle-compact .toggle-tooltip::before {
-  content: '';
-  position: absolute;
-  top: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  border: 5px solid transparent;
-  border-top-color: var(--surface);
-  z-index: 1;
-  margin-top: -1px;
-}
-
-.powered-by-compact {
-  display: none;
+.mode-btn-compact.active:hover {
+  background: var(--blue-hover);
+  border-color: var(--blue-hover);
+  color: white;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(59, 130, 246, 0.3);
 }
 
 /* Input Wrapper */
@@ -1423,6 +1391,90 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* Toggle Icon Buttons */
+.toggle-icon-btn {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-light);
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.toggle-icon-btn:hover {
+  background: var(--surface-hover);
+  border-color: var(--text-secondary);
+  color: var(--text-primary);
+}
+
+.toggle-icon-btn.active {
+  background: var(--blue-primary);
+  border-color: var(--blue-primary);
+  color: white;
+}
+
+.toggle-icon-btn.active:hover {
+  background: var(--blue-hover);
+  border-color: var(--blue-hover);
+}
+
+/* Toggle Icon Tooltips */
+.toggle-icon-tooltip {
+  position: fixed;
+  bottom: auto;
+  left: auto;
+  background: var(--surface);
+  color: var(--text-primary);
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border);
+  z-index: 10000;
+  width: 280px;
+  text-align: center;
+  line-height: 1.4;
+  white-space: normal;
+}
+
+.toggle-icon-btn:hover .toggle-icon-tooltip {
+  opacity: 1;
+}
+
+.toggle-icon-tooltip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: var(--border);
+}
+
+.toggle-icon-tooltip::before {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: var(--surface);
+  z-index: 1;
+  margin-top: -1px;
 }
 
 .btn-send {

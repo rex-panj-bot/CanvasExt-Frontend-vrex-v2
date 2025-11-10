@@ -13,6 +13,112 @@ let currentSessionId = null; // Current chat session ID for saving
 let availableCourses = []; // List of courses with materials
 let isGenerating = false; // Track if AI is currently generating
 let currentStreamAbort = null; // AbortController for current generation
+let currentMode = null; // Current study mode: null, 'learn', 'reinforce', or 'test'
+let modePromptUsed = false; // Track if mode prompt has been applied (only use once per mode activation)
+let modeResponseCache = {}; // Cache mode responses by topic: { "exam 1": { learn: "response", reinforce: "response", test: "response" } }
+let currentModeTopic = null; // Store the current topic being used in mode
+
+// Mode-specific prompt templates
+const modePrompts = {
+  learn: `Act as an expert university professor and instructional designer. Your task is to create a comprehensive, in-depth, and holistic study guide for a college student on the topic of {userInput}.
+
+The study guide must be exceptionally clear, well-structured, and designed for maximum comprehension and retention. Follow these instructions precisely:
+
+Start with the Big Picture: Begin with a concise, high-level overview (2-3 sentences) that explains why this topic is important, its real-world applications, and what its core principles are.
+
+Define Key Concepts: Identify all critical vocabulary, theories, concepts, and key figures. For each one, provide:
+
+A clear, easy-to-understand definition.
+
+A real-world analogy or example to make it memorable.
+
+The context of why it's important.
+
+Create a Hierarchical Outline: Organize the entire topic into a logical, hierarchical structure using headings, subheadings, and nested bullet points. Break down complex processes into sequential, step-by-step explanations. This should be the main body of the study guide.
+
+Connect the Dots: Explicitly explain the relationships between different concepts. Use phrases like "This is important because..." or "This connects to [another concept] by..." to help build a robust mental model.
+
+Identify Common Pitfalls: Include a dedicated section titled "Common Misconceptions & Pitfalls." List 2-3 common points of confusion for students and provide a clear explanation to correct them.
+
+Advanced Connections: Add a brief section on "Advanced Connections" that explains how this topic relates to broader themes in the field or sets the foundation for more advanced courses.
+
+Check Your Understanding: Conclude with 3-4 quick comprehension questions (not a full test) that a student can use to self-assess their understanding as they read the guide.
+
+Visual Structure: Use Markdown to format the output for clarity. Use bolding for key terms, code blocks for formulas or syntax if applicable, and bullet points for lists.
+
+Generate a detailed guide that a student could use as their primary resource to learn this material from the ground up.`,
+
+  reinforce: `You are creating active recall exercises and reinforcement activities specifically about: {userInput}
+
+Act as a friendly and encouraging cognitive science tutor. Your goal is to help me strengthen my memory and understanding of the topic "{userInput}" using active recall exercises. Do not simply give me a summary. Instead, create an interactive reinforcement session focused on this specific topic.
+
+Follow these steps:
+
+1. Generate "Fill-in-the-Blank" Questions: Create a list of 5-7 critical sentences from the topic with key terms or concepts removed (represented by [BLANK]). This will force me to retrieve specific terminology. Number each question (1, 2, 3, etc.).
+
+2. Pose Conceptual Questions: Ask me 3-4 open-ended questions that require me to explain a core concept in my own words. These questions should start with "Explain how...", "What is the significance of...", or "Compare and contrast...". Number these questions continuing from where fill-in-blank left off.
+
+3. Create a Quick Matching Challenge: Present a two-column list formatted clearly with line breaks.
+
+**Column A: Terms**
+1. [Term 1]
+2. [Term 2]
+3. [Term 3]
+4. [Term 4]
+5. [Term 5]
+
+**Column B: Definitions (Scrambled)**
+A. [Definition for term X]
+B. [Definition for term Y]
+C. [Definition for term Z]
+D. [Definition for term W]
+E. [Definition for term V]
+
+Use proper markdown formatting with line breaks between each item so it's easy to read.
+
+4. Wait for Response: After presenting all exercises, end with an encouraging prompt like, "Take your time to answer these from memory! When you're ready, share your answers and I'll provide detailed feedback."
+
+5. **ANSWER KEY** (REQUIRED): Immediately after the exercises and prompt, you MUST include a complete answer key section with the heading "--- ANSWER KEY ---". For each question, provide:
+   - The correct answer
+   - A detailed explanation of why it's correct
+   - For matching: Show the correct pairs (1-A, 2-B, etc.)
+
+Your entire output should be: exercises → encouraging prompt → answer key. Do NOT skip the answer key.`,
+
+  test: `You are creating a practice test and assessment specifically about: {userInput}
+
+Act as a meticulous and fair university examiner. Your task is to create a practice test to assess my knowledge and application of the material related to the topic "{userInput}". The test should mirror the style and difficulty of a real college-level exam and focus specifically on this topic.
+
+The test must contain the following sections:
+
+Part A: Multiple Choice Questions (3 questions):
+
+Design questions where the options are plausible and test for common misconceptions.
+
+One of these questions should be a scenario-based question that requires applying a concept.
+
+Part B: Short Answer Questions (2 questions):
+
+Design questions that require more than just recalling a definition. They should ask for analysis, comparison, or a brief explanation of a process.
+
+Each question should be answerable in 2-4 sentences.
+
+Part C: Application Problem (1 question):
+
+Provide a brief case study, a data set, or a problem scenario.
+
+Ask me to analyze the situation and use my knowledge to solve the problem or draw a conclusion.
+
+After presenting all the questions, clearly state: "--- End of Test. Provide your answers before scrolling down for the Answer Key. ---"
+
+Finally, provide a comprehensive Answer Key below that separation line. For each question in the key, you must:
+
+Clearly state the correct answer.
+
+Provide a detailed explanation for why it is the correct answer.
+
+For multiple-choice questions, briefly explain why the other options (distractors) are incorrect.`
+};
 
 // DOM Elements
 const elements = {
@@ -1268,6 +1374,18 @@ async function loadAPIKey() {
   }
 }
 
+/**
+ * Update input placeholder based on current mode
+ */
+function updatePlaceholder() {
+  const defaultPlaceholder = "Ask a question about your course materials...";
+  const modePlaceholder = "What are you studying for?";
+
+  if (elements.messageInput) {
+    elements.messageInput.placeholder = currentMode ? modePlaceholder : defaultPlaceholder;
+  }
+}
+
 function setupEventListeners() {
   // Send message
   elements.sendBtn.addEventListener('click', sendMessage);
@@ -1304,14 +1422,33 @@ function setupEventListeners() {
     });
   });
 
-  // Compact mode buttons
+  // Compact mode buttons with toggle/switch behavior
   document.querySelectorAll('.mode-btn-compact').forEach(btn => {
     btn.addEventListener('click', () => {
-      const prompt = btn.getAttribute('data-prompt') || btn.textContent;
-      elements.messageInput.value = prompt;
+      const btnText = btn.textContent.trim().toLowerCase();
+      const clickedMode = btnText; // 'learn', 'reinforce', or 'test'
+
+      // Toggle logic: if same button clicked, deactivate mode
+      if (currentMode === clickedMode) {
+        currentMode = null;
+        modePromptUsed = false;
+        btn.classList.remove('active');
+      } else {
+        // Switch to new mode or activate mode
+        // Remove active class from all buttons
+        document.querySelectorAll('.mode-btn-compact').forEach(b => b.classList.remove('active'));
+
+        // Set new mode and add active class
+        currentMode = clickedMode;
+        modePromptUsed = false; // Reset flag when entering/switching modes
+        btn.classList.add('active');
+      }
+
+      // Update placeholder based on mode
+      updatePlaceholder();
+
+      // Focus on input
       elements.messageInput.focus();
-      // Auto-send the message
-      sendMessage();
     });
   });
 
@@ -1322,6 +1459,12 @@ function setupEventListeners() {
     conversationHistory = [];
     elements.messagesContainer.innerHTML = '';
     elements.messagesContainer.appendChild(createWelcomeMessage());
+    // Reset mode prompt flag so it can be used again in new chat
+    modePromptUsed = false;
+    // Clear mode response cache for fresh start
+    modeResponseCache = {};
+    currentModeTopic = null;
+    console.log('🗑️ Cleared mode response cache for new chat');
     // Refresh recent chats
     loadRecentChats();
   });
@@ -1466,6 +1609,103 @@ function setupEventListeners() {
       });
     }
   });
+
+  // Materials search/filter functionality
+  const materialsSearchInput = document.getElementById('materials-search');
+  const materialsSearchClear = document.getElementById('materials-search-clear');
+
+  if (materialsSearchInput) {
+    materialsSearchInput.addEventListener('input', (e) => {
+      const searchTerm = e.target.value.toLowerCase().trim();
+
+      // Show/hide clear button
+      if (materialsSearchClear) {
+        materialsSearchClear.classList.toggle('hidden', searchTerm === '');
+      }
+
+      // Filter materials
+      const materialItems = document.querySelectorAll('.material-item');
+      let visibleCount = 0;
+
+      materialItems.forEach(item => {
+        const fileNameLabel = item.querySelector('.material-label');
+        const fileName = fileNameLabel?.textContent.toLowerCase() || '';
+        const matches = searchTerm === '' || fileName.includes(searchTerm);
+        item.style.display = matches ? '' : 'none';
+        if (matches) visibleCount++;
+      });
+
+      // Also filter module headers if they exist
+      const moduleHeaders = document.querySelectorAll('.module-header');
+      moduleHeaders.forEach(header => {
+        const moduleItems = header.nextElementSibling?.querySelectorAll('.material-item') || [];
+        const hasVisibleItems = Array.from(moduleItems).some(item => item.style.display !== 'none');
+        const moduleContainer = header.parentElement;
+        if (moduleContainer) {
+          moduleContainer.style.display = hasVisibleItems ? '' : 'none';
+        }
+      });
+    });
+
+    // Clear search
+    if (materialsSearchClear) {
+      materialsSearchClear.addEventListener('click', () => {
+        materialsSearchInput.value = '';
+        materialsSearchInput.dispatchEvent(new Event('input'));
+        materialsSearchInput.focus();
+      });
+    }
+  }
+
+  // Toggle icon buttons functionality
+  const webSearchIconToggle = document.getElementById('web-search-icon-toggle');
+  const smartFileIconToggle = document.getElementById('smart-file-icon-toggle');
+
+  // Web Search toggle
+  if (webSearchIconToggle) {
+    webSearchIconToggle.addEventListener('click', async () => {
+      webSearchIconToggle.classList.toggle('active');
+
+      // Save state to storage
+      const isActive = webSearchIconToggle.classList.contains('active');
+      await chrome.storage.local.set({ enable_web_search: isActive });
+
+      // Sync with settings modal toggle
+      const settingsToggle = document.getElementById('web-search-toggle');
+      if (settingsToggle) {
+        settingsToggle.checked = isActive;
+      }
+    });
+
+    // Position tooltip dynamically
+    const webSearchTooltip = webSearchIconToggle.querySelector('.toggle-icon-tooltip');
+    if (webSearchTooltip) {
+      webSearchIconToggle.addEventListener('mouseenter', () => {
+        const rect = webSearchIconToggle.getBoundingClientRect();
+        webSearchTooltip.style.left = `${rect.left + rect.width / 2}px`;
+        webSearchTooltip.style.top = `${rect.top - 8}px`;
+        webSearchTooltip.style.transform = 'translate(-50%, -100%)';
+      });
+    }
+  }
+
+  // Smart File Selection toggle
+  if (smartFileIconToggle) {
+    smartFileIconToggle.addEventListener('click', () => {
+      smartFileIconToggle.classList.toggle('active');
+    });
+
+    // Position tooltip dynamically
+    const smartFileTooltip = smartFileIconToggle.querySelector('.toggle-icon-tooltip');
+    if (smartFileTooltip) {
+      smartFileIconToggle.addEventListener('mouseenter', () => {
+        const rect = smartFileIconToggle.getBoundingClientRect();
+        smartFileTooltip.style.left = `${rect.left + rect.width / 2}px`;
+        smartFileTooltip.style.top = `${rect.top - 8}px`;
+        smartFileTooltip.style.transform = 'translate(-50%, -100%)';
+      });
+    }
+  }
 
   // File upload handler
   const uploadBtn = document.getElementById('upload-files-btn');
@@ -1833,12 +2073,63 @@ function stopGeneration() {
  * Send a message to the AI assistant via Python backend
  */
 async function sendMessage() {
-  const message = elements.messageInput.value.trim();
+  const userInput = elements.messageInput.value.trim();
 
-  if (!message) return;
+  if (!userInput) return;
   if (!wsClient || !wsClient.isReady()) {
     showError('Not connected to backend. Please check that the server is running.');
     return;
+  }
+
+  // Build the full prompt if in a mode (only on first message)
+  let message = userInput;
+  let displayMessage = userInput; // What to show in the chat bubble
+
+  if (currentMode && !modePromptUsed && modePrompts[currentMode]) {
+    // Store the topic for this mode session (case-insensitive)
+    currentModeTopic = userInput.toLowerCase().trim();
+
+    // Replace {userInput} placeholder with actual user input
+    message = modePrompts[currentMode].replace(/{userInput}/g, userInput);
+    displayMessage = userInput; // Still show just the user's input in the chat
+
+    // Check if we're in Reinforce or Test mode and have a cached Learn response
+    if ((currentMode === 'reinforce' || currentMode === 'test') &&
+        modeResponseCache[currentModeTopic] &&
+        modeResponseCache[currentModeTopic].learn) {
+
+      const learnResponse = modeResponseCache[currentModeTopic].learn;
+
+      // Inject the Learn response AFTER the topic-focused intro (for better file selection)
+      // Keep the topic at the top, add Learn context in the middle
+      let splitPattern = currentMode === 'reinforce' ? '\n\nFollow these steps:' : '\n\nThe test must contain the following sections:';
+      const promptParts = message.split(splitPattern);
+
+      if (promptParts.length === 2) {
+        // Insert Learn context between intro and instructions
+        message = promptParts[0] +
+                  `\n\n**IMPORTANT CONTEXT:** Previously, you created this comprehensive study guide for the student on this exact topic:\n\n` +
+                  `--- BEGIN PREVIOUS STUDY GUIDE ---\n${learnResponse}\n--- END PREVIOUS STUDY GUIDE ---\n\n` +
+                  `You MUST base your ${currentMode === 'reinforce' ? 'exercises' : 'test'} directly on the concepts, terminology, and information covered in that study guide above.\n\n` +
+                  splitPattern + promptParts[1];
+      }
+
+      console.log(`🔗 Injected cached Learn response for "${userInput}" into ${currentMode} mode`);
+
+      // Show indicator to user
+      displayMessage = `${userInput} 📚`;
+    }
+
+    // Auto-enable Smart File Selection when in a mode
+    const smartFileIconToggle = document.getElementById('smart-file-icon-toggle');
+    if (smartFileIconToggle && !smartFileIconToggle.classList.contains('active')) {
+      smartFileIconToggle.classList.add('active');
+      console.log('🎯 Auto-enabled Smart File Selection for mode:', currentMode);
+    }
+
+    // Mark that the mode prompt has been used
+    modePromptUsed = true;
+    console.log(`📝 Applied ${currentMode} mode prompt. Subsequent messages will be normal conversation.`);
   }
 
   // Clear input
@@ -1855,8 +2146,8 @@ async function sendMessage() {
 
   isGenerating = true;
 
-  // Add user message
-  addMessage('user', message);
+  // Add user message (show the original user input, not the full prompt)
+  addMessage('user', displayMessage);
 
   // Add typing indicator
   const typingId = addTypingIndicator();
@@ -1879,8 +2170,8 @@ async function sendMessage() {
     const enableWebSearch = settings.enable_web_search || false;
 
     // Check if smart file selection is enabled
-    const smartFileSelectionToggle = document.getElementById('smart-file-selection-toggle');
-    const useSmartSelection = smartFileSelectionToggle ? smartFileSelectionToggle.checked : false;
+    const smartFileIconToggle = document.getElementById('smart-file-icon-toggle');
+    const useSmartSelection = smartFileIconToggle ? smartFileIconToggle.classList.contains('active') : false;
 
     console.log(`   Web search: ${enableWebSearch ? 'enabled' : 'disabled'}`);
     console.log(`   Smart Selection: ${useSmartSelection ? 'enabled' : 'disabled'}`);
@@ -1932,6 +2223,18 @@ async function sendMessage() {
     // Add to conversation history
     conversationHistory.push({ role: 'user', content: message });
     conversationHistory.push({ role: 'assistant', content: assistantMessage });
+
+    // Cache the response if we're in a mode and have a topic
+    if (currentMode && currentModeTopic) {
+      // Initialize cache for this topic if it doesn't exist
+      if (!modeResponseCache[currentModeTopic]) {
+        modeResponseCache[currentModeTopic] = {};
+      }
+
+      // Store the response for this mode
+      modeResponseCache[currentModeTopic][currentMode] = assistantMessage;
+      console.log(`💾 Cached ${currentMode} response for topic: "${currentModeTopic}"`);
+    }
 
     // Save conversation
     await saveConversation();
@@ -3160,37 +3463,36 @@ function applyTheme(theme) {
  * Initialize web search toggle
  */
 async function initWebSearchToggle() {
-  const inlineToggle = document.getElementById('web-search-toggle-inline');
+  const iconToggle = document.getElementById('web-search-icon-toggle');
   const settingsToggle = document.getElementById('web-search-toggle');
 
-  if (!inlineToggle) return;
+  if (!iconToggle) return;
 
   // Load saved state
   const settings = await chrome.storage.local.get(['enable_web_search']);
   const isEnabled = settings.enable_web_search || false;
 
   // Set initial state
-  inlineToggle.checked = isEnabled;
+  if (isEnabled) {
+    iconToggle.classList.add('active');
+  }
   if (settingsToggle) {
     settingsToggle.checked = isEnabled;
   }
 
-  // Listen for changes on inline toggle
-  inlineToggle.addEventListener('change', async () => {
-    await chrome.storage.local.set({
-      enable_web_search: inlineToggle.checked
-    });
-
-    // Sync with settings modal toggle
-    if (settingsToggle) {
-      settingsToggle.checked = inlineToggle.checked;
-    }
-  });
-
   // Listen for changes on settings modal toggle (to keep them in sync)
   if (settingsToggle) {
-    settingsToggle.addEventListener('change', () => {
-      inlineToggle.checked = settingsToggle.checked;
+    settingsToggle.addEventListener('change', async () => {
+      await chrome.storage.local.set({
+        enable_web_search: settingsToggle.checked
+      });
+
+      // Sync with icon toggle
+      if (settingsToggle.checked) {
+        iconToggle.classList.add('active');
+      } else {
+        iconToggle.classList.remove('active');
+      }
     });
   }
 }
