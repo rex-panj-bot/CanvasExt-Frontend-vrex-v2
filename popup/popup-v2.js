@@ -137,6 +137,8 @@ function setupEventListeners() {
     lightThemeBtn.addEventListener('click', () => {
       document.documentElement.setAttribute('data-theme', 'light');
       localStorage.setItem('theme', 'light');
+      // Also save to chrome.storage so chat view inherits the theme
+      chrome.storage.local.set({ theme: 'light' });
       updateThemeButtons();
     });
   }
@@ -145,6 +147,8 @@ function setupEventListeners() {
     darkThemeBtn.addEventListener('click', () => {
       document.documentElement.setAttribute('data-theme', 'dark');
       localStorage.setItem('theme', 'dark');
+      // Also save to chrome.storage so chat view inherits the theme
+      chrome.storage.local.set({ theme: 'dark' });
       updateThemeButtons();
     });
   }
