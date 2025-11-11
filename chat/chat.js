@@ -1719,6 +1719,58 @@ function setupEventListeners() {
     fileInput.addEventListener('change', handleFileUpload);
   }
 
+  // Drag and drop file upload on sidebar
+  const sidebarContent = document.querySelector('.sidebar-content');
+  if (sidebarContent) {
+    // Prevent default drag behaviors
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+      sidebarContent.addEventListener(eventName, preventDefaults, false);
+    });
+
+    function preventDefaults(e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
+    // Highlight drop area when dragging over
+    ['dragenter', 'dragover'].forEach(eventName => {
+      sidebarContent.addEventListener(eventName, () => {
+        sidebarContent.classList.add('drag-over');
+      }, false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+      sidebarContent.addEventListener(eventName, () => {
+        sidebarContent.classList.remove('drag-over');
+      }, false);
+    });
+
+    // Handle dropped files
+    sidebarContent.addEventListener('drop', handleFileDrop, false);
+  }
+
+  /**
+   * Handle files dropped on sidebar
+   */
+  async function handleFileDrop(e) {
+    const dt = e.dataTransfer;
+    const files = Array.from(dt.files);
+
+    if (files.length === 0) return;
+
+    console.log(`📤 User dropped ${files.length} file(s):`, files.map(f => f.name));
+
+    // Create a synthetic event to pass to handleFileUpload
+    const syntheticEvent = {
+      target: {
+        files: files,
+        value: ''
+      }
+    };
+
+    await handleFileUpload(syntheticEvent);
+  }
+
   // Citation links - use event delegation on messages container
   elements.messagesContainer.addEventListener('click', (e) => {
     const citationLink = e.target.closest('.citation-link');
