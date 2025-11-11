@@ -153,6 +153,19 @@ function setupEventListeners() {
     });
   }
 
+  // Theme toggle icon on Canvas login screen
+  const sessionThemeToggle = document.getElementById('session-theme-toggle');
+  if (sessionThemeToggle) {
+    sessionThemeToggle.addEventListener('click', () => {
+      const currentTheme = document.documentElement.getAttribute('data-theme');
+      const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+
+      document.documentElement.setAttribute('data-theme', newTheme);
+      localStorage.setItem('theme', newTheme);
+      chrome.storage.local.set({ theme: newTheme });
+    });
+  }
+
   // Logout button - clear all data and reset to initial setup
   const logoutBtn = document.getElementById('logout-btn');
   if (logoutBtn) {

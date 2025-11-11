@@ -2,6 +2,22 @@
  * Settings Page - API Key and Web Search Management
  */
 
+// Initialize theme based on saved preference
+function initializeTheme() {
+  const savedTheme = localStorage.getItem('theme');
+
+  if (savedTheme) {
+    document.documentElement.setAttribute('data-theme', savedTheme);
+  } else {
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const theme = prefersDark ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', theme);
+  }
+}
+
+// Initialize theme before DOM loads
+initializeTheme();
+
 // Storage keys
 const STORAGE_KEYS = {
   API_KEY: 'gemini_api_key',
@@ -75,6 +91,19 @@ function attachEventListeners() {
 
   // Web search toggle
   elements.webSearchToggle.addEventListener('change', saveWebSearchSetting);
+
+  // Theme toggle icon
+  const settingsThemeToggle = document.getElementById('settings-theme-toggle');
+  if (settingsThemeToggle) {
+    settingsThemeToggle.addEventListener('click', () => {
+      const currentTheme = document.documentElement.getAttribute('data-theme');
+      const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+
+      document.documentElement.setAttribute('data-theme', newTheme);
+      localStorage.setItem('theme', newTheme);
+      chrome.storage.local.set({ theme: newTheme });
+    });
+  }
 
   // Enter key to save
   elements.apiKeyInput.addEventListener('keypress', (e) => {

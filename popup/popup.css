@@ -1097,3 +1097,53 @@ html {
   width: 18px;
   height: 18px;
 }
+
+/* Theme Toggle Icon for Setup Screens */
+.screen-header-controls {
+  position: absolute;
+  top: 24px;
+  right: 20px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.theme-toggle-icon {
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  padding: 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.theme-toggle-icon:hover {
+  background: var(--surface);
+  border-color: var(--blue-primary);
+  color: var(--blue-primary);
+}
+
+.theme-toggle-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* Theme icon visibility based on current theme */
+:root[data-theme="light"] .theme-toggle-icon .sun-icon {
+  display: none;
+}
+
+:root[data-theme="light"] .theme-toggle-icon .moon-icon {
+  display: block;
+}
+
+:root[data-theme="dark"] .theme-toggle-icon .sun-icon {
+  display: block;
+}
+
+:root[data-theme="dark"] .theme-toggle-icon .moon-icon {
+  display: none;
+}
