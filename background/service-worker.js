@@ -8,6 +8,9 @@ console.log('Canvas Material Extractor: Service worker loaded');
 // Store current course info
 let currentCourseInfo = null;
 
+// Store upload files in memory (not in chrome.storage to avoid quota issues)
+let uploadFilesQueue = null;
+
 /**
  * Update materials in storage with stored_name from backend upload response
  * This ensures materials have the correct GCS filenames with extensions
@@ -109,11 +112,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     console.log('🚀 [SERVICE-WORKER] Received START_BACKGROUND_UPLOAD message');
     const { courseId, files, canvasUrl, cookies } = request.payload;
 
-    // Initialize upload task in storage
+    // Store files in memory (not in chrome.storage to avoid quota issues)
+    uploadFilesQueue = files;
+
+    // Initialize upload task in storage (without files array to avoid quota issues)
     chrome.storage.local.set({
       uploadTask: {
         courseId,
-        files,
         canvasUrl,
         cookies,
         status: 'uploading',
@@ -124,12 +129,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         startTime: Date.now()
       }
     }, () => {
-      console.log(`📤 Starting background upload: ${files.length} files in ${Math.ceil(files.length / 8)} batches`);
-      // Start the upload process
-      handleBackgroundUpload();
+      if (chrome.runtime.lastError) {
+        console.error('❌ Storage write failed:', chrome.runtime.lastError);
+        sendResponse({ success: false, error: chrome.runtime.lastError.message });
+      } else {
+        console.log(`📤 Starting background upload: ${files.length} files in ${Math.ceil(files.length / 8)} batches`);
+        // Start the upload process
+        handleBackgroundUpload();
+        sendResponse({ success: true });
+      }
     });
 
-    sendResponse({ success: true });
     return true; // Keep message channel open for async response
   } else if (request.type === 'START_DOWNLOADS') {
     // Handle new storage-based background downloads
@@ -555,10 +565,17 @@ async function handleBackgroundUpload() {
       return;
     }
 
-    const { courseId, files, canvasUrl, cookies, uploadedFiles, currentBatch, totalBatches } = task;
+    // Get files from memory (not from storage to avoid quota issues)
+    if (!uploadFilesQueue) {
+      console.error('❌ No files in upload queue');
+      return;
+    }
+
+    const { courseId, canvasUrl, cookies, uploadedFiles, currentBatch, totalBatches } = task;
+    const totalFiles = uploadFilesQueue.length;
 
     // Check if all files uploaded
-    if (uploadedFiles >= files.length) {
+    if (uploadedFiles >= totalFiles) {
       console.log('✅ All files uploaded successfully!');
       await chrome.storage.local.set({
         uploadTask: {
@@ -567,13 +584,15 @@ async function handleBackgroundUpload() {
           endTime: Date.now()
         }
       });
+      // Clear files from memory
+      uploadFilesQueue = null;
       return;
     }
 
-    // Get current batch
+    // Get current batch from memory
     const batchStart = currentBatch * BATCH_SIZE;
-    const batchEnd = Math.min(batchStart + BATCH_SIZE, files.length);
-    const currentBatchFiles = files.slice(batchStart, batchEnd);
+    const batchEnd = Math.min(batchStart + BATCH_SIZE, totalFiles);
+    const currentBatchFiles = uploadFilesQueue.slice(batchStart, batchEnd);
 
     console.log(`📤 Uploading batch ${currentBatch + 1}/${totalBatches} (${currentBatchFiles.length} files)`);
 
@@ -621,45 +640,73 @@ async function handleBackgroundUpload() {
 
       // Update progress (count all files in batch, whether processed, skipped, or failed)
       const newUploadedFiles = uploadedFiles + currentBatchFiles.length;
-      await chrome.storage.local.set({
-        uploadTask: {
-          ...task,
-          uploadedFiles: newUploadedFiles,
-          currentBatch: currentBatch + 1,
-          lastResult: result
-        }
+      await new Promise((resolve) => {
+        chrome.storage.local.set({
+          uploadTask: {
+            ...task,
+            uploadedFiles: newUploadedFiles,
+            currentBatch: currentBatch + 1,
+            lastResult: result
+          }
+        }, () => {
+          if (chrome.runtime.lastError) {
+            console.error('❌ Storage write failed (batch progress):', chrome.runtime.lastError);
+            // Continue anyway - don't let storage failure stop uploads
+          } else {
+            console.log(`✅ Progress saved: ${newUploadedFiles}/${totalFiles} files uploaded`);
+          }
+          resolve();
+        });
       });
 
       // Continue with next batch
-      if (newUploadedFiles < files.length) {
+      if (newUploadedFiles < totalFiles) {
         // Process next batch immediately (backend handles rate limiting)
         handleBackgroundUpload();
       } else {
         // All done!
         console.log('✅ All batches uploaded successfully!');
-        await chrome.storage.local.set({
-          uploadTask: {
-            ...task,
-            uploadedFiles: newUploadedFiles,
-            currentBatch: currentBatch + 1,
-            status: 'complete',
-            endTime: Date.now()
-          }
+        await new Promise((resolve) => {
+          chrome.storage.local.set({
+            uploadTask: {
+              ...task,
+              uploadedFiles: newUploadedFiles,
+              currentBatch: currentBatch + 1,
+              status: 'complete',
+              endTime: Date.now()
+            }
+          }, () => {
+            if (chrome.runtime.lastError) {
+              console.error('❌ Storage write failed (completion):', chrome.runtime.lastError);
+            }
+            resolve();
+          });
         });
+        // Clear files from memory
+        uploadFilesQueue = null;
       }
 
     } catch (error) {
       console.error(`❌ Batch ${currentBatch + 1} upload failed:`, error);
 
       // Mark as error and stop
-      await chrome.storage.local.set({
-        uploadTask: {
-          ...task,
-          status: 'error',
-          error: error.message,
-          endTime: Date.now()
-        }
+      await new Promise((resolve) => {
+        chrome.storage.local.set({
+          uploadTask: {
+            ...task,
+            status: 'error',
+            error: error.message,
+            endTime: Date.now()
+          }
+        }, () => {
+          if (chrome.runtime.lastError) {
+            console.error('❌ Storage write failed (error status):', chrome.runtime.lastError);
+          }
+          resolve();
+        });
       });
+      // Clear files from memory
+      uploadFilesQueue = null;
     }
 
   } catch (error) {
