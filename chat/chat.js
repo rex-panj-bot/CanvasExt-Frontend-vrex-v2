@@ -1802,9 +1802,42 @@ function setupEventListeners() {
   document.addEventListener('click', (e) => {
     const moduleHeader = e.target.closest('.module-header');
     if (moduleHeader) {
-      // Don't toggle if clicking on the checkbox itself
+      // Handle clicking on the module checkbox to select/deselect all files in module
       const moduleCheckbox = moduleHeader.querySelector('.module-checkbox');
       if (e.target === moduleCheckbox) {
+        e.stopPropagation(); // Don't trigger collapse/expand
+
+        const moduleDiv = moduleHeader.closest('.material-module');
+        const itemsDiv = moduleDiv.querySelector('.module-items');
+        const materialItems = itemsDiv.querySelectorAll('.material-item');
+
+        // Toggle all files in this module
+        const isChecked = moduleCheckbox.checked;
+        materialItems.forEach(item => {
+          item.setAttribute('data-selected', isChecked ? 'true' : 'false');
+        });
+
+        // Update the select-all checkbox state inline
+        const selectAllCheckbox = document.getElementById('select-all-materials-checkbox');
+        if (selectAllCheckbox) {
+          const allMaterialItems = document.querySelectorAll('.material-item');
+          const selectedItems = Array.from(allMaterialItems).filter(item => item.getAttribute('data-selected') === 'true');
+          const allSelected = selectedItems.length === allMaterialItems.length && allMaterialItems.length > 0;
+          const someSelected = selectedItems.length > 0 && selectedItems.length < allMaterialItems.length;
+
+          if (allSelected) {
+            selectAllCheckbox.checked = true;
+            selectAllCheckbox.indeterminate = false;
+          } else if (someSelected) {
+            selectAllCheckbox.checked = false;
+            selectAllCheckbox.indeterminate = true;
+          } else {
+            selectAllCheckbox.checked = false;
+            selectAllCheckbox.indeterminate = false;
+          }
+        }
+
+        console.log(`Module checkbox ${isChecked ? 'checked' : 'unchecked'}: ${materialItems.length} files ${isChecked ? 'selected' : 'deselected'}`);
         return;
       }
 
