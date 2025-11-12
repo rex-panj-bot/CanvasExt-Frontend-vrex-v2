@@ -2186,13 +2186,6 @@ async function sendMessage() {
       displayMessage = `${userInput} 📚`;
     }
 
-    // Auto-enable Smart File Selection when in a mode
-    const smartFileIconToggle = document.getElementById('smart-file-icon-toggle');
-    if (smartFileIconToggle && !smartFileIconToggle.classList.contains('active')) {
-      smartFileIconToggle.classList.add('active');
-      console.log('🎯 Auto-enabled Smart File Selection for mode:', currentMode);
-    }
-
     // Mark that the mode prompt has been used
     modePromptUsed = true;
     console.log(`📝 Applied ${currentMode} mode prompt. Subsequent messages will be normal conversation.`);
