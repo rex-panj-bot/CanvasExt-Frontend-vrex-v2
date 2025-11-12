@@ -1428,11 +1428,19 @@ function setupEventListeners() {
       const btnText = btn.textContent.trim().toLowerCase();
       const clickedMode = btnText; // 'learn', 'reinforce', or 'test'
 
+      // Get smart file selection toggle
+      const smartFileToggle = document.getElementById('smart-file-icon-toggle');
+
       // Toggle logic: if same button clicked, deactivate mode
       if (currentMode === clickedMode) {
         currentMode = null;
         modePromptUsed = false;
         btn.classList.remove('active');
+
+        // Turn off smart file selection when exiting mode
+        if (smartFileToggle) {
+          smartFileToggle.classList.remove('active');
+        }
       } else {
         // Switch to new mode or activate mode
         // Remove active class from all buttons
@@ -1442,6 +1450,12 @@ function setupEventListeners() {
         currentMode = clickedMode;
         modePromptUsed = false; // Reset flag when entering/switching modes
         btn.classList.add('active');
+
+        // Turn on smart file selection by default for study modes
+        if (smartFileToggle) {
+          smartFileToggle.classList.add('active');
+          console.log('Smart File Selection enabled for study mode:', clickedMode);
+        }
       }
 
       // Update placeholder based on mode
