@@ -12,8 +12,8 @@ let currentCourseInfo = null;
 let uploadFilesQueue = null;
 
 /**
- * Update materials in storage with stored_name from backend upload response
- * This ensures materials have the correct GCS filenames with extensions
+ * HASH-BASED: Update materials with hash-based IDs from backend upload response
+ * This ensures materials have doc_id, hash, and stored_name for hash-based matching
  */
 async function updateMaterialsWithStoredNames(courseId, uploadedFiles) {
   try {
@@ -29,11 +29,21 @@ async function updateMaterialsWithStoredNames(courseId, uploadedFiles) {
     const materials = result[storageKey].materials;
     let updatedCount = 0;
 
-    // Create mapping: original_name -> stored_name
-    const nameMap = new Map();
+    // HASH-BASED: Create mapping: original_name -> {doc_id, hash, stored_name}
+    const fileMetadataMap = new Map();
     uploadedFiles.forEach(file => {
-      nameMap.set(file.original_name, file.stored_name);
+      // Backend should return: filename (original), doc_id, hash, path, etc.
+      const originalName = file.filename || file.original_name;
+      if (originalName) {
+        fileMetadataMap.set(originalName, {
+          doc_id: file.doc_id,        // Hash-based ID: {course_id}_{hash}
+          hash: file.hash,            // SHA-256 content hash
+          stored_name: file.path || file.stored_name  // GCS path or stored filename
+        });
+      }
     });
+
+    console.log(`📝 Updating materials with ${fileMetadataMap.size} hash-based IDs...`);
 
     // Update all material categories
     const categories = ['files', 'pages', 'assignments', 'modules'];
@@ -46,10 +56,13 @@ async function updateMaterialsWithStoredNames(courseId, uploadedFiles) {
           if (module.items) {
             module.items.forEach(item => {
               const originalName = item.title || item.name || item.display_name;
-              if (originalName && nameMap.has(originalName)) {
-                item.stored_name = nameMap.get(originalName);
+              if (originalName && fileMetadataMap.has(originalName)) {
+                const metadata = fileMetadataMap.get(originalName);
+                item.doc_id = metadata.doc_id;           // HASH-BASED ID
+                item.hash = metadata.hash;               // Content hash
+                item.stored_name = metadata.stored_name; // GCS path
                 updatedCount++;
-                console.log(`  ✅ Updated: "${originalName}" → "${item.stored_name}"`);
+                console.log(`  ✅ Updated: "${originalName}" → ID: ${metadata.doc_id?.substring(0, 24)}... (hash: ${metadata.hash?.substring(0, 16)}...)`);
               }
             });
           }
@@ -58,10 +71,13 @@ async function updateMaterialsWithStoredNames(courseId, uploadedFiles) {
         // Handle standalone files/pages/assignments
         materials[category].forEach(item => {
           const originalName = item.name || item.display_name || item.title;
-          if (originalName && nameMap.has(originalName)) {
-            item.stored_name = nameMap.get(originalName);
+          if (originalName && fileMetadataMap.has(originalName)) {
+            const metadata = fileMetadataMap.get(originalName);
+            item.doc_id = metadata.doc_id;           // HASH-BASED ID
+            item.hash = metadata.hash;               // Content hash
+            item.stored_name = metadata.stored_name; // GCS path
             updatedCount++;
-            console.log(`  ✅ Updated: "${originalName}" → "${item.stored_name}"`);
+            console.log(`  ✅ Updated: "${originalName}" → ID: ${metadata.doc_id?.substring(0, 24)}... (hash: ${metadata.hash?.substring(0, 16)}...)`);
           }
         });
       }
@@ -75,7 +91,7 @@ async function updateMaterialsWithStoredNames(courseId, uploadedFiles) {
       }
     });
 
-    console.log(`✅ Updated ${updatedCount} materials with stored names`);
+    console.log(`✅ Updated ${updatedCount} materials with hash-based IDs`);
   } catch (error) {
     console.error('❌ Error updating materials with stored names:', error);
   }
