@@ -31,14 +31,15 @@
       </div>
 
       <div class="sidebar-content">
-        <!-- Syllabus Selector - Compact Single Line -->
+        <!-- Syllabus Selector -->
         <div class="syllabus-section">
-          <div class="syllabus-compact">
+          <div class="syllabus-status" id="syllabus-status">
             <span class="syllabus-label-text">Syllabus</span>
-            <select id="syllabus-select" class="syllabus-select-compact">
-              <option value="">Detecting...</option>
-            </select>
+            <span class="syllabus-current" id="syllabus-current">Detecting...</span>
           </div>
+          <select id="syllabus-select" class="syllabus-select-compact">
+            <option value="">-- No Syllabus --</option>
+          </select>
         </div>
 
         <div class="materials-section">

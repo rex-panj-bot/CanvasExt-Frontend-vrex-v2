@@ -367,16 +367,18 @@ body {
   border-bottom: 1px solid var(--border);
   width: 100%;
   box-sizing: border-box;
+  padding: 10px 16px;
+  background: var(--surface-hover);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.syllabus-compact {
-  padding: 10px 16px;
+.syllabus-status {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  background: var(--surface-hover);
-  transition: all 0.2s ease;
 }
 
 .syllabus-label-text {
@@ -389,15 +391,24 @@ body {
   letter-spacing: 0.5px;
 }
 
-.syllabus-select-compact {
+.syllabus-current {
+  font-size: 11px;
+  color: var(--text-secondary);
   flex: 1;
-  min-width: 0;
-  padding: 5px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.syllabus-select-compact {
+  width: 100%;
+  padding: 6px 10px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 5px;
   color: var(--text-primary);
-  font-size: 11px;
+  font-size: 12px;
   font-family: inherit;
   cursor: pointer;
   transition: all 0.2s ease;

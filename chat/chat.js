@@ -1001,20 +1001,33 @@ function displayMaterials() {
             showTemporaryMessage(`Cannot open "${fileName}" - Canvas URL not available.`);
           }
         } else {
-          // HASH-BASED: Open file from backend/GCS using content hash
-          const backendUrl = 'https://web-production-9aaba7.up.railway.app';
+          // HASH-BASED: Open file through extension's PDF viewer
+          // This shows Chrome extension icon/URL instead of GCS URL
 
           // Use hash if available, otherwise fall back to filename
           let fileIdentifier = fileName;
           if (fileItem.hash) {
             fileIdentifier = fileItem.hash;
             console.log(`Opening file with hash: ${fileIdentifier.substring(0, 16)}...`);
+          } else if (fileItem.doc_id) {
+            // Extract hash from doc_id if available
+            const parts = fileItem.doc_id.split('_');
+            if (parts.length === 2) {
+              fileIdentifier = parts[1];
+              console.log(`Extracted hash from doc_id: ${fileIdentifier.substring(0, 16)}...`);
+            } else {
+              console.warn(`File "${fileName}" missing hash field - using filename (may fail)`);
+            }
           } else {
             console.warn(`File "${fileName}" missing hash field - using filename (may fail)`);
           }
 
-          const fileUrl = `${backendUrl}/pdfs/${encodeURIComponent(courseId)}/${encodeURIComponent(fileIdentifier)}`;
-          chrome.tabs.create({ url: fileUrl });
+          // Open through extension's PDF viewer (shows extension icon/URL)
+          const viewerUrl = chrome.runtime.getURL('pdf-viewer.html') +
+            `?course=${encodeURIComponent(courseId)}` +
+            `&file=${encodeURIComponent(fileIdentifier)}` +
+            `&name=${encodeURIComponent(fileName)}`;
+          chrome.tabs.create({ url: viewerUrl });
         }
       } else {
         showTemporaryMessage('File not found in materials list');
@@ -1081,14 +1094,38 @@ async function loadSyllabusSelector() {
     });
 
     // Set current syllabus if detected
+    const syllabusCurrentEl = document.getElementById('syllabus-current');
     if (data.success && data.syllabus_id) {
       syllabusSelect.value = data.syllabus_id;
+      if (syllabusCurrentEl) {
+        syllabusCurrentEl.textContent = data.syllabus_name || 'Selected';
+        syllabusCurrentEl.style.color = 'var(--green-primary)';
+      }
       console.log('📚 Loaded syllabus:', data.syllabus_name);
+    } else {
+      if (syllabusCurrentEl) {
+        syllabusCurrentEl.textContent = 'None';
+        syllabusCurrentEl.style.color = 'var(--text-secondary)';
+      }
     }
 
     // Handle selection change - auto-save
     syllabusSelect.addEventListener('change', async () => {
       const selectedSyllabusId = syllabusSelect.value;
+      const selectedOption = syllabusSelect.options[syllabusSelect.selectedIndex];
+      const selectedName = selectedOption ? selectedOption.text : '';
+
+      // Update status text immediately
+      const syllabusCurrentEl = document.getElementById('syllabus-current');
+      if (syllabusCurrentEl) {
+        if (selectedSyllabusId) {
+          syllabusCurrentEl.textContent = selectedName;
+          syllabusCurrentEl.style.color = 'var(--green-primary)';
+        } else {
+          syllabusCurrentEl.textContent = 'None';
+          syllabusCurrentEl.style.color = 'var(--text-secondary)';
+        }
+      }
 
       if (!selectedSyllabusId) return;
 
