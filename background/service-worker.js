@@ -12,21 +12,79 @@ let currentCourseInfo = null;
 let uploadFilesQueue = null;
 
 /**
+ * Open IndexedDB connection
+ */
+async function openIndexedDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open('CanvasMaterialsDB', 1);
+
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => resolve(request.result);
+
+    request.onupgradeneeded = (event) => {
+      const db = event.target.result;
+      if (!db.objectStoreNames.contains('materials')) {
+        const objectStore = db.createObjectStore('materials', { keyPath: 'courseId' });
+        objectStore.createIndex('courseName', 'courseName', { unique: false });
+        objectStore.createIndex('lastUpdated', 'lastUpdated', { unique: false });
+      }
+    };
+  });
+}
+
+/**
+ * Load materials from IndexedDB
+ */
+async function loadMaterialsFromDB(db, courseId) {
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(['materials'], 'readonly');
+    const store = transaction.objectStore('materials');
+    const request = store.get(courseId);
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
+ * Save materials to IndexedDB
+ */
+async function saveMaterialsToDB(db, courseId, courseName, materials) {
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(['materials'], 'readwrite');
+    const store = transaction.objectStore('materials');
+
+    const data = {
+      courseId,
+      courseName,
+      materials,
+      lastUpdated: Date.now()
+    };
+
+    const request = store.put(data);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/**
  * HASH-BASED: Update materials with hash-based IDs from backend upload response
  * This ensures materials have doc_id, hash, and stored_name for hash-based matching
  */
 async function updateMaterialsWithStoredNames(courseId, uploadedFiles) {
   try {
-    // Get current materials from storage
-    const storageKey = `course_${courseId}`;
-    const result = await chrome.storage.local.get([storageKey]);
+    // Get current materials from IndexedDB
+    const db = await openIndexedDB();
+    const materialsData = await loadMaterialsFromDB(db, courseId);
 
-    if (!result[storageKey] || !result[storageKey].materials) {
-      console.warn('No materials found in storage to update');
+    if (!materialsData || !materialsData.materials) {
+      console.warn('No materials found in IndexedDB to update');
+      db.close();
       return;
     }
 
-    const materials = result[storageKey].materials;
+    const materials = materialsData.materials;
+    const courseName = materialsData.courseName;
     let updatedCount = 0;
 
     // HASH-BASED: Create mapping: original_name -> {doc_id, hash, stored_name}
@@ -83,13 +141,9 @@ async function updateMaterialsWithStoredNames(courseId, uploadedFiles) {
       }
     }
 
-    // Save updated materials back to storage
-    await chrome.storage.local.set({
-      [storageKey]: {
-        ...result[storageKey],
-        materials: materials
-      }
-    });
+    // Save updated materials back to IndexedDB
+    await saveMaterialsToDB(db, courseId, courseName, materials);
+    db.close();
 
     console.log(`✅ Updated ${updatedCount} materials with hash-based IDs`);
   } catch (error) {
@@ -116,16 +170,18 @@ async function fetchAndMergeBackendMaterials(courseId) {
 
     console.log(`📚 Received ${data.materials.length} materials from backend`);
 
-    // Get current materials from storage
-    const storageKey = `course_${courseId}`;
-    const result = await chrome.storage.local.get([storageKey]);
+    // Get current materials from IndexedDB
+    const db = await openIndexedDB();
+    const materialsData = await loadMaterialsFromDB(db, courseId);
 
-    if (!result[storageKey] || !result[storageKey].materials) {
-      console.warn('No materials found in storage to merge');
+    if (!materialsData || !materialsData.materials) {
+      console.warn('No materials found in IndexedDB to merge');
+      db.close();
       return;
     }
 
-    const materials = result[storageKey].materials;
+    const materials = materialsData.materials;
+    const courseName = materialsData.courseName;
     let mergedCount = 0;
 
     // Create mapping: original filename -> backend material metadata
@@ -177,13 +233,9 @@ async function fetchAndMergeBackendMaterials(courseId) {
       }
     }
 
-    // Save updated materials back to storage
-    await chrome.storage.local.set({
-      [storageKey]: {
-        ...result[storageKey],
-        materials: materials
-      }
-    });
+    // Save updated materials back to IndexedDB
+    await saveMaterialsToDB(db, courseId, courseName, materials);
+    db.close();
 
     console.log(`✅ Merged ${mergedCount} materials with backend hash-based IDs`);
   } catch (error) {
