@@ -368,10 +368,38 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       sendResponse({ success: false, error: error.message });
     });
     return true; // Keep channel open for async response
+  } else if (request.type === 'theme-changed') {
+    // Handle theme changes and update extension icon
+    const scheme = request.scheme;
+    console.log(`🎨 Theme changed to: ${scheme}`);
+    updateIconForTheme(scheme);
+    sendResponse({ success: true });
   }
 
   return true; // Keep message channel open for async response
 });
+
+/**
+ * Update extension icon based on theme
+ */
+function updateIconForTheme(scheme) {
+  const isDark = scheme === 'dark';
+  const iconPrefix = isDark ? 'dark' : 'light';
+
+  chrome.action.setIcon({
+    path: {
+      16: `icons/logo-${iconPrefix}-16.png`,
+      48: `icons/logo-${iconPrefix}-48.png`,
+      128: `icons/logo-${iconPrefix}-128.png`
+    }
+  }, () => {
+    if (chrome.runtime.lastError) {
+      console.error('Failed to update icon:', chrome.runtime.lastError);
+    } else {
+      console.log(`✅ Icon updated to ${scheme} mode`);
+    }
+  });
+}
 
 /**
  * Handle background loading of materials
