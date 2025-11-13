@@ -298,6 +298,9 @@ async function init() {
   // Load materials from storage
   await loadMaterials();
 
+  // HASH-BASED: Sync materials with backend to ensure hash-based IDs are present
+  await syncMaterialsWithBackend();
+
   // Load API key and initialize Claude
   await loadAPIKey();
 
@@ -382,6 +385,33 @@ async function loadMaterials() {
   } catch (error) {
     console.error('Error loading materials:', error);
     showError('Failed to load course materials: ' + error.message);
+  }
+}
+
+/**
+ * HASH-BASED: Sync materials with backend to get hash-based IDs
+ * Calls service worker which fetches from backend and merges into IndexedDB
+ */
+async function syncMaterialsWithBackend() {
+  try {
+    console.log('🔄 Syncing materials with backend...');
+
+    const response = await chrome.runtime.sendMessage({
+      type: 'SYNC_BACKEND_MATERIALS',
+      payload: { courseId }
+    });
+
+    if (response && response.success) {
+      console.log('✅ Materials synced with backend');
+
+      // Reload materials after sync to get updated data
+      await loadMaterials();
+    } else {
+      console.warn('⚠️ Backend sync failed:', response?.error);
+    }
+  } catch (error) {
+    console.error('❌ Error syncing with backend:', error);
+    // Don't block the UI - sync is best-effort
   }
 }
 

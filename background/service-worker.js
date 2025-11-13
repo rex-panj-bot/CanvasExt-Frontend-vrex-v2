@@ -217,6 +217,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // Clear stored course info
     currentCourseInfo = null;
     sendResponse({ success: true });
+  } else if (request.type === 'SYNC_BACKEND_MATERIALS') {
+    // HASH-BASED: Manually trigger backend materials sync
+    console.log('🔄 [SERVICE-WORKER] Manual backend materials sync requested');
+    const { courseId } = request.payload;
+
+    fetchAndMergeBackendMaterials(courseId)
+      .then(() => {
+        sendResponse({ success: true });
+      })
+      .catch((error) => {
+        console.error('Sync failed:', error);
+        sendResponse({ success: false, error: error.message });
+      });
+
+    return true; // Keep channel open for async response
   } else if (request.type === 'START_BACKGROUND_UPLOAD') {
     // Handle background file upload with batching
     console.log('🚀 [SERVICE-WORKER] Received START_BACKGROUND_UPLOAD message');
