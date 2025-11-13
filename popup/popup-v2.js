@@ -1378,82 +1378,103 @@ async function createStudyBot() {
       }
     }
 
-    // HASH-BASED DUPLICATE DETECTION: Compute hashes BEFORE checking existence
+    // HASH-BASED DUPLICATE DETECTION: Only compute hashes if files have blobs
     let filesToUpload = [];
 
     if (filesToProcess.length > 0) {
-      // Step 1: Compute hashes for all files to process
-      updateProgress(`Computing file hashes for ${filesToProcess.length} files...`, PROGRESS_PERCENT.UPLOADING - 15);
+      // Check if files have blobs (frontend download) or just URLs (backend download)
+      const hasBlobs = filesToProcess.some(f => f.blob);
 
-      const hashStartTime = Date.now();
-      const filesWithHashes = await Promise.all(filesToProcess.map(async (file) => {
-        const hash = await computeFileHash(file.blob);
-        return {
-          ...file,
-          hash: hash,  // Add hash to file object
-          docId: hash ? `${currentCourse.id}_${hash}` : null  // Pre-compute doc_id
-        };
-      }));
-      const hashDuration = Date.now() - hashStartTime;
-      console.log(`✅ Computed hashes for ${filesWithHashes.length} files in ${hashDuration}ms`);
+      let filesWithHashes = filesToProcess;
 
-      // Step 2: Check if we have pre-checked results (from background check)
-      if (preCheckedFiles && preCheckedFiles.courseId === currentCourse.id) {
-        // PRE-CHECKED RESULTS AVAILABLE - USE THEM INSTANTLY!
-        console.log('⚡⚡⚡ [INSTANT] Using pre-checked results (0ms)!');
-        const { exists, missing } = preCheckedFiles;
-        console.log(`✅ [PRE-CHECK-CACHED] ${exists.length} files in GCS, ${missing.length} need uploading`);
+      if (hasBlobs) {
+        // Step 1: Compute hashes for all files (only if we have blobs)
+        updateProgress(`Computing file hashes for ${filesToProcess.length} files...`, PROGRESS_PERCENT.UPLOADING - 15);
 
-        // Only upload files that are missing from GCS (match by hash)
-        filesToUpload = filesWithHashes.filter(f => {
-          // Check if this file's hash is in the missing list
-          return missing.some(m => m.hash === f.hash || m.name === f.name);
-        });
-
-        if (exists.length > 0) {
-          console.log(`⚡ FAST PATH: Skipping ${exists.length} files already in GCS`);
-        }
+        const hashStartTime = Date.now();
+        filesWithHashes = await Promise.all(filesToProcess.map(async (file) => {
+          if (file.blob) {
+            const hash = await computeFileHash(file.blob);
+            return {
+              ...file,
+              hash: hash,  // Add hash to file object
+              docId: hash ? `${currentCourse.id}_${hash}` : null  // Pre-compute doc_id
+            };
+          } else {
+            // No blob, can't compute hash (backend will handle this)
+            return file;
+          }
+        }));
+        const hashDuration = Date.now() - hashStartTime;
+        console.log(`✅ Computed hashes for ${filesWithHashes.length} files in ${hashDuration}ms`);
       } else {
-        // No pre-check available, check now using hashes (slower path)
-        updateProgress(`Checking which files need uploading (${filesWithHashes.length} files)...`, PROGRESS_PERCENT.UPLOADING - 10);
+        console.log(`⚡ Skipping hash computation - backend will download and hash files`);
+      }
 
-        try {
-          // Check files using HASHES - this enables proper duplicate detection
-          const checkResponse = await fetch(`https://web-production-9aaba7.up.railway.app/check_files_exist`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              course_id: currentCourse.id,
-              files: filesWithHashes.map(f => ({
-                name: f.name,
-                hash: f.hash,
-                url: f.url
-              }))
-            })
+      // Step 2: Check existence only if we have hashes
+      if (hasBlobs && filesWithHashes.some(f => f.hash)) {
+        // We have hashes, can check for duplicates
+        if (preCheckedFiles && preCheckedFiles.courseId === currentCourse.id) {
+          // PRE-CHECKED RESULTS AVAILABLE - USE THEM INSTANTLY!
+          console.log('⚡⚡⚡ [INSTANT] Using pre-checked results (0ms)!');
+          const { exists, missing } = preCheckedFiles;
+          console.log(`✅ [PRE-CHECK-CACHED] ${exists.length} files in GCS, ${missing.length} need uploading`);
+
+          // Only upload files that are missing from GCS (match by hash)
+          filesToUpload = filesWithHashes.filter(f => {
+            // Check if this file's hash is in the missing list
+            return missing.some(m => m.hash === f.hash || m.name === f.name);
           });
 
-          if (checkResponse.ok) {
-            const { exists, missing } = await checkResponse.json();
-            console.log(`✅ [POPUP-V2] HASH-BASED CHECK: ${exists.length} files already in GCS, ${missing.length} need uploading`);
+          if (exists.length > 0) {
+            console.log(`⚡ FAST PATH: Skipping ${exists.length} files already in GCS`);
+          }
+        } else {
+          // No pre-check available, check now using hashes (slower path)
+          updateProgress(`Checking which files need uploading (${filesWithHashes.length} files)...`, PROGRESS_PERCENT.UPLOADING - 10);
 
-            // Only upload files that are missing from GCS (match by hash)
-            filesToUpload = filesWithHashes.filter(f => {
-              return missing.some(m => m.hash === f.hash);
+          try {
+            // Check files using HASHES - this enables proper duplicate detection
+            const checkResponse = await fetch(`https://web-production-9aaba7.up.railway.app/check_files_exist`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                course_id: currentCourse.id,
+                files: filesWithHashes.map(f => ({
+                  name: f.name,
+                  hash: f.hash,
+                  url: f.url
+                }))
+              })
             });
 
-            if (exists.length > 0) {
-              console.log(`⚡ FAST PATH: Skipping ${exists.length} files already in GCS (matched by hash)`);
+            if (checkResponse.ok) {
+              const { exists, missing } = await checkResponse.json();
+              console.log(`✅ [POPUP-V2] HASH-BASED CHECK: ${exists.length} files already in GCS, ${missing.length} need uploading`);
+
+              // Only upload files that are missing from GCS (match by hash)
+              filesToUpload = filesWithHashes.filter(f => {
+                return missing.some(m => m.hash === f.hash);
+              });
+
+              if (exists.length > 0) {
+                console.log(`⚡ FAST PATH: Skipping ${exists.length} files already in GCS (matched by hash)`);
+              }
+            } else {
+              // If check fails, upload all files
+              console.warn(`⚠️ [POPUP-V2] File check failed, will upload all files`);
+              filesToUpload = filesWithHashes;
             }
-          } else {
+          } catch (error) {
+            console.error('❌ [POPUP-V2] File check error:', error);
             // If check fails, upload all files
-            console.warn(`⚠️ [POPUP-V2] File check failed, will upload all files`);
             filesToUpload = filesWithHashes;
           }
-        } catch (error) {
-          console.error('❌ [POPUP-V2] File check error:', error);
-          // If check fails, upload all files
-          filesToUpload = filesWithHashes;
         }
+      } else {
+        // No hashes available - backend will download and handle duplicate detection
+        console.log(`⚡ No hashes available - backend will handle duplicate detection`);
+        filesToUpload = filesWithHashes;
       }
     }
 
