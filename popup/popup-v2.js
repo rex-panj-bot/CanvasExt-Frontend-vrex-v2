@@ -14,6 +14,20 @@ const PROGRESS_PERCENT = {
   COMPLETE: 100
 };
 
+// Utility: Compute SHA-256 hash of file blob (for hash-based file identification)
+async function computeFileHash(blob) {
+  try {
+    const arrayBuffer = await blob.arrayBuffer();
+    const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    return hashHex;
+  } catch (error) {
+    console.error('❌ Failed to compute file hash:', error);
+    return null;
+  }
+}
+
 // Global variables
 let canvasAPI = null;
 let fileProcessor = null;
@@ -1458,7 +1472,22 @@ async function createStudyBot() {
       });
       console.log(`⚡ Prioritized ${filesToUpload.length} files (priority keywords + small files first)`);
 
-      updateProgress(`Preparing ${filesToUpload.length} files for background upload...`, PROGRESS_PERCENT.UPLOADING);
+      updateProgress(`Computing file hashes for ${filesToUpload.length} files...`, PROGRESS_PERCENT.UPLOADING - 2);
+
+      // HASH-BASED: Compute SHA-256 hashes for all files
+      const hashStartTime = Date.now();
+      const filesToUploadWithHashes = await Promise.all(filesToUpload.map(async (file) => {
+        const hash = await computeFileHash(file.blob);
+        return {
+          ...file,
+          hash: hash,  // Add hash to file object
+          docId: hash ? `${currentCourse.id}_${hash}` : null  // Pre-compute doc_id
+        };
+      }));
+      const hashDuration = Date.now() - hashStartTime;
+      console.log(`✅ Computed hashes for ${filesToUploadWithHashes.length} files in ${hashDuration}ms`);
+
+      updateProgress(`Preparing ${filesToUploadWithHashes.length} files for background upload...`, PROGRESS_PERCENT.UPLOADING);
 
       try {
         // Get Canvas URL and cookies for authentication
@@ -1468,18 +1497,18 @@ async function createStudyBot() {
         // Extract session cookies (Canvas uses various cookie names depending on institution)
         const cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
 
-        // Send files to background worker for batched upload
+        // Send files to background worker for batched upload (with hashes)
         await chrome.runtime.sendMessage({
           type: 'START_BACKGROUND_UPLOAD',
           payload: {
             courseId: currentCourse.id,
-            files: filesToUpload,
+            files: filesToUploadWithHashes,  // Send files with hash and docId
             canvasUrl: canvasUrl,
             cookies: cookieString
           }
         });
 
-        console.log(`📤 Sent ${filesToUpload.length} files to background worker for upload`);
+        console.log(`📤 Sent ${filesToUploadWithHashes.length} files (with hashes) to background worker for upload`);
       } catch (error) {
         console.error('❌ Failed to start background upload:', error);
         // Don't throw - still open chat, user can retry upload from chat

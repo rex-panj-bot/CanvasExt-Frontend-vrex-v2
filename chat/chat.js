@@ -1229,16 +1229,32 @@ function getSelectedDocIds() {
       }
     }
 
-    if (materialName) {
-      // CRITICAL: Keep the file extension in the document ID
-      // Backend catalog stores files WITH extensions (e.g., "lecture.pdf")
-      // Sanitize: replace forward slashes (GCS doesn't allow them in blob names)
-      // Must match backend sanitization in storage_manager.py
-      const sanitizedName = materialName.replace(/\//g, '-');
+    // HASH-BASED: Use material's doc_id/id if available (hash-based), otherwise construct legacy ID
+    let docId = null;
 
-      const docId = `${courseId}_${sanitizedName}`;
+    // Try to get material object to check for doc_id/id field
+    let materialObj = null;
+    if (category && folderName) {
+      materialObj = processedMaterials[category]?.find(folder => folder.name === folderName)?.files?.[parseInt(index)];
+    } else if (category && index !== null) {
+      materialObj = processedMaterials[category]?.[parseInt(index)];
+    }
+
+    // Prefer hash-based doc_id/id from backend
+    if (materialObj && (materialObj.doc_id || materialObj.id)) {
+      docId = materialObj.doc_id || materialObj.id;
+      console.log(`📄 Selected (hash-based): "${materialName}" → ID: "${docId}"`);
+    }
+    // Legacy fallback: construct doc_id from filename (will be removed after migration)
+    else if (materialName) {
+      console.warn(`⚠️ Legacy doc_id construction for: "${materialName}" (no hash-based ID found)`);
+      const sanitizedName = materialName.replace(/\//g, '-');
+      docId = `${courseId}_${sanitizedName}`;
+      console.log(`📄 Selected (legacy): "${materialName}" → ID: "${docId}"`);
+    }
+
+    if (docId) {
       docIds.push(docId);
-      console.log(`📄 Selected: "${materialName}" → ID: "${docId}"`);
     }
   });
 
@@ -1257,10 +1273,13 @@ function getSyllabusId() {
       for (const item of selected[category]) {
         const name = (item.name || item.display_name || '').toLowerCase();
         if (name.includes('syllabus')) {
-          // Use stored_name if available (has correct extension), otherwise use name
+          // HASH-BASED: Prefer doc_id/id if available
+          if (item.doc_id || item.id) {
+            return item.doc_id || item.id;
+          }
+          // Legacy fallback: construct from filename
+          console.warn('⚠️ Syllabus found but no hash-based ID, using legacy construction');
           let materialName = item.stored_name || item.name || item.display_name;
-          // CRITICAL: Keep the file extension - backend catalog stores files WITH extensions
-          // Sanitize forward slashes to match backend
           materialName = materialName.replace(/\//g, '-');
           return `${courseId}_${materialName}`;
         }
