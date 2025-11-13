@@ -211,6 +211,12 @@ function setupBackgroundLoadingListener() {
         clearInterval(pollInterval); // Stop polling
         showLoadingBanner('All files uploaded! Ready to chat.', 'success');
 
+        // CRITICAL: Reload materials from IndexedDB to get hash-based IDs
+        // Background worker has updated IndexedDB with doc_id and hash fields
+        console.log('🔄 Reloading materials with hash-based IDs...');
+        await loadMaterials();
+        console.log('✅ Materials reloaded with hash-based IDs');
+
         // Clear the task from storage
         const taskKey = taskType === 'upload' ? 'uploadTask' : 'downloadTask';
         chrome.storage.local.remove([taskKey], () => {
