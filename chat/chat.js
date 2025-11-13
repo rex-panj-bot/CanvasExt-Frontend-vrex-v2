@@ -1234,9 +1234,12 @@ function getSelectedDocIds() {
 
     // Try to get material object to check for doc_id/id field
     let materialObj = null;
-    if (category && folderName) {
-      materialObj = processedMaterials[category]?.find(folder => folder.name === folderName)?.files?.[parseInt(index)];
+    if (moduleIdx !== null && itemIdx !== null) {
+      // Module item
+      const module = processedMaterials.modules?.[parseInt(moduleIdx)];
+      materialObj = module?.items?.[parseInt(itemIdx)];
     } else if (category && index !== null) {
+      // Standalone file
       materialObj = processedMaterials[category]?.[parseInt(index)];
     }
 
