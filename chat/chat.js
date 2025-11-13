@@ -1229,7 +1229,7 @@ function getSelectedDocIds() {
       }
     }
 
-    // HASH-BASED: Use material's doc_id/id if available (hash-based), otherwise construct legacy ID
+    // HASH-BASED: Get doc_id from material object
     let docId = null;
 
     // Try to get material object to check for doc_id/id field
@@ -1240,17 +1240,16 @@ function getSelectedDocIds() {
       materialObj = processedMaterials[category]?.[parseInt(index)];
     }
 
-    // Prefer hash-based doc_id/id from backend
+    // CRITICAL: Materials MUST have doc_id or id field (hash-based)
     if (materialObj && (materialObj.doc_id || materialObj.id)) {
       docId = materialObj.doc_id || materialObj.id;
-      console.log(`📄 Selected (hash-based): "${materialName}" → ID: "${docId}"`);
-    }
-    // Legacy fallback: construct doc_id from filename (will be removed after migration)
-    else if (materialName) {
-      console.warn(`⚠️ Legacy doc_id construction for: "${materialName}" (no hash-based ID found)`);
-      const sanitizedName = materialName.replace(/\//g, '-');
-      docId = `${courseId}_${sanitizedName}`;
-      console.log(`📄 Selected (legacy): "${materialName}" → ID: "${docId}"`);
+      console.log(`📄 Selected: "${materialName}" → ID: "${docId}"`);
+    } else {
+      console.error(`❌ Material missing hash-based ID: "${materialName}"`, materialObj);
+      console.error(`   This file may not have been uploaded with the hash-based system`);
+      console.error(`   Please re-upload course files after purging GCS`);
+      // Skip this file - don't add to docIds
+      return;
     }
 
     if (docId) {
@@ -1273,15 +1272,14 @@ function getSyllabusId() {
       for (const item of selected[category]) {
         const name = (item.name || item.display_name || '').toLowerCase();
         if (name.includes('syllabus')) {
-          // HASH-BASED: Prefer doc_id/id if available
+          // HASH-BASED: MUST have doc_id or id field
           if (item.doc_id || item.id) {
             return item.doc_id || item.id;
           }
-          // Legacy fallback: construct from filename
-          console.warn('⚠️ Syllabus found but no hash-based ID, using legacy construction');
-          let materialName = item.stored_name || item.name || item.display_name;
-          materialName = materialName.replace(/\//g, '-');
-          return `${courseId}_${materialName}`;
+          // If no hash-based ID, this is a problem
+          console.error('❌ Syllabus found but missing hash-based ID', item);
+          console.error('   Please re-upload course files after purging GCS');
+          return null;
         }
       }
     }
