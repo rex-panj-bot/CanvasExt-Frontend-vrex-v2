@@ -478,6 +478,28 @@ function displayMaterials() {
 
   materialsList.innerHTML = '';
 
+  // Helper function to update module checkbox state based on selected items
+  function updateModuleCheckboxState(moduleDiv) {
+    const moduleCheckbox = moduleDiv.querySelector('.module-checkbox');
+    const itemsDiv = moduleDiv.querySelector('.module-items');
+    const materialItems = itemsDiv.querySelectorAll('.material-item');
+
+    const selectedItems = Array.from(materialItems).filter(item => item.getAttribute('data-selected') === 'true');
+    const allSelected = selectedItems.length === materialItems.length;
+    const someSelected = selectedItems.length > 0 && selectedItems.length < materialItems.length;
+
+    if (allSelected) {
+      moduleCheckbox.checked = true;
+      moduleCheckbox.indeterminate = false;
+    } else if (someSelected) {
+      moduleCheckbox.checked = false;
+      moduleCheckbox.indeterminate = true; // Show dash/minus
+    } else {
+      moduleCheckbox.checked = false;
+      moduleCheckbox.indeterminate = false;
+    }
+  }
+
   // Track files shown in modules to avoid duplicates
   const filesShownInModules = new Set();
 
@@ -1922,37 +1944,6 @@ function setupEventListeners() {
       }
     }
   });
-
-  // Helper function to update module checkbox state based on selected items
-  function updateModuleCheckboxState(moduleDiv) {
-    const moduleCheckbox = moduleDiv.querySelector('.module-checkbox');
-    const itemsDiv = moduleDiv.querySelector('.module-items');
-    const materialItems = itemsDiv.querySelectorAll('.material-item');
-
-    const selectedItems = Array.from(materialItems).filter(item => item.getAttribute('data-selected') === 'true');
-    const allSelected = selectedItems.length === materialItems.length;
-    const someSelected = selectedItems.length > 0 && selectedItems.length < materialItems.length;
-    const noneSelected = selectedItems.length === 0;
-
-    console.log('[DEBUG] Updating module checkbox:', {
-      totalItems: materialItems.length,
-      selectedItems: selectedItems.length,
-      allSelected,
-      someSelected,
-      noneSelected
-    });
-
-    if (allSelected) {
-      moduleCheckbox.checked = true;
-      moduleCheckbox.indeterminate = false;
-    } else if (someSelected) {
-      moduleCheckbox.checked = false;
-      moduleCheckbox.indeterminate = true; // Show dash/minus
-    } else {
-      moduleCheckbox.checked = false;
-      moduleCheckbox.indeterminate = false;
-    }
-  }
 
   // Module checkbox - select/deselect all items in module using event delegation
   document.addEventListener('change', (e) => {
