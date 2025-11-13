@@ -1329,17 +1329,21 @@ body {
 }
 
 .mode-btn-compact {
-  padding: 4px 10px;
+  padding: 8px 12px;
   background: rgba(30, 41, 59, 0.5);
   border: 1px solid var(--border);
   border-radius: 6px;
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
   white-space: nowrap;
   flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
 }
 
 :root[data-theme="light"] .mode-btn-compact {
@@ -3163,16 +3167,30 @@ body {
 }
 
 /* KaTeX Math Rendering Styles */
-/* Override KaTeX defaults to match our theme */
+/* Enhanced styling for better readability */
+
+/* Inline math ($...$) - slightly larger and emphasized */
 .katex {
-  font-size: 1.1em;
+  font-size: 1.15em;
   color: var(--text-primary);
+  font-weight: 500;
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: rgba(59, 130, 246, 0.08);
+  white-space: nowrap;
 }
 
+/* Display math ($$...$$) - card-style with better spacing */
 .katex-display {
-  margin: 1em 0;
+  margin: 1.5em 0;
+  padding: 20px 24px;
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: 12px;
   overflow-x: auto;
   overflow-y: hidden;
+  font-size: 1.2em;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 /* Dark theme adjustments for KaTeX */
@@ -3180,23 +3198,36 @@ body {
   color: var(--text-primary);
 }
 
+:root:not([data-theme="light"]) .katex-display {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
 /* Light theme adjustments for KaTeX */
 :root[data-theme="light"] .katex {
   color: var(--text-primary);
+  background: rgba(59, 130, 246, 0.06);
+}
+
+:root[data-theme="light"] .katex-display {
+  background: rgba(0, 0, 0, 0.02);
+  border-color: rgba(0, 0, 0, 0.08);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
 /* Scrollbar for wide equations */
 .katex-display::-webkit-scrollbar {
-  height: 6px;
+  height: 8px;
 }
 
 .katex-display::-webkit-scrollbar-track {
   background: var(--surface);
+  border-radius: 4px;
 }
 
 .katex-display::-webkit-scrollbar-thumb {
   background: var(--border);
-  border-radius: 3px;
+  border-radius: 4px;
 }
 
 .katex-display::-webkit-scrollbar-thumb:hover {
@@ -3210,4 +3241,37 @@ body {
 
 .message-text p .katex {
   vertical-align: middle;
+  display: inline-block;
+}
+
+/* Toast Notification */
+.toast-notification {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 12px 20px;
+  border-radius: 8px;
+  border: 1px solid var(--blue-primary);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  font-size: 14px;
+  font-weight: 500;
+  z-index: 10000;
+  opacity: 0;
+  transform: translateY(20px);
+  transition: all 0.3s ease;
+  pointer-events: none;
+  max-width: 320px;
+}
+
+.toast-notification.show {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.toast-notification.hide {
+  opacity: 0;
+  transform: translateY(20px);
 }

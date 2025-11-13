@@ -1462,6 +1462,9 @@ function setupEventListeners() {
         if (smartFileToggle) {
           smartFileToggle.classList.add('active');
           console.log('Smart File Selection enabled for study mode:', clickedMode);
+
+          // Show toast notification
+          showToast('Smart Select is ON. Toggle off to use your manual selection.', 5000);
         }
       }
 
@@ -3471,6 +3474,43 @@ function showError(message) {
       </div>
     </div>
   `;
+}
+
+/**
+ * Show a toast notification that auto-dismisses
+ * @param {string} message - Message to display
+ * @param {number} duration - Duration in milliseconds (default 5000)
+ */
+function showToast(message, duration = 5000) {
+  // Check if toast already exists, remove it
+  let existingToast = document.querySelector('.toast-notification');
+  if (existingToast) {
+    existingToast.remove();
+  }
+
+  // Create toast element
+  const toast = document.createElement('div');
+  toast.className = 'toast-notification';
+  toast.textContent = message;
+  document.body.appendChild(toast);
+
+  // Show toast with animation
+  setTimeout(() => {
+    toast.classList.add('show');
+  }, 10);
+
+  // Hide and remove toast after duration
+  setTimeout(() => {
+    toast.classList.remove('show');
+    toast.classList.add('hide');
+
+    // Remove from DOM after animation completes
+    setTimeout(() => {
+      if (toast.parentNode) {
+        toast.remove();
+      }
+    }, 300);
+  }, duration);
 }
 
 // ========== AGENTIC UI FUNCTIONS ==========
