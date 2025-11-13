@@ -659,9 +659,10 @@ function displayMaterials() {
       const selectedValue = isChecked ? 'true' : 'false';
       document.querySelectorAll('.material-item').forEach(item => item.setAttribute('data-selected', selectedValue));
 
-      // Update all module checkboxes
-      document.querySelectorAll('.material-module').forEach(moduleDiv => {
-        updateModuleCheckboxState(moduleDiv);
+      // Update all module checkboxes to match
+      document.querySelectorAll('.module-checkbox').forEach(checkbox => {
+        checkbox.checked = isChecked;
+        checkbox.indeterminate = false;
       });
 
       console.log('[DEBUG] Select All checkbox complete');
@@ -1382,7 +1383,13 @@ function updatePlaceholder() {
   const modePlaceholder = "What are you studying for?";
 
   if (elements.messageInput) {
-    elements.messageInput.placeholder = currentMode ? modePlaceholder : defaultPlaceholder;
+    // If in a mode but prompt already used, show default placeholder
+    // Otherwise show mode-specific placeholder
+    if (currentMode && !modePromptUsed) {
+      elements.messageInput.placeholder = modePlaceholder;
+    } else {
+      elements.messageInput.placeholder = defaultPlaceholder;
+    }
   }
 }
 
@@ -2222,6 +2229,11 @@ async function sendMessage() {
     // Mark that the mode prompt has been used
     modePromptUsed = true;
     console.log(`📝 Applied ${currentMode} mode prompt. Subsequent messages will be normal conversation.`);
+
+    // Update placeholder to normal after first mode message
+    if (elements.messageInput) {
+      elements.messageInput.placeholder = "Ask a question about your course materials...";
+    }
   }
 
   // Clear input
@@ -2400,15 +2412,52 @@ async function sendMessage() {
  * Format: [Source: DocumentName, Page X]
  */
 function parseCitations(content) {
-  // Regex to match: [Source: DocumentName, Page X]
-  const citationRegex = /\[Source:\s*([^,]+),\s*Page\s*(\d+)\]/gi;
+  // Regex to match: [Source: DocumentName, Page X] or [Source: DocumentName, Pages X-Y] or [Source: DocumentName, Page X, Y, Z]
+  const citationRegex = /\[Source:\s*([^,]+),\s*Pages?\s*([0-9,\s\-]+)\]/gi;
 
-  return content.replace(citationRegex, (match, docName, pageNum) => {
+  return content.replace(citationRegex, (match, docName, pageInfo) => {
     // Clean up document name (trim whitespace)
     const cleanDocName = docName.trim();
 
-    // Create citation link that will open the local file
-    return `<a href="#" class="citation-link" data-doc-name="${cleanDocName}" data-page="${pageNum}" title="Open ${cleanDocName} at page ${pageNum}">📄 ${cleanDocName}, p.${pageNum}</a>`;
+    // Parse page info - handle ranges (5-7), lists (5, 6, 7), or single pages (5)
+    const pages = [];
+
+    // Split by comma first
+    const parts = pageInfo.split(',');
+    for (const part of parts) {
+      const trimmedPart = part.trim();
+
+      // Check if it's a range (e.g., "5-7")
+      if (trimmedPart.includes('-')) {
+        const [start, end] = trimmedPart.split('-').map(p => parseInt(p.trim()));
+        if (!isNaN(start) && !isNaN(end)) {
+          // Add all pages in range
+          for (let i = start; i <= end; i++) {
+            pages.push(i);
+          }
+        }
+      } else {
+        // Single page
+        const page = parseInt(trimmedPart);
+        if (!isNaN(page)) {
+          pages.push(page);
+        }
+      }
+    }
+
+    // Create a citation block for each page
+    if (pages.length === 0) {
+      // Fallback if no pages parsed
+      return match;
+    } else if (pages.length === 1) {
+      // Single page - one citation block
+      return `<a href="#" class="citation-link" data-doc-name="${cleanDocName}" data-page="${pages[0]}" title="Open ${cleanDocName} at page ${pages[0]}">📄 ${cleanDocName}, p.${pages[0]}</a>`;
+    } else {
+      // Multiple pages - create multiple citation blocks next to each other
+      return pages.map(page =>
+        `<a href="#" class="citation-link" data-doc-name="${cleanDocName}" data-page="${page}" title="Open ${cleanDocName} at page ${page}">📄 ${cleanDocName}, p.${page}</a>`
+      ).join(' ');
+    }
   });
 }
 
