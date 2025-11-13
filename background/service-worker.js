@@ -93,7 +93,101 @@ async function updateMaterialsWithStoredNames(courseId, uploadedFiles) {
 
     console.log(`✅ Updated ${updatedCount} materials with hash-based IDs`);
   } catch (error) {
-    console.error('❌ Error updating materials with stored names:', error);
+    console.error('❌ Error updating materials with hash-based IDs:', error);
+  }
+}
+
+/**
+ * HASH-BASED: Fetch complete materials catalog from backend and merge hash-based IDs
+ * This ensures all materials have doc_id and hash fields, even if uploaded before
+ */
+async function fetchAndMergeBackendMaterials(courseId) {
+  try {
+    console.log('🔄 Fetching materials catalog from backend...');
+
+    const backendUrl = 'https://web-production-9aaba7.up.railway.app';
+    const response = await fetch(`${backendUrl}/collections/${courseId}/materials`);
+    const data = await response.json();
+
+    if (!data.success || !data.materials) {
+      console.warn('❌ Failed to fetch materials catalog from backend:', data.error);
+      return;
+    }
+
+    console.log(`📚 Received ${data.materials.length} materials from backend`);
+
+    // Get current materials from storage
+    const storageKey = `course_${courseId}`;
+    const result = await chrome.storage.local.get([storageKey]);
+
+    if (!result[storageKey] || !result[storageKey].materials) {
+      console.warn('No materials found in storage to merge');
+      return;
+    }
+
+    const materials = result[storageKey].materials;
+    let mergedCount = 0;
+
+    // Create mapping: original filename -> backend material metadata
+    const backendMap = new Map();
+    data.materials.forEach(mat => {
+      // Backend material has: id (hash-based), name (original filename), hash, path, etc.
+      backendMap.set(mat.name, {
+        doc_id: mat.id,      // Hash-based doc ID
+        hash: mat.hash,      // Content hash
+        path: mat.path       // GCS path
+      });
+    });
+
+    console.log(`🔍 Merging backend metadata into ${backendMap.size} materials...`);
+
+    // Merge backend metadata into frontend materials
+    const categories = ['files', 'pages', 'assignments', 'modules'];
+    for (const category of categories) {
+      if (!materials[category]) continue;
+
+      if (category === 'modules') {
+        materials[category].forEach(module => {
+          if (module.items) {
+            module.items.forEach(item => {
+              const originalName = item.title || item.name || item.display_name;
+              if (originalName && backendMap.has(originalName)) {
+                const metadata = backendMap.get(originalName);
+                item.doc_id = metadata.doc_id;
+                item.hash = metadata.hash;
+                item.stored_name = metadata.path;
+                mergedCount++;
+                console.log(`  ✅ Merged: "${originalName}" → ID: ${metadata.doc_id?.substring(0, 24)}...`);
+              }
+            });
+          }
+        });
+      } else {
+        materials[category].forEach(item => {
+          const originalName = item.name || item.display_name || item.title;
+          if (originalName && backendMap.has(originalName)) {
+            const metadata = backendMap.get(originalName);
+            item.doc_id = metadata.doc_id;
+            item.hash = metadata.hash;
+            item.stored_name = metadata.path;
+            mergedCount++;
+            console.log(`  ✅ Merged: "${originalName}" → ID: ${metadata.doc_id?.substring(0, 24)}...`);
+          }
+        });
+      }
+    }
+
+    // Save updated materials back to storage
+    await chrome.storage.local.set({
+      [storageKey]: {
+        ...result[storageKey],
+        materials: materials
+      }
+    });
+
+    console.log(`✅ Merged ${mergedCount} materials with backend hash-based IDs`);
+  } catch (error) {
+    console.error('❌ Error fetching and merging backend materials:', error);
   }
 }
 
@@ -682,6 +776,10 @@ async function handleBackgroundUpload() {
       } else {
         // All done!
         console.log('✅ All batches uploaded successfully!');
+
+        // HASH-BASED: Fetch complete catalog from backend to ensure all materials have hash IDs
+        await fetchAndMergeBackendMaterials(courseId);
+
         await new Promise((resolve) => {
           chrome.storage.local.set({
             uploadTask: {

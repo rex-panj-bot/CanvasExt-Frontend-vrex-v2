@@ -943,9 +943,19 @@ function displayMaterials() {
             showTemporaryMessage(`Cannot open "${fileName}" - Canvas URL not available.`);
           }
         } else {
-          // Open file from backend/GCS
+          // HASH-BASED: Open file from backend/GCS using content hash
           const backendUrl = 'https://web-production-9aaba7.up.railway.app';
-          const fileUrl = `${backendUrl}/pdfs/${encodeURIComponent(courseId)}/${encodeURIComponent(fileName)}`;
+
+          // Use hash if available, otherwise fall back to filename
+          let fileIdentifier = fileName;
+          if (fileItem.hash) {
+            fileIdentifier = fileItem.hash;
+            console.log(`Opening file with hash: ${fileIdentifier.substring(0, 16)}...`);
+          } else {
+            console.warn(`File "${fileName}" missing hash field - using filename (may fail)`);
+          }
+
+          const fileUrl = `${backendUrl}/pdfs/${encodeURIComponent(courseId)}/${encodeURIComponent(fileIdentifier)}`;
           chrome.tabs.create({ url: fileUrl });
         }
       } else {
@@ -2610,12 +2620,20 @@ async function openCitedDocument(docName, pageNum) {
       return;
     }
 
-    // Open file from backend/GCS with page parameter
+    // HASH-BASED: Open file from backend/GCS with page parameter using content hash
     // Backend will append #page=X to the GCS signed URL
     const backendUrl = 'https://web-production-9aaba7.up.railway.app';
-    const fileUrl = `${backendUrl}/pdfs/${encodeURIComponent(courseId)}/${encodeURIComponent(fileName)}?page=${pageNum}`;
 
-    console.log(`Opening citation: ${fileName} at page ${pageNum}`);
+    // Use hash if available, otherwise fall back to filename
+    let fileIdentifier = fileName;
+    if (fileItem.hash) {
+      fileIdentifier = fileItem.hash;
+      console.log(`Opening citation with hash: ${fileIdentifier.substring(0, 16)}... at page ${pageNum}`);
+    } else {
+      console.warn(`File "${fileName}" missing hash field - using filename (may fail)`);
+    }
+
+    const fileUrl = `${backendUrl}/pdfs/${encodeURIComponent(courseId)}/${encodeURIComponent(fileIdentifier)}?page=${pageNum}`;
     chrome.tabs.create({ url: fileUrl });
   } catch (error) {
     console.error('Error opening cited document:', error);
