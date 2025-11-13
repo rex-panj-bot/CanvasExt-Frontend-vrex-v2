@@ -283,20 +283,20 @@ async function loadSyllabusSettings() {
     const syllabusData = await syllabusResponse.json();
 
     // Get all materials for the course
-    const materialsResponse = await fetch(`${backendUrl}/chats/${courseId}`);
+    const materialsResponse = await fetch(`${backendUrl}/collections/${courseId}/materials`);
     const materialsData = await materialsResponse.json();
 
-    if (!materialsData.success || !materialsData.summaries) {
+    if (!materialsData.success || !materialsData.materials || materialsData.materials.length === 0) {
       elements.syllabusStatus.innerHTML = '<p style="color: #999; font-size: 14px;">No course materials found. Please scan course first.</p>';
       return;
     }
 
-    // Populate dropdown with all files
+    // Populate dropdown with all files (using original names, hash-based IDs)
     elements.syllabusSelect.innerHTML = '<option value="">-- No Syllabus --</option>';
-    materialsData.summaries.forEach(file => {
+    materialsData.materials.forEach(file => {
       const option = document.createElement('option');
-      option.value = file.doc_id;
-      option.textContent = file.filename;
+      option.value = file.id;  // Hash-based ID
+      option.textContent = file.name;  // Original filename
       elements.syllabusSelect.appendChild(option);
     });
 

@@ -1044,11 +1044,13 @@ async function loadSyllabusSelector() {
       processedMaterials.modules.forEach(module => {
         if (module.items) {
           module.items.forEach(item => {
-            if (item.type === 'File' && item.url) {
-              const name = item.stored_name || item.title || item.name;
-              const cleanName = name.replace(/\.(pdf|docx?|txt|xlsx?|pptx?|csv|md|rtf)$/i, '');
-              const docId = `${courseId}_${cleanName.replace(/\//g, '-')}`;
-              fileOptions.push({ docId, name });
+            if (item.type === 'File' && item.doc_id) {
+              // Use original filename for display, doc_id for identification
+              const displayName = item.original_name || item.title || item.name;
+              fileOptions.push({
+                docId: item.doc_id,  // Hash-based ID
+                name: displayName    // Original filename
+              });
             }
           });
         }
@@ -1058,11 +1060,13 @@ async function loadSyllabusSelector() {
     // Collect standalone files
     if (processedMaterials.files) {
       processedMaterials.files.forEach(file => {
-        const name = file.stored_name || file.name || file.display_name;
-        if (name) {
-          const cleanName = name.replace(/\.(pdf|docx?|txt|xlsx?|pptx?|csv|md|rtf)$/i, '');
-          const docId = `${courseId}_${cleanName.replace(/\//g, '-')}`;
-          fileOptions.push({ docId, name });
+        if (file.doc_id) {
+          // Use original filename for display, doc_id for identification
+          const displayName = file.original_name || file.name || file.display_name;
+          fileOptions.push({
+            docId: file.doc_id,  // Hash-based ID
+            name: displayName    // Original filename
+          });
         }
       });
     }
