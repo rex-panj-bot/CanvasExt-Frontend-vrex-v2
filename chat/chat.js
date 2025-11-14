@@ -17,6 +17,7 @@ let currentMode = null; // Current study mode: null, 'learn', 'reinforce', or 't
 let modePromptUsed = false; // Track if mode prompt has been applied (only use once per mode activation)
 let modeResponseCache = {}; // Cache mode responses by topic: { "exam 1": { learn: "response", reinforce: "response", test: "response" } }
 let currentModeTopic = null; // Store the current topic being used in mode
+let isShowingFirstTimeHint = false; // Flag to prevent duplicate tip notifications
 
 // Mode-specific prompt templates
 const modePrompts = {
@@ -426,9 +427,17 @@ async function syncMaterialsWithBackend() {
  */
 async function showFirstTimeHint() {
   try {
+    // Check if already showing or has been shown to prevent duplicates
+    if (isShowingFirstTimeHint) {
+      return;
+    }
+
     const { hasSeenFileSelectionHint } = await chrome.storage.local.get(['hasSeenFileSelectionHint']);
 
     if (!hasSeenFileSelectionHint) {
+      // Set flag immediately to prevent duplicate calls
+      isShowingFirstTimeHint = true;
+
       const hint = document.createElement('div');
       hint.className = 'first-time-hint';
       hint.innerHTML = `
@@ -1004,29 +1013,48 @@ function displayMaterials() {
           // HASH-BASED: Open file through extension's PDF viewer
           // This shows Chrome extension icon/URL instead of GCS URL
 
+          console.log('🔍 [CHAT] Opening file through PDF viewer');
+          console.log('🔍 [CHAT] File item data:', {
+            fileName,
+            hash: fileItem.hash,
+            doc_id: fileItem.doc_id,
+            type: fileItem.type,
+            fullFileItem: fileItem
+          });
+
           // Use hash if available, otherwise fall back to filename
           let fileIdentifier = fileName;
           if (fileItem.hash) {
             fileIdentifier = fileItem.hash;
-            console.log(`Opening file with hash: ${fileIdentifier.substring(0, 16)}...`);
+            console.log(`✅ [CHAT] Using hash as fileIdentifier: ${fileIdentifier.substring(0, 16)}...`);
           } else if (fileItem.doc_id) {
             // Extract hash from doc_id if available
             const parts = fileItem.doc_id.split('_');
+            console.log(`🔍 [CHAT] doc_id parts after split:`, parts);
             if (parts.length === 2) {
               fileIdentifier = parts[1];
-              console.log(`Extracted hash from doc_id: ${fileIdentifier.substring(0, 16)}...`);
+              console.log(`✅ [CHAT] Extracted hash from doc_id: ${fileIdentifier.substring(0, 16)}...`);
             } else {
-              console.warn(`File "${fileName}" missing hash field - using filename (may fail)`);
+              console.warn(`⚠️ [CHAT] File "${fileName}" has unexpected doc_id format: ${fileItem.doc_id}`);
+              console.warn(`⚠️ [CHAT] Falling back to filename (may fail)`);
             }
           } else {
-            console.warn(`File "${fileName}" missing hash field - using filename (may fail)`);
+            console.warn(`⚠️ [CHAT] File "${fileName}" missing both hash and doc_id fields`);
+            console.warn(`⚠️ [CHAT] Using filename as identifier (may fail)`);
           }
+
+          console.log('🔍 [CHAT] Final fileIdentifier:', fileIdentifier);
+          console.log('🔍 [CHAT] courseId:', courseId);
 
           // Open through extension's PDF viewer (shows extension icon/URL)
           const viewerUrl = chrome.runtime.getURL('pdf-viewer.html') +
             `?course=${encodeURIComponent(courseId)}` +
             `&file=${encodeURIComponent(fileIdentifier)}` +
             `&name=${encodeURIComponent(fileName)}`;
+
+          console.log('🔍 [CHAT] Constructed viewer URL:', viewerUrl);
+          console.log('✅ [CHAT] Creating new tab with PDF viewer...');
+
           chrome.tabs.create({ url: viewerUrl });
         }
       } else {
