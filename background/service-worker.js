@@ -6,34 +6,6 @@
 console.log('Canvas Material Extractor: Service worker loaded');
 
 /**
- * Create or get offscreen document for theme monitoring
- */
-async function setupOffscreenDocument() {
-  // Check if offscreen document already exists
-  const existingContexts = await chrome.runtime.getContexts({
-    contextTypes: ['OFFSCREEN_DOCUMENT'],
-    documentUrls: [chrome.runtime.getURL('background/offscreen.html')]
-  });
-
-  if (existingContexts.length > 0) {
-    console.log('🎨 Offscreen document already exists');
-    return;
-  }
-
-  // Create offscreen document
-  try {
-    await chrome.offscreen.createDocument({
-      url: 'background/offscreen.html',
-      reasons: ['DOM_SCRAPING'], // Required reason for accessing window APIs
-      justification: 'Monitor system theme changes via matchMedia API'
-    });
-    console.log('🎨 Offscreen document created for theme monitoring');
-  } catch (error) {
-    console.error('❌ Failed to create offscreen document:', error);
-  }
-}
-
-/**
  * Update extension icon based on theme
  */
 function updateIconForTheme(scheme) {
@@ -76,21 +48,18 @@ function initializeIcon() {
   });
 }
 
-// Initialize icon and offscreen document when service worker loads
+// Initialize icon immediately when service worker loads
 initializeIcon();
-setupOffscreenDocument();
 
 // Also initialize on install/startup events
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('🎨 Service worker installed, initializing icon and offscreen document');
+  console.log('🎨 Service worker installed, initializing icon');
   initializeIcon();
-  setupOffscreenDocument();
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  console.log('🎨 Browser started, initializing icon and offscreen document');
+  console.log('🎨 Browser started, initializing icon');
   initializeIcon();
-  setupOffscreenDocument();
 });
 
 // Store current course info
