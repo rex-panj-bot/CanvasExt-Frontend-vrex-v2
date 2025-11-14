@@ -43,8 +43,11 @@ class ThemeManager {
     // Set color-scheme for browser UI (scrollbars, form controls)
     document.documentElement.style.colorScheme = scheme;
 
-    // Store preference
+    // Store preference in both localStorage and chrome.storage for service worker access
     localStorage.setItem('theme-preference', scheme);
+    if (typeof chrome !== 'undefined' && chrome.storage) {
+      chrome.storage.local.set({ 'theme-preference': scheme });
+    }
   }
 
   /**

@@ -5,6 +5,35 @@
 
 console.log('Canvas Material Extractor: Service worker loaded');
 
+// Initialize icon on service worker startup
+chrome.runtime.onInstalled.addListener(() => {
+  console.log('🎨 Service worker installed, initializing icon');
+  initializeIcon();
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  console.log('🎨 Browser started, initializing icon');
+  initializeIcon();
+});
+
+/**
+ * Initialize icon based on stored preference or system default
+ */
+function initializeIcon() {
+  // Try to get stored preference
+  chrome.storage.local.get(['theme-preference'], (result) => {
+    const storedTheme = result['theme-preference'];
+    if (storedTheme) {
+      console.log(`🎨 Using stored theme: ${storedTheme}`);
+      updateIconForTheme(storedTheme);
+    } else {
+      // Default to light mode if no preference stored
+      console.log('🎨 No theme preference found, defaulting to light mode');
+      updateIconForTheme('light');
+    }
+  });
+}
+
 // Store current course info
 let currentCourseInfo = null;
 
