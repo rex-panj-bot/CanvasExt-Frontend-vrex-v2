@@ -3712,8 +3712,8 @@ function clearMaterials() {
 // Theme Management
 function initTheme() {
   // Load saved theme preference
-  chrome.storage.local.get(['theme'], (result) => {
-    const savedTheme = result.theme || 'dark';
+  chrome.storage.local.get(['theme-preference'], (result) => {
+    const savedTheme = result['theme-preference'] || 'dark';
     applyTheme(savedTheme);
   });
 
@@ -3730,7 +3730,13 @@ function toggleTheme() {
   applyTheme(newTheme);
 
   // Save theme preference
-  chrome.storage.local.set({ theme: newTheme });
+  chrome.storage.local.set({ 'theme-preference': newTheme });
+
+  // Notify background script to update icon
+  chrome.runtime.sendMessage({
+    type: 'theme-changed',
+    scheme: newTheme
+  }).catch(err => console.debug('Theme notification failed:', err));
 }
 
 function applyTheme(theme) {

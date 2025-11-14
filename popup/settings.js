@@ -4,7 +4,7 @@
 
 // Initialize theme based on saved preference
 function initializeTheme() {
-  const savedTheme = localStorage.getItem('theme');
+  const savedTheme = localStorage.getItem('theme-preference');
 
   if (savedTheme) {
     document.documentElement.setAttribute('data-theme', savedTheme);
@@ -100,8 +100,14 @@ function attachEventListeners() {
       const newTheme = currentTheme === 'light' ? 'dark' : 'light';
 
       document.documentElement.setAttribute('data-theme', newTheme);
-      localStorage.setItem('theme', newTheme);
-      chrome.storage.local.set({ theme: newTheme });
+      localStorage.setItem('theme-preference', newTheme);
+      chrome.storage.local.set({ 'theme-preference': newTheme });
+
+      // Notify background script to update icon
+      chrome.runtime.sendMessage({
+        type: 'theme-changed',
+        scheme: newTheme
+      }).catch(err => console.debug('Theme notification failed:', err));
     });
   }
 
