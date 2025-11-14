@@ -5,16 +5,27 @@
 
 console.log('Canvas Material Extractor: Service worker loaded');
 
-// Initialize icon on service worker startup
-chrome.runtime.onInstalled.addListener(() => {
-  console.log('🎨 Service worker installed, initializing icon');
-  initializeIcon();
-});
+/**
+ * Update extension icon based on theme
+ */
+function updateIconForTheme(scheme) {
+  const isDark = scheme === 'dark';
+  const iconPrefix = isDark ? 'dark' : 'light';
 
-chrome.runtime.onStartup.addListener(() => {
-  console.log('🎨 Browser started, initializing icon');
-  initializeIcon();
-});
+  chrome.action.setIcon({
+    path: {
+      16: `icons/logo-${iconPrefix}-16.png`,
+      48: `icons/logo-${iconPrefix}-48.png`,
+      128: `icons/logo-${iconPrefix}-128.png`
+    }
+  }, () => {
+    if (chrome.runtime.lastError) {
+      console.error('Failed to update icon:', chrome.runtime.lastError);
+    } else {
+      console.log(`✅ Icon updated to ${scheme} mode`);
+    }
+  });
+}
 
 /**
  * Initialize icon based on stored preference or system default
@@ -33,6 +44,20 @@ function initializeIcon() {
     }
   });
 }
+
+// Initialize icon immediately when service worker loads
+initializeIcon();
+
+// Also initialize on install/startup events
+chrome.runtime.onInstalled.addListener(() => {
+  console.log('🎨 Service worker installed, initializing icon');
+  initializeIcon();
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  console.log('🎨 Browser started, initializing icon');
+  initializeIcon();
+});
 
 // Store current course info
 let currentCourseInfo = null;
@@ -407,28 +432,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   return true; // Keep message channel open for async response
 });
-
-/**
- * Update extension icon based on theme
- */
-function updateIconForTheme(scheme) {
-  const isDark = scheme === 'dark';
-  const iconPrefix = isDark ? 'dark' : 'light';
-
-  chrome.action.setIcon({
-    path: {
-      16: `icons/logo-${iconPrefix}-16.png`,
-      48: `icons/logo-${iconPrefix}-48.png`,
-      128: `icons/logo-${iconPrefix}-128.png`
-    }
-  }, () => {
-    if (chrome.runtime.lastError) {
-      console.error('Failed to update icon:', chrome.runtime.lastError);
-    } else {
-      console.log(`✅ Icon updated to ${scheme} mode`);
-    }
-  });
-}
 
 /**
  * Handle background loading of materials
