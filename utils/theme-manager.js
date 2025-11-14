@@ -43,11 +43,44 @@ class ThemeManager {
     // Set color-scheme for browser UI (scrollbars, form controls)
     document.documentElement.style.colorScheme = scheme;
 
+    // Update favicon/tab icon
+    this.updateFavicon(scheme);
+
     // Store preference in both localStorage and chrome.storage for service worker access
     localStorage.setItem('theme-preference', scheme);
     if (typeof chrome !== 'undefined' && chrome.storage) {
       chrome.storage.local.set({ 'theme-preference': scheme });
     }
+  }
+
+  /**
+   * Update page favicon based on theme
+   */
+  updateFavicon(scheme) {
+    const isDark = scheme === 'dark';
+    const iconPrefix = isDark ? 'dark' : 'light';
+
+    // Remove existing favicon links
+    const existingLinks = document.querySelectorAll('link[rel*="icon"]');
+    existingLinks.forEach(link => link.remove());
+
+    // Add new favicon links for all sizes
+    const sizes = [
+      { size: '16x16', file: `logo-${iconPrefix}-16.png` },
+      { size: '48x48', file: `logo-${iconPrefix}-48.png` },
+      { size: '128x128', file: `logo-${iconPrefix}-128.png` }
+    ];
+
+    sizes.forEach(({ size, file }) => {
+      const link = document.createElement('link');
+      link.rel = 'icon';
+      link.type = 'image/png';
+      link.sizes = size;
+      link.href = chrome.runtime.getURL(`icons/${file}`);
+      document.head.appendChild(link);
+    });
+
+    console.log(`🎨 Tab icon updated to ${scheme} mode`);
   }
 
   /**
