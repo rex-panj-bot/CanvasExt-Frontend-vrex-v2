@@ -83,8 +83,10 @@ html {
   color: var(--text-primary);
   padding: 20px;
   border-radius: 16px 16px 0 0;
-  text-align: center;
   position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
 .header h1 {
@@ -106,6 +108,9 @@ html {
   align-items: center;
   justify-content: center;
   transition: all 0.2s ease;
+  background: transparent;
+  border: none;
+  cursor: pointer;
 }
 
 .settings-btn:hover {

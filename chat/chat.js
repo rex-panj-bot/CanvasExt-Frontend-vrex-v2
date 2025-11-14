@@ -1751,22 +1751,39 @@ function setupEventListeners() {
     });
   }
 
-  // Course switcher dropdown toggle
+  // Course switcher dropdown toggle (28px thin dropdown with click-outside-to-close)
   const courseSwitcherBtn = document.getElementById('course-switcher-sidebar-btn');
   const courseDropdown = document.getElementById('course-dropdown-sidebar');
 
   if (courseSwitcherBtn && courseDropdown) {
+    // Toggle dropdown on button click
     courseSwitcherBtn.addEventListener('click', (e) => {
       e.stopPropagation();
+      const isHidden = courseDropdown.classList.contains('hidden');
       courseDropdown.classList.toggle('hidden');
       courseSwitcherBtn.classList.toggle('active');
+
+      // Focus management for accessibility
+      if (!isHidden) {
+        courseSwitcherBtn.focus();
+      }
     });
 
-    // Close dropdown when clicking outside
+    // Close dropdown when clicking outside (click-outside-to-close)
     document.addEventListener('click', (e) => {
-      if (!e.target.closest('.course-switcher-sidebar')) {
+      const courseSwitcherHeader = e.target.closest('.course-switcher-header');
+      if (!courseSwitcherHeader && !courseDropdown.classList.contains('hidden')) {
         courseDropdown.classList.add('hidden');
         courseSwitcherBtn.classList.remove('active');
+      }
+    });
+
+    // Close dropdown on Escape key
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !courseDropdown.classList.contains('hidden')) {
+        courseDropdown.classList.add('hidden');
+        courseSwitcherBtn.classList.remove('active');
+        courseSwitcherBtn.focus();
       }
     });
   }

@@ -86,13 +86,14 @@ body {
 }
 
 .sidebar-header {
-  padding: 12px 16px;
+  padding: 6px 16px;
   border-bottom: 1px solid var(--border);
   background: linear-gradient(135deg, var(--surface) 0%, rgba(100, 116, 139, 0.1) 100%);
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 10px;
+  min-height: 38px;
 }
 
 .sidebar-header h3 {
@@ -882,13 +883,13 @@ body {
 }
 
 .chat-header {
-  padding: 10px 16px;
+  padding: 6px 16px;
   border-bottom: 1px solid var(--border);
   display: flex;
   justify-content: space-between;
   align-items: center;
   background: linear-gradient(135deg, var(--surface) 0%, rgba(100, 116, 139, 0.05) 100%);
-  min-height: 52px;
+  min-height: 38px;
 }
 
 .chat-header h1 {
@@ -898,7 +899,7 @@ body {
 }
 
 .header-logo {
-  height: 28px;
+  height: 24px;
   display: flex;
   align-items: center;
 }
@@ -939,29 +940,40 @@ body {
 
 .course-switcher-header {
   position: relative;
-  padding: 2px 8px;
+  padding: 0 4px;
 }
 
 .course-switcher-header .course-switcher-sidebar-btn {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 8px 14px;
+  gap: 6px;
+  padding: 2px 10px;
   background: var(--background);
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: 4px;
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.15s ease;
   width: 600px;
+  height: auto;
+  min-height: 20px;
+  line-height: 1.2;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 .course-switcher-header .course-switcher-sidebar-btn:hover {
   background: var(--surface-hover);
   border-color: var(--blue-primary);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.course-switcher-header .course-switcher-sidebar-btn:focus {
+  outline: none;
+  border-color: var(--blue-primary);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 }
 
 .course-switcher-header .course-switcher-sidebar-btn span {
@@ -973,8 +985,13 @@ body {
 }
 
 .course-switcher-header .course-switcher-sidebar-btn .dropdown-arrow {
-  transition: transform 0.3s;
+  transition: transform 0.2s ease;
   flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.course-switcher-header .course-switcher-sidebar-btn:hover .dropdown-arrow {
+  opacity: 1;
 }
 
 .course-switcher-header .course-switcher-sidebar-btn.active .dropdown-arrow {
@@ -983,15 +1000,25 @@ body {
 
 .course-switcher-header .course-dropdown-sidebar {
   position: absolute;
-  top: calc(100% + 8px);
+  top: calc(100% + 6px);
   left: 0;
   width: 600px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 16px;
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05);
   z-index: 1000;
   overflow: hidden;
+  opacity: 0;
+  transform: translateY(-8px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  pointer-events: none;
+}
+
+.course-switcher-header .course-dropdown-sidebar:not(.hidden) {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: all;
 }
 
 .header-actions {
@@ -1461,14 +1488,14 @@ body {
 /* Toggle Icon Buttons */
 .toggle-icon-btn {
   position: relative;
-  width: 26px;
-  height: 26px;
-  min-width: 26px;
-  min-height: 26px;
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  min-height: 22px;
   padding: 0;
   background: transparent;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 5px;
   color: var(--text-light);
   cursor: pointer;
   transition: all 0.2s;
@@ -1809,17 +1836,17 @@ body {
 
 /* Buttons */
 .btn {
-  padding: 10px 14px;
+  padding: 5px 9px;
   border: none;
-  border-radius: 10px;
-  font-size: 13px;
+  border-radius: 6px;
+  font-size: 11px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.3s;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 4px;
 }
 
 .btn-primary {
@@ -2304,45 +2331,45 @@ body {
 /* Theme Toggle */
 .theme-toggle {
   position: relative;
-  width: 60px;
-  height: 30px;
+  width: 48px;
+  height: 22px;
   background: var(--surface-hover);
-  border: 2px solid var(--border);
-  border-radius: 15px;
+  border: 1.5px solid var(--border);
+  border-radius: 11px;
   cursor: pointer;
   transition: all 0.3s;
   display: flex;
   align-items: center;
-  padding: 0 4px;
+  padding: 0 3px;
 }
 
 .theme-toggle:hover {
   border-color: var(--blue-primary);
-  box-shadow: 0 0 12px rgba(59, 130, 246, 0.3);
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.3);
 }
 
 .theme-toggle-slider {
   position: absolute;
-  width: 22px;
-  height: 22px;
+  width: 16px;
+  height: 16px;
   background: var(--blue-primary);
   border-radius: 50%;
   transition: transform 0.3s;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.4);
-  left: 4px;
+  box-shadow: 0 2px 6px rgba(59, 130, 246, 0.4);
+  left: 3px;
 }
 
 .theme-toggle-slider svg {
-  width: 14px;
-  height: 14px;
+  width: 10px;
+  height: 10px;
   color: white;
 }
 
 .theme-toggle.light .theme-toggle-slider {
-  transform: translateX(26px);
+  transform: translateX(23px);
 }
 
 .theme-toggle.light .theme-toggle-slider svg.moon-icon {
@@ -2368,6 +2395,7 @@ body {
   color: var(--text-light);
   transition: opacity 0.3s;
   pointer-events: none;
+  display: none; /* Hide background icons - only show icon in slider */
 }
 
 .theme-icon.sun {
@@ -2380,20 +2408,20 @@ body {
 
 /* Dark theme: moon is highlighted (in slider), sun is grey background icon */
 .theme-toggle:not(.light) .theme-icon.moon {
-  display: none;
+  display: none !important;
 }
 
 .theme-toggle:not(.light) .theme-icon.sun {
-  display: block;
+  display: none !important;
 }
 
 /* Light theme: sun is highlighted (in slider), moon is grey background icon */
 .theme-toggle.light .theme-icon.sun {
-  display: none;
+  display: none !important;
 }
 
 .theme-toggle.light .theme-icon.moon {
-  display: block;
+  display: none !important;
 }
 
 /* Temporary Message Animations */
