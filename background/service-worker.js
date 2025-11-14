@@ -12,19 +12,27 @@ function updateIconForTheme(scheme) {
   const isDark = scheme === 'dark';
   const iconPrefix = isDark ? 'dark' : 'light';
 
-  chrome.action.setIcon({
-    path: {
-      16: `icons/logo-${iconPrefix}-16.png`,
-      48: `icons/logo-${iconPrefix}-48.png`,
-      128: `icons/logo-${iconPrefix}-128.png`
-    }
-  }, () => {
-    if (chrome.runtime.lastError) {
-      console.error('Failed to update icon:', chrome.runtime.lastError);
-    } else {
+  const iconPaths = {
+    16: `icons/logo-${iconPrefix}-16.png`,
+    48: `icons/logo-${iconPrefix}-48.png`,
+    128: `icons/logo-${iconPrefix}-128.png`
+  };
+
+  console.log(`🎨 Attempting to set icon to ${scheme} mode with paths:`, iconPaths);
+
+  try {
+    chrome.action.setIcon({ path: iconPaths }).then(() => {
       console.log(`✅ Icon updated to ${scheme} mode`);
-    }
-  });
+    }).catch((error) => {
+      console.error('Failed to update icon (promise):', error);
+      console.error('Attempted icon prefix:', iconPrefix);
+      console.error('Attempted paths:', iconPaths);
+    });
+  } catch (error) {
+    console.error('Failed to update icon (try/catch):', error);
+    console.error('Attempted icon prefix:', iconPrefix);
+    console.error('Attempted paths:', iconPaths);
+  }
 }
 
 /**
