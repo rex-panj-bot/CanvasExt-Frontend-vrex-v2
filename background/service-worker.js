@@ -6,6 +6,34 @@
 console.log('Canvas Material Extractor: Service worker loaded');
 
 /**
+ * Create or get offscreen document for theme monitoring
+ */
+async function setupOffscreenDocument() {
+  // Check if offscreen document already exists
+  const existingContexts = await chrome.runtime.getContexts({
+    contextTypes: ['OFFSCREEN_DOCUMENT'],
+    documentUrls: [chrome.runtime.getURL('background/offscreen.html')]
+  });
+
+  if (existingContexts.length > 0) {
+    console.log('🎨 Offscreen document already exists');
+    return;
+  }
+
+  // Create offscreen document
+  try {
+    await chrome.offscreen.createDocument({
+      url: 'background/offscreen.html',
+      reasons: ['DOM_SCRAPING'], // Required reason for accessing window APIs
+      justification: 'Monitor system theme changes via matchMedia API'
+    });
+    console.log('🎨 Offscreen document created for theme monitoring');
+  } catch (error) {
+    console.error('❌ Failed to create offscreen document:', error);
+  }
+}
+
+/**
  * Update extension icon based on theme
  */
 function updateIconForTheme(scheme) {
@@ -48,18 +76,21 @@ function initializeIcon() {
   });
 }
 
-// Initialize icon immediately when service worker loads
+// Initialize icon and offscreen document when service worker loads
 initializeIcon();
+setupOffscreenDocument();
 
 // Also initialize on install/startup events
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('🎨 Service worker installed, initializing icon');
+  console.log('🎨 Service worker installed, initializing icon and offscreen document');
   initializeIcon();
+  setupOffscreenDocument();
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  console.log('🎨 Browser started, initializing icon');
+  console.log('🎨 Browser started, initializing icon and offscreen document');
   initializeIcon();
+  setupOffscreenDocument();
 });
 
 // Store current course info
@@ -203,6 +234,61 @@ async function updateMaterialsWithStoredNames(courseId, uploadedFiles) {
     db.close();
 
     console.log(`✅ Updated ${updatedCount} materials with hash-based IDs`);
+
+    // CANVAS ID PRESERVATION: Send canvas_id mappings to backend
+    // This ensures backend can match files by Canvas ID (fallback)
+    try {
+      const canvasIdUpdates = [];
+
+      // Collect canvas_id -> doc_id mappings from updated materials
+      for (const category of categories) {
+        if (!materials[category]) continue;
+
+        if (category === 'modules') {
+          materials[category].forEach(module => {
+            if (module.items) {
+              module.items.forEach(item => {
+                if (item.doc_id && item.id) {
+                  canvasIdUpdates.push({
+                    doc_id: item.doc_id,
+                    canvas_id: String(item.id)  // Ensure it's a string
+                  });
+                }
+              });
+            }
+          });
+        } else {
+          materials[category].forEach(item => {
+            if (item.doc_id && item.id) {
+              canvasIdUpdates.push({
+                doc_id: item.doc_id,
+                canvas_id: String(item.id)  // Ensure it's a string
+              });
+            }
+          });
+        }
+      }
+
+      if (canvasIdUpdates.length > 0) {
+        console.log(`📤 Sending ${canvasIdUpdates.length} canvas_id mappings to backend...`);
+        const backendUrl = 'https://web-production-9aaba7.up.railway.app';
+        const response = await fetch(`${backendUrl}/courses/${courseId}/update_canvas_ids`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ updates: canvasIdUpdates })
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          console.log(`✅ Backend updated ${result.updated_count} canvas_ids`);
+        } else {
+          console.warn(`⚠️ Failed to update canvas_ids in backend: ${response.status}`);
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error sending canvas_id mappings to backend:', error);
+      // Don't throw - this is a non-critical operation
+    }
   } catch (error) {
     console.error('❌ Error updating materials with hash-based IDs:', error);
   }
@@ -426,10 +512,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     });
     return true; // Keep channel open for async response
   } else if (request.type === 'theme-changed') {
-    // Handle theme changes and update extension icon
-    const scheme = request.scheme;
+    // Handle theme changes from offscreen document or pages
+    const scheme = request.theme || request.scheme;
     console.log(`🎨 Theme changed to: ${scheme}`);
+
+    // Update icon
     updateIconForTheme(scheme);
+
+    // Store theme preference
+    chrome.storage.local.set({ 'theme-preference': scheme });
+
     sendResponse({ success: true });
   }
 
