@@ -851,10 +851,10 @@ async function updateDownloadTask(updates) {
 }
 
 /**
- * Handle background file upload with batching (8 files per batch)
+ * Handle background file upload with batching (50 files per batch)
  */
 async function handleBackgroundUpload() {
-  const BATCH_SIZE = 8;
+  const BATCH_SIZE = 50;
 
   try {
     // Get upload task from storage

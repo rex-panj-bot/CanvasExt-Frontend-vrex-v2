@@ -86,14 +86,14 @@ body {
 }
 
 .sidebar-header {
-  padding: 6px 16px;
+  padding: 8px 16px;
   border-bottom: 1px solid var(--border);
   background: linear-gradient(135deg, var(--surface) 0%, rgba(100, 116, 139, 0.1) 100%);
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 10px;
-  min-height: 38px;
+  min-height: 42px;
 }
 
 .sidebar-header h3 {
@@ -883,13 +883,13 @@ body {
 }
 
 .chat-header {
-  padding: 6px 16px;
+  padding: 8px 16px;
   border-bottom: 1px solid var(--border);
   display: flex;
   justify-content: space-between;
   align-items: center;
   background: linear-gradient(135deg, var(--surface) 0%, rgba(100, 116, 139, 0.05) 100%);
-  min-height: 38px;
+  min-height: 42px;
 }
 
 .chat-header h1 {
@@ -899,13 +899,13 @@ body {
 }
 
 .header-logo {
-  height: 24px;
+  height: 26px;
   display: flex;
   align-items: center;
 }
 
 .header-logo img {
-  height: 100%;
+  max-height: 100%;
   width: auto;
   object-fit: contain;
 }
@@ -1181,6 +1181,200 @@ body {
   font-style: italic;
 }
 
+/* ========== ACADEMIC CONTENT FORMATTING ========== */
+
+/* Enhanced Table Styling */
+.message-text table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+  background: var(--surface);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.message-text table thead {
+  background: rgba(100, 116, 139, 0.15);
+}
+
+.message-text table th {
+  padding: 12px 16px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-primary);
+  border-bottom: 2px solid var(--border);
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.message-text table td {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-primary);
+  font-size: 15px;
+}
+
+.message-text table tbody tr:nth-child(even) {
+  background: rgba(100, 116, 139, 0.05);
+}
+
+.message-text table tbody tr:hover {
+  background: rgba(100, 116, 139, 0.1);
+  transition: background 0.2s;
+}
+
+.message-text table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* Multiple Choice Question Styling */
+/* Applied via JavaScript to paragraphs starting with A), B), C), D), E) */
+.message-text p.multiple-choice-option {
+  margin: 8px 0;
+  padding: 10px 14px;
+  background: rgba(100, 116, 139, 0.08);
+  border-left: 3px solid var(--primary-color);
+  border-radius: 6px;
+  transition: all 0.2s;
+  line-height: 1.7;
+}
+
+.message-text p.multiple-choice-option:hover {
+  background: rgba(100, 116, 139, 0.12);
+  border-left-color: #60a5fa;
+}
+
+.message-text p.multiple-choice-option strong {
+  color: var(--primary-color);
+  font-weight: 700;
+  font-size: 16px;
+  margin-right: 8px;
+}
+
+/* Question number styling */
+.message-text p.question-number {
+  margin-top: 20px;
+  font-size: 16px;
+}
+
+.message-text p.question-number strong {
+  color: var(--primary-color);
+  font-weight: 700;
+  font-size: 17px;
+}
+
+/* General paragraph styling */
+.message-text p {
+  line-height: 1.7;
+}
+
+/* Matching Questions: Two-Column Layout */
+/* Detects "Column A" and "Column B" patterns */
+.message-text h3:contains("Column A"),
+.message-text h3:contains("Column B"),
+.message-text strong:contains("Column A"),
+.message-text strong:contains("Column B") {
+  color: var(--primary-color);
+  margin-top: 16px;
+}
+
+/* Container for matching questions (when properly formatted) */
+.matching-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin: 20px 0;
+  padding: 16px;
+  background: rgba(100, 116, 139, 0.05);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+}
+
+.matching-column {
+  padding: 12px;
+}
+
+.matching-column h4 {
+  color: var(--primary-color);
+  font-size: 16px;
+  margin-bottom: 12px;
+  font-weight: 600;
+}
+
+.matching-column ol,
+.matching-column ul {
+  padding-left: 20px;
+}
+
+.matching-column li {
+  margin: 10px 0;
+  padding: 8px;
+  background: var(--surface);
+  border-radius: 6px;
+  line-height: 1.5;
+}
+
+/* Question Blocks (for practice problems, exam questions, etc.) */
+.message-text h2:contains("Practice"),
+.message-text h2:contains("Question"),
+.message-text h2:contains("Problem"),
+.message-text h3:contains("Practice"),
+.message-text h3:contains("Question"),
+.message-text h3:contains("Problem") {
+  color: var(--primary-color);
+  border-bottom: 2px solid var(--primary-color);
+  padding-bottom: 8px;
+  margin-top: 24px;
+}
+
+/* Numbered question styling */
+.message-text strong:matches(^\\*\\*\\d+\\.\\*\\*) {
+  color: var(--primary-color);
+  font-size: 16px;
+}
+
+/* Enhanced List Spacing for Academic Content */
+.message-text ol > li,
+.message-text ul > li {
+  margin: 8px 0;
+  line-height: 1.7;
+}
+
+/* Nested lists */
+.message-text ol ol,
+.message-text ol ul,
+.message-text ul ol,
+.message-text ul ul {
+  margin: 6px 0 6px 12px;
+}
+
+/* Bold terms in lists get primary color for emphasis */
+.message-text li strong {
+  color: var(--primary-color);
+  font-weight: 600;
+}
+
+/* Answer/Solution blocks */
+.message-text blockquote strong:contains("Answer"),
+.message-text blockquote strong:contains("Solution"),
+.message-text p strong:contains("Answer:"),
+.message-text p strong:contains("Solution:") {
+  color: #10b981;
+  font-weight: 700;
+}
+
+/* Explanation blocks */
+.message-text blockquote {
+  border-left-color: rgba(100, 116, 139, 0.5);
+  background: rgba(100, 116, 139, 0.05);
+  padding: 12px 16px;
+  border-radius: 6px;
+}
+
+/* ========== END ACADEMIC CONTENT FORMATTING ========== */
+
 .message-actions {
   display: flex;
   gap: 8px;
@@ -1207,21 +1401,21 @@ body {
 .welcome-message {
   background: linear-gradient(135deg, rgba(100, 116, 139, 0.1) 0%, transparent 100%);
   border-radius: 16px;
-  padding: 24px !important;
+  padding: 16px !important;
   border: 1px solid rgba(100, 116, 139, 0.2);
 }
 
 .welcome-message .message-text h3 {
   color: var(--primary-color);
-  margin: 0 0 12px 0;
-  font-size: 24px;
+  margin: 0 0 8px 0;
+  font-size: 20px;
   font-weight: 600;
 }
 
 .welcome-message .message-text p {
   color: var(--text-secondary);
-  font-size: 15px;
-  line-height: 1.6;
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 .welcome-info {
@@ -1387,7 +1581,7 @@ body {
 }
 
 .mode-btn-compact {
-  padding: 8px 12px;
+  padding: 6px 12px 8px 12px;
   background: rgba(30, 41, 59, 0.5);
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -1431,12 +1625,24 @@ body {
   font-weight: 600;
 }
 
+:root[data-theme="light"] .mode-btn-compact.active {
+  background: var(--blue-primary);
+  border-color: var(--blue-primary);
+  color: white;
+}
+
 .mode-btn-compact.active:hover {
   background: var(--blue-hover);
   border-color: var(--blue-hover);
   color: white;
   transform: translateY(-1px);
   box-shadow: 0 2px 6px rgba(59, 130, 246, 0.3);
+}
+
+:root[data-theme="light"] .mode-btn-compact.active:hover {
+  background: var(--blue-hover);
+  border-color: var(--blue-hover);
+  color: white;
 }
 
 /* Input Wrapper */
@@ -2682,7 +2888,7 @@ body {
   right: 0;
   background: linear-gradient(135deg, var(--blue-primary) 0%, var(--blue-light) 100%);
   color: white;
-  padding: 12px 24px;
+  padding: 8px 24px;
   z-index: 100;
   box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
   animation: slideDown 0.3s ease-out;
@@ -2705,25 +2911,28 @@ body {
 
 .loading-banner-content {
   display: flex;
+  flex-direction: row;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
   font-size: 14px;
   font-weight: 500;
 }
 
-.loading-spinner {
-  width: 18px;
-  height: 18px;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  border-top-color: white;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
+.loading-progress-bar {
+  flex: 1;
+  min-width: 120px;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 3px;
+  overflow: hidden;
 }
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+.loading-progress-fill {
+  height: 100%;
+  background: white;
+  width: 0%;
+  transition: width 0.3s ease;
+  border-radius: 3px;
 }
 
 /* API Key Setup Modal */

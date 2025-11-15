@@ -15,7 +15,7 @@ let isGenerating = false; // Track if AI is currently generating
 let currentStreamAbort = null; // AbortController for current generation
 let currentMode = null; // Current study mode: null, 'learn', 'reinforce', or 'test'
 let modePromptUsed = false; // Track if mode prompt has been applied (only use once per mode activation)
-let modeResponseCache = {}; // Cache mode responses by topic: { "exam 1": { learn: "response", reinforce: "response", test: "response" } }
+let modeResponseCache = {}; // Cache mode conversations by topic: { "exam 1": { learn: [{role, content}...], reinforce: [{role, content}...], test: [{role, content}...] } }
 let currentModeTopic = null; // Store the current topic being used in mode
 let isShowingFirstTimeHint = false; // Flag to prevent duplicate tip notifications
 
@@ -45,9 +45,16 @@ Advanced Connections: Add a brief section on "Advanced Connections" that explain
 
 Check Your Understanding: Conclude with 3-4 quick comprehension questions (not a full test) that a student can use to self-assess their understanding as they read the guide.
 
-Visual Structure: Use Markdown to format the output for clarity. Use bolding for key terms, code blocks for formulas or syntax if applicable, and bullet points for lists.
+Visual Structure & Formatting: Use Markdown extensively for maximum clarity and readability:
+- Use ## headings for major sections and ### for subsections
+- **Bold** all key terms, concepts, and important vocabulary
+- Use bullet points and numbered lists with proper spacing
+- Use markdown tables for comparisons, data, or side-by-side information
+- Use code blocks with triple backticks for formulas, syntax, or technical examples
+- Add blank lines between major sections for visual breathing room
+- Use blockquotes (>) for important notes or tips
 
-Generate a detailed guide that a student could use as their primary resource to learn this material from the ground up.`,
+Generate a detailed, beautifully formatted guide that a student could use as their primary resource to learn this material from the ground up.`,
 
   reinforce: `You are creating active recall exercises and reinforcement activities specifically about: {userInput}
 
@@ -98,17 +105,34 @@ Design questions where the options are plausible and test for common misconcepti
 
 One of these questions should be a scenario-based question that requires applying a concept.
 
+**FORMATTING REQUIREMENT**: Put each answer choice on a SEPARATE LINE with clear spacing. Example:
+**Question 1**: What is the time complexity of binary search?
+
+A) O(n)
+B) O(log n)
+C) O(n²)
+D) O(1)
+
 Part B: Short Answer Questions (2 questions):
 
 Design questions that require more than just recalling a definition. They should ask for analysis, comparison, or a brief explanation of a process.
 
 Each question should be answerable in 2-4 sentences.
 
+Number each question clearly with bolding: **1.**, **2.**, etc.
+
 Part C: Application Problem (1 question):
 
 Provide a brief case study, a data set, or a problem scenario.
 
 Ask me to analyze the situation and use my knowledge to solve the problem or draw a conclusion.
+
+**GENERAL FORMATTING REQUIREMENTS**:
+- Use markdown headings (##) for section titles
+- Bold question numbers and key terms
+- Add blank lines between questions for readability
+- Use code blocks for any formulas or code examples
+- Use tables for structured data or comparisons
 
 After presenting all the questions, clearly state: "--- End of Test. Provide your answers before scrolling down for the Answer Key. ---"
 
@@ -197,6 +221,12 @@ function setupBackgroundLoadingListener() {
           : 0;
         showLoadingBanner(`Uploading ${task.uploadedFiles}/${task.totalFiles} files (${percent}%)`);
 
+        // Update progress bar
+        const progressFill = document.getElementById('loading-progress-fill');
+        if (progressFill) {
+          progressFill.style.width = percent + '%';
+        }
+
       } else if (task.status === 'downloading') {
         // Show download progress (legacy)
         const progress = task.progress;
@@ -205,12 +235,24 @@ function setupBackgroundLoadingListener() {
             ? Math.round((progress.filesCompleted / progress.filesTotal) * 100)
             : 0;
           showLoadingBanner(`${progress.message} (${percent}%)`);
+
+          // Update progress bar
+          const progressFill = document.getElementById('loading-progress-fill');
+          if (progressFill) {
+            progressFill.style.width = percent + '%';
+          }
         }
 
       } else if (task.status === 'complete') {
         console.log(`✅ [CHAT] ${taskType} complete!`);
         clearInterval(pollInterval); // Stop polling
         showLoadingBanner('All files uploaded! Ready to chat.', 'success');
+
+        // Set progress bar to 100%
+        const progressFill = document.getElementById('loading-progress-fill');
+        if (progressFill) {
+          progressFill.style.width = '100%';
+        }
 
         // CRITICAL: Reload materials from IndexedDB to get hash-based IDs
         // Background worker has updated IndexedDB with doc_id and hash fields
@@ -264,6 +306,12 @@ function showLoadingBanner(message, type = 'info') {
 function hideLoadingBanner() {
   if (elements.loadingBanner) {
     elements.loadingBanner.classList.add('hidden');
+  }
+
+  // Reset progress bar
+  const progressFill = document.getElementById('loading-progress-fill');
+  if (progressFill) {
+    progressFill.style.width = '0%';
   }
 }
 
@@ -442,7 +490,7 @@ async function showFirstTimeHint() {
       hint.className = 'first-time-hint';
       hint.innerHTML = `
         <div class="hint-content">
-          <strong>💡 Tip:</strong> Click files to select for AI context. Use the open button (↗) to view files.
+          <strong>Tip:</strong> Click files to select for AI context. Use the open button (↗) to view files.
           <button class="hint-close">Got it!</button>
         </div>
       `;
@@ -1126,13 +1174,13 @@ async function loadSyllabusSelector() {
     if (data.success && data.syllabus_id) {
       syllabusSelect.value = data.syllabus_id;
       if (syllabusCurrentEl) {
-        syllabusCurrentEl.textContent = data.syllabus_name || 'Selected';
+        syllabusCurrentEl.textContent = 'selected';
         syllabusCurrentEl.style.color = 'var(--green-primary)';
       }
       console.log('📚 Loaded syllabus:', data.syllabus_name);
     } else {
       if (syllabusCurrentEl) {
-        syllabusCurrentEl.textContent = 'None';
+        syllabusCurrentEl.textContent = '';
         syllabusCurrentEl.style.color = 'var(--text-secondary)';
       }
     }
@@ -1140,17 +1188,15 @@ async function loadSyllabusSelector() {
     // Handle selection change - auto-save
     syllabusSelect.addEventListener('change', async () => {
       const selectedSyllabusId = syllabusSelect.value;
-      const selectedOption = syllabusSelect.options[syllabusSelect.selectedIndex];
-      const selectedName = selectedOption ? selectedOption.text : '';
 
       // Update status text immediately
       const syllabusCurrentEl = document.getElementById('syllabus-current');
       if (syllabusCurrentEl) {
         if (selectedSyllabusId) {
-          syllabusCurrentEl.textContent = selectedName;
+          syllabusCurrentEl.textContent = 'selected';
           syllabusCurrentEl.style.color = 'var(--green-primary)';
         } else {
-          syllabusCurrentEl.textContent = 'None';
+          syllabusCurrentEl.textContent = '';
           syllabusCurrentEl.style.color = 'var(--text-secondary)';
         }
       }
@@ -2290,6 +2336,12 @@ function hideLoadingBanner() {
   if (elements.loadingBanner) {
     elements.loadingBanner.classList.add('hidden');
   }
+
+  // Reset progress bar
+  const progressFill = document.getElementById('loading-progress-fill');
+  if (progressFill) {
+    progressFill.style.width = '0%';
+  }
 }
 
 /**
@@ -2345,31 +2397,63 @@ async function sendMessage() {
     message = modePrompts[currentMode].replace(/{userInput}/g, userInput);
     displayMessage = userInput; // Still show just the user's input in the chat
 
-    // Check if we're in Reinforce or Test mode and have a cached Learn response
-    if ((currentMode === 'reinforce' || currentMode === 'test') &&
-        modeResponseCache[currentModeTopic] &&
-        modeResponseCache[currentModeTopic].learn) {
+    // Check if we're in Reinforce or Test mode and have cached previous mode conversations
+    if (currentMode === 'reinforce' && modeResponseCache[currentModeTopic]?.learn) {
+      // Reinforce mode: Inject full Learn conversation
+      const learnConversation = modeResponseCache[currentModeTopic].learn;
+      const conversationText = learnConversation.map(msg =>
+        `${msg.role === 'user' ? 'Student' : 'Assistant'}: ${msg.content}`
+      ).join('\n\n');
 
-      const learnResponse = modeResponseCache[currentModeTopic].learn;
-
-      // Inject the Learn response AFTER the topic-focused intro (for better file selection)
-      // Keep the topic at the top, add Learn context in the middle
-      let splitPattern = currentMode === 'reinforce' ? '\n\nFollow these steps:' : '\n\nThe test must contain the following sections:';
+      let splitPattern = '\n\nFollow these steps:';
       const promptParts = message.split(splitPattern);
 
       if (promptParts.length === 2) {
-        // Insert Learn context between intro and instructions
         message = promptParts[0] +
-                  `\n\n**IMPORTANT CONTEXT:** Previously, you created this comprehensive study guide for the student on this exact topic:\n\n` +
-                  `--- BEGIN PREVIOUS STUDY GUIDE ---\n${learnResponse}\n--- END PREVIOUS STUDY GUIDE ---\n\n` +
-                  `You MUST base your ${currentMode === 'reinforce' ? 'exercises' : 'test'} directly on the concepts, terminology, and information covered in that study guide above.\n\n` +
+                  `\n\n**IMPORTANT CONTEXT:** Previously, you had this complete conversation with the student about this topic:\n\n` +
+                  `--- BEGIN PREVIOUS LEARN MODE CONVERSATION ---\n${conversationText}\n--- END PREVIOUS LEARN MODE CONVERSATION ---\n\n` +
+                  `You MUST base your exercises directly on the concepts, terminology, and information covered in that conversation above.\n\n` +
                   splitPattern + promptParts[1];
       }
 
-      console.log(`🔗 Injected cached Learn response for "${userInput}" into ${currentMode} mode`);
+      console.log(`🔗 Injected Learn conversation (${learnConversation.length} messages) into Reinforce mode`);
+      showToast('Using Learn mode context', 3000);
 
-      // Show indicator to user
-      displayMessage = `${userInput} 📚`;
+    } else if (currentMode === 'test' && modeResponseCache[currentModeTopic]) {
+      // Test mode: Inject both Learn AND Reinforce conversations
+      const contexts = [];
+
+      if (modeResponseCache[currentModeTopic].learn) {
+        const learnConversation = modeResponseCache[currentModeTopic].learn;
+        const learnText = learnConversation.map(msg =>
+          `${msg.role === 'user' ? 'Student' : 'Assistant'}: ${msg.content}`
+        ).join('\n\n');
+        contexts.push(`--- LEARN MODE CONVERSATION ---\n${learnText}`);
+      }
+
+      if (modeResponseCache[currentModeTopic].reinforce) {
+        const reinforceConversation = modeResponseCache[currentModeTopic].reinforce;
+        const reinforceText = reinforceConversation.map(msg =>
+          `${msg.role === 'user' ? 'Student' : 'Assistant'}: ${msg.content}`
+        ).join('\n\n');
+        contexts.push(`--- REINFORCE MODE CONVERSATION ---\n${reinforceText}`);
+      }
+
+      if (contexts.length > 0) {
+        let splitPattern = '\n\nThe test must contain the following sections:';
+        const promptParts = message.split(splitPattern);
+
+        if (promptParts.length === 2) {
+          message = promptParts[0] +
+                    `\n\n**IMPORTANT CONTEXT:** Previously, you had these conversations with the student about this topic:\n\n` +
+                    contexts.join('\n\n') + '\n\n' +
+                    `You MUST base your test directly on the concepts, terminology, and information covered in those conversations above.\n\n` +
+                    splitPattern + promptParts[1];
+        }
+
+        console.log(`🔗 Injected ${contexts.length} mode conversation(s) into Test mode`);
+        showToast('Using Learn & Reinforce mode context', 3000);
+      }
     }
 
     // Mark that the mode prompt has been used
@@ -2440,7 +2524,12 @@ async function sendMessage() {
       (chunk) => {
         // Check if this is a loading message (starts with 📤)
         if (chunk.startsWith('📤')) {
-          showLoadingBanner(chunk);
+          // Remove emoji and file size information from loading message
+          const cleanedMessage = chunk
+            .replace(/📤\s*/, '')  // Remove emoji
+            .replace(/\*\*/g, '')   // Remove bold markdown
+            .replace(/\s*\(~[\d.]+MB\)/g, '');  // Remove file size
+          showLoadingBanner(cleanedMessage);
           return; // Don't add to assistant message
         }
 
@@ -2474,16 +2563,29 @@ async function sendMessage() {
     conversationHistory.push({ role: 'user', content: message });
     conversationHistory.push({ role: 'assistant', content: assistantMessage });
 
-    // Cache the response if we're in a mode and have a topic
+    // Cache the full conversation if we're in a mode and have a topic
     if (currentMode && currentModeTopic) {
       // Initialize cache for this topic if it doesn't exist
       if (!modeResponseCache[currentModeTopic]) {
         modeResponseCache[currentModeTopic] = {};
       }
 
-      // Store the response for this mode
-      modeResponseCache[currentModeTopic][currentMode] = assistantMessage;
-      console.log(`💾 Cached ${currentMode} response for topic: "${currentModeTopic}"`);
+      // Store the entire conversation for this mode (only the messages from this mode session)
+      // Filter conversation to only include messages from when this mode started
+      const modeConversation = [];
+
+      for (let i = conversationHistory.length - 1; i >= 0; i--) {
+        const msg = conversationHistory[i];
+        modeConversation.unshift(msg);
+
+        // Check if this is the user message that started the mode (contains the topic)
+        if (msg.role === 'user' && msg.content.includes(currentModeTopic)) {
+          break;
+        }
+      }
+
+      modeResponseCache[currentModeTopic][currentMode] = modeConversation;
+      console.log(`💾 Cached ${currentMode} conversation (${modeConversation.length} messages) for topic: "${currentModeTopic}"`);
     }
 
     // Save conversation
@@ -2666,6 +2768,51 @@ function renderMath(content) {
 }
 
 /**
+ * Enhance academic content formatting in HTML
+ * Detects patterns like multiple choice options, matching questions, etc.
+ */
+function enhanceAcademicFormatting(html) {
+  try {
+    // Wrap multiple choice options in styled containers
+    // Detects paragraphs starting with A), B), C), D), E)
+    html = html.replace(/<p>([A-E])\)\s*([^<]+)<\/p>/gi, (match, letter, content) => {
+      return `<p class="multiple-choice-option"><strong>${letter})</strong> ${content}</p>`;
+    });
+
+    // Detect and enhance matching questions
+    // Look for "Column A" or "Column B" patterns
+    if (html.includes('Column A') && html.includes('Column B')) {
+      // Try to wrap consecutive lists after Column A/B headings in a two-column container
+      html = html.replace(
+        /(<(?:h3|h4|p|strong)[^>]*>.*?Column A.*?<\/(?:h3|h4|p|strong)>)(.*?)(<(?:h3|h4|p|strong)[^>]*>.*?Column B.*?<\/(?:h3|h4|p|strong)>)(.*?)(?=<(?:h[1-6]|p(?!<)|div))/gis,
+        (match, colAHeader, colAContent, colBHeader, colBContent) => {
+          return `
+            <div class="matching-container">
+              <div class="matching-column">
+                ${colAHeader}
+                ${colAContent}
+              </div>
+              <div class="matching-column">
+                ${colBHeader}
+                ${colBContent}
+              </div>
+            </div>
+          `;
+        }
+      );
+    }
+
+    // Add special class to paragraphs with question numbers
+    html = html.replace(/<p><strong>(\d+)\.<\/strong>\s*/gi, '<p class="question-number"><strong>$1.</strong> ');
+
+    return html;
+  } catch (e) {
+    console.error('Error enhancing academic formatting:', e);
+    return html;
+  }
+}
+
+/**
  * Normalize filename for flexible matching
  * Removes date prefixes, handles underscores/dashes, case-insensitive
  */
@@ -2783,7 +2930,12 @@ function addMessage(role, content) {
   }
 
   // Step 3: Render markdown
-  const renderedContent = role === 'assistant' ? marked.parse(processedContent) : content;
+  let renderedContent = role === 'assistant' ? marked.parse(processedContent) : content;
+
+  // Step 4: Enhance academic formatting (for assistant messages only)
+  if (role === 'assistant') {
+    renderedContent = enhanceAcademicFormatting(renderedContent);
+  }
 
   messageDiv.innerHTML = `
     <div class="message-avatar">${avatar}</div>
@@ -2795,7 +2947,7 @@ function addMessage(role, content) {
       <div class="message-text">${renderedContent}</div>
       ${role === 'assistant' ? `
         <div class="message-actions">
-          <button class="copy-message-btn" data-content="${content.replace(/"/g, '&quot;')}">📋 Copy</button>
+          <button class="copy-message-btn" data-content="${content.replace(/"/g, '&quot;')}">Copy</button>
         </div>
       ` : ''}
     </div>
@@ -2809,9 +2961,9 @@ function addMessage(role, content) {
     const copyBtn = messageDiv.querySelector('.copy-message-btn');
     copyBtn.addEventListener('click', () => {
       navigator.clipboard.writeText(content);
-      copyBtn.textContent = '✅ Copied!';
+      copyBtn.textContent = 'Copied!';
       setTimeout(() => {
-        copyBtn.textContent = '📋 Copy';
+        copyBtn.textContent = 'Copy';
       }, 2000);
     });
   }
@@ -2854,7 +3006,12 @@ function updateTypingIndicator(id, content) {
     // Render math and parse citations in streaming content too
     let processedContent = renderMath(content);
     processedContent = parseCitations(processedContent);
-    textDiv.innerHTML = marked.parse(processedContent);
+
+    // Render markdown and enhance academic formatting
+    let renderedContent = marked.parse(processedContent);
+    renderedContent = enhanceAcademicFormatting(renderedContent);
+
+    textDiv.innerHTML = renderedContent;
     elements.messagesContainer.scrollTop = elements.messagesContainer.scrollHeight;
   }
 }
@@ -3767,6 +3924,16 @@ function initTheme() {
   if (themeToggle) {
     themeToggle.addEventListener('click', toggleTheme);
   }
+
+  // Listen for storage changes (theme sync between popup and chat)
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && changes['theme-preference']) {
+      const newTheme = changes['theme-preference'].newValue;
+      if (newTheme) {
+        applyTheme(newTheme);
+      }
+    }
+  });
 }
 
 function toggleTheme() {
@@ -3776,12 +3943,6 @@ function toggleTheme() {
 
   // Save theme preference
   chrome.storage.local.set({ 'theme-preference': newTheme });
-
-  // Notify background script to update icon
-  chrome.runtime.sendMessage({
-    type: 'theme-changed',
-    scheme: newTheme
-  }).catch(err => console.debug('Theme notification failed:', err));
 }
 
 function applyTheme(theme) {

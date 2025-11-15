@@ -44,27 +44,41 @@ const screens = {
 
 // Initialize theme based on system preference or user override
 function initializeTheme() {
-  const savedTheme = localStorage.getItem('theme');
+  chrome.storage.local.get(['theme-preference'], (result) => {
+    const savedTheme = result['theme-preference'];
 
-  if (savedTheme) {
-    // User has set a preference, use it
-    document.documentElement.setAttribute('data-theme', savedTheme);
-  } else {
-    // No user preference, use system preference
-    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    const theme = prefersDark ? 'dark' : 'light';
-    document.documentElement.setAttribute('data-theme', theme);
-  }
+    if (savedTheme) {
+      // User has set a preference, use it
+      document.documentElement.setAttribute('data-theme', savedTheme);
+    } else {
+      // No user preference, use system preference
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const theme = prefersDark ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-theme', theme);
+    }
+  });
 }
+
+// Listen for storage changes (theme sync between popup and chat)
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes['theme-preference']) {
+    const newTheme = changes['theme-preference'].newValue;
+    if (newTheme) {
+      document.documentElement.setAttribute('data-theme', newTheme);
+      updateThemeButtons();
+    }
+  }
+});
 
 // Listen for system theme changes (only if user hasn't set a manual preference)
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
-  const savedTheme = localStorage.getItem('theme');
-  if (!savedTheme) {
-    // Only update if user hasn't manually set a preference
-    const theme = e.matches ? 'dark' : 'light';
-    document.documentElement.setAttribute('data-theme', theme);
-  }
+  chrome.storage.local.get(['theme-preference'], (result) => {
+    if (!result['theme-preference']) {
+      // Only update if user hasn't manually set a preference
+      const theme = e.matches ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-theme', theme);
+    }
+  });
 });
 
 // Initialize theme before DOM loads
@@ -150,9 +164,7 @@ function setupEventListeners() {
   if (lightThemeBtn) {
     lightThemeBtn.addEventListener('click', () => {
       document.documentElement.setAttribute('data-theme', 'light');
-      localStorage.setItem('theme', 'light');
-      // Also save to chrome.storage so chat view inherits the theme
-      chrome.storage.local.set({ theme: 'light' });
+      chrome.storage.local.set({ 'theme-preference': 'light' });
       updateThemeButtons();
     });
   }
@@ -160,9 +172,7 @@ function setupEventListeners() {
   if (darkThemeBtn) {
     darkThemeBtn.addEventListener('click', () => {
       document.documentElement.setAttribute('data-theme', 'dark');
-      localStorage.setItem('theme', 'dark');
-      // Also save to chrome.storage so chat view inherits the theme
-      chrome.storage.local.set({ theme: 'dark' });
+      chrome.storage.local.set({ 'theme-preference': 'dark' });
       updateThemeButtons();
     });
   }
@@ -175,8 +185,7 @@ function setupEventListeners() {
       const newTheme = currentTheme === 'light' ? 'dark' : 'light';
 
       document.documentElement.setAttribute('data-theme', newTheme);
-      localStorage.setItem('theme', newTheme);
-      chrome.storage.local.set({ theme: newTheme });
+      chrome.storage.local.set({ 'theme-preference': newTheme });
     });
   }
 
@@ -215,26 +224,28 @@ function setupEventListeners() {
   }
 
   function updateThemeButtons() {
-    const savedTheme = localStorage.getItem('theme');
-    let currentTheme;
+    chrome.storage.local.get(['theme-preference'], (result) => {
+      const savedTheme = result['theme-preference'];
+      let currentTheme;
 
-    if (savedTheme) {
-      currentTheme = savedTheme;
-    } else {
-      // No saved preference, check system
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      currentTheme = prefersDark ? 'dark' : 'light';
-    }
-
-    if (lightThemeBtn && darkThemeBtn) {
-      if (currentTheme === 'light') {
-        lightThemeBtn.classList.add('active');
-        darkThemeBtn.classList.remove('active');
+      if (savedTheme) {
+        currentTheme = savedTheme;
       } else {
-        lightThemeBtn.classList.remove('active');
-        darkThemeBtn.classList.add('active');
+        // No saved preference, check system
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        currentTheme = prefersDark ? 'dark' : 'light';
       }
-    }
+
+      if (lightThemeBtn && darkThemeBtn) {
+        if (currentTheme === 'light') {
+          lightThemeBtn.classList.add('active');
+          darkThemeBtn.classList.remove('active');
+        } else {
+          lightThemeBtn.classList.remove('active');
+          darkThemeBtn.classList.add('active');
+        }
+      }
+    });
   }
 
   // Add listeners to category checkboxes in simple view
