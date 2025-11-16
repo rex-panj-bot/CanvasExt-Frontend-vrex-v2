@@ -1578,10 +1578,11 @@ body {
   gap: 6px;
   align-items: center;
   flex: 1;
+  margin-top: -2px;
 }
 
 .mode-btn-compact {
-  padding: 6px 12px 8px 12px;
+  padding: 7px 12px;
   background: rgba(30, 41, 59, 0.5);
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -1808,25 +1809,39 @@ body {
   min-width: 28px;
   min-height: 28px;
   padding: 0;
-  background: var(--error);
+  background: #dc2626;
   color: white;
   border: none;
-  border-radius: 50%;
+  border-radius: 6px;
   cursor: pointer;
-  transition: all 0.2s;
-  display: flex;
+  transition: all 0.2s ease;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
 }
 
 .btn-stop svg {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
 }
 
 .btn-stop:hover {
-  background: #dc2626;
-  transform: scale(1.05);
+  background: #b91c1c;
+}
+
+.btn-stop:focus-visible {
+  outline: none;
+  ring: 2px;
+  ring-color: rgba(220, 38, 38, 0.5);
+  ring-offset: 2px;
+  box-shadow: 0 0 0 2px white, 0 0 0 4px rgba(220, 38, 38, 0.5);
+}
+
+.btn-stop:disabled {
+  pointer-events: none;
+  opacity: 0.5;
 }
 
 /* Legacy send-btn id support */
