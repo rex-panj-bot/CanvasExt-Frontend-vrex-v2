@@ -85,6 +85,7 @@ class SessionAuth {
 
   /**
    * Test if session is valid by making a test API call
+   * Also captures and stores the Canvas user ID
    */
   async testSession() {
     try {
@@ -112,6 +113,17 @@ class SessionAuth {
       if (response.ok) {
         const data = await response.json();
         console.log('Session valid! User:', data.name || data.id);
+
+        // Save Canvas user ID for user-specific data tracking
+        if (data.id && typeof StorageManager !== 'undefined') {
+          try {
+            await StorageManager.saveCanvasUserId(data.id);
+            console.log('Canvas user ID saved:', data.id);
+          } catch (err) {
+            console.warn('Failed to save Canvas user ID:', err);
+          }
+        }
+
         return true;
       }
 

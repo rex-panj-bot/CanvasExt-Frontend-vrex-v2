@@ -596,8 +596,17 @@ async function handleBackgroundLoading(request) {
           formData.append('files', file.blob, file.name);
         });
 
+        // Get Canvas user ID for user-specific tracking
+        const storageData = await chrome.storage.local.get(['canvasUserId']);
+        const headers = {};
+        if (storageData.canvasUserId) {
+          headers['X-Canvas-User-Id'] = storageData.canvasUserId;
+          console.log(`📤 Including Canvas User ID: ${storageData.canvasUserId}`);
+        }
+
         const response = await fetch(`${backendUrl}/upload_pdfs?course_id=${courseId}`, {
           method: 'POST',
+          headers: headers,
           body: formData
         });
 
@@ -798,8 +807,16 @@ async function handleBackgroundDownloads(downloadTask) {
             formData.append('files', file.blob, file.name);
           });
 
+          // Get Canvas user ID for user-specific tracking
+          const storageData = await chrome.storage.local.get(['canvasUserId']);
+          const headers = {};
+          if (storageData.canvasUserId) {
+            headers['X-Canvas-User-Id'] = storageData.canvasUserId;
+          }
+
           const response = await fetch(`${backendUrl}/upload_pdfs?course_id=${courseId}`, {
             method: 'POST',
+            headers: headers,
             body: formData
           });
 

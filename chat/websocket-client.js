@@ -376,8 +376,17 @@ class BackendClient {
     }
 
     try {
+      // Get Canvas user ID for user-specific tracking
+      const canvasUserId = await StorageManager.getCanvasUserId();
+      const headers = {};
+      if (canvasUserId) {
+        headers['X-Canvas-User-Id'] = canvasUserId;
+        console.log(`📤 Including Canvas User ID: ${canvasUserId}`);
+      }
+
       const response = await fetch(`${this.backendUrl}/upload_pdfs?course_id=${courseId}`, {
         method: 'POST',
+        headers: headers,
         body: formData
       });
 

@@ -1717,12 +1717,50 @@ function setupEventListeners() {
   document.getElementById('clear-all-data-btn')?.addEventListener('click', async () => {
     const confirmed = await showConfirmDialog(
       'Clear All Data',
-      'This will delete all stored data including your Canvas session, course materials, and chat history. This action cannot be undone. Continue?'
+      'This will PERMANENTLY delete all your uploaded files from our servers, all chat history, and all course materials. This action cannot be undone. Continue?'
     );
     if (confirmed) {
-      await StorageManager.clearAll();
-      // Redirect to popup to set up Canvas authentication
-      window.location.href = '../popup/popup-v2.html';
+      try {
+        // Get Canvas user ID for backend deletion
+        const canvasUserId = await StorageManager.getCanvasUserId();
+
+        if (canvasUserId) {
+          // Delete all user data from backend (GCS, database)
+          const backendUrl = 'https://web-production-9aaba7.up.railway.app';
+          console.log(`🗑️  Deleting all backend data for user ${canvasUserId}...`);
+
+          const response = await fetch(`${backendUrl}/users/${canvasUserId}/data`, {
+            method: 'DELETE'
+          });
+
+          if (response.ok) {
+            const result = await response.json();
+            console.log('✅ Backend data deleted:', result);
+          } else {
+            console.error('❌ Failed to delete backend data:', response.status);
+            // Continue with local cleanup even if backend fails
+          }
+        } else {
+          console.warn('⚠️  No Canvas user ID found, skipping backend deletion');
+        }
+
+        // Clear local storage (IndexedDB, chrome.storage.local)
+        const materialsDB = new MaterialsDB();
+        const courseIds = await materialsDB.listCourses();
+        for (const courseId of courseIds) {
+          await materialsDB.deleteMaterials(courseId);
+        }
+        await materialsDB.close();
+
+        await StorageManager.clearAll();
+        console.log('✅ All local data cleared');
+
+        // Redirect to popup to set up Canvas authentication
+        window.location.href = '../popup/popup-v2.html';
+      } catch (error) {
+        console.error('❌ Error clearing all data:', error);
+        alert('An error occurred while clearing data. Please try again.');
+      }
     }
   });
 

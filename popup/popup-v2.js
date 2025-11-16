@@ -369,6 +369,12 @@ async function loadMainScreen() {
       canvasAPI = new CanvasAPI(url, null, 'session');
     }
 
+    // Fetch and store Canvas user ID if not already stored
+    const existingUserId = await StorageManager.getCanvasUserId();
+    if (!existingUserId && canvasAPI) {
+      await canvasAPI.fetchAndStoreUserId();
+    }
+
     showScreen('main');
     await loadCourses();
     await loadRecentCourses();

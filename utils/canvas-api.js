@@ -401,6 +401,27 @@ class CanvasAPI {
       return false;
     }
   }
+
+  /**
+   * Fetch and store Canvas user ID
+   * Returns the user ID if successful, null otherwise
+   */
+  async fetchAndStoreUserId() {
+    try {
+      const userData = await this.makeRequest('/api/v1/users/self');
+      const user = Array.isArray(userData) ? userData[0] : userData;
+
+      if (user && user.id && typeof StorageManager !== 'undefined') {
+        await StorageManager.saveCanvasUserId(user.id);
+        console.log('Canvas user ID saved:', user.id);
+        return user.id;
+      }
+      return null;
+    } catch (error) {
+      console.error('Error fetching Canvas user ID:', error);
+      return null;
+    }
+  }
 }
 
 // Export for use in other scripts
