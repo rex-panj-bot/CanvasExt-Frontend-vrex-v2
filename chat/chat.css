@@ -2946,7 +2946,7 @@ body {
   height: 100%;
   background: white;
   width: 0%;
-  transition: width 0.3s ease;
+  transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
   border-radius: 3px;
 }
 

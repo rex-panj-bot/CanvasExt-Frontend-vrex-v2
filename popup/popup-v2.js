@@ -329,7 +329,24 @@ async function handleSessionContinue() {
     btn.disabled = true;
     btn.textContent = 'Checking login status...';
 
-    const url = await StorageManager.getCanvasUrl();
+    // First check if URL has been entered
+    const urlInput = document.getElementById('session-canvas-url');
+    let url = await StorageManager.getCanvasUrl();
+
+    // If no URL saved yet, try to save from input field
+    if (!url && urlInput && urlInput.value.trim()) {
+      await StorageManager.saveCanvasUrl(urlInput.value.trim());
+      await StorageManager.saveAuthMethod('session');
+      url = await StorageManager.getCanvasUrl();
+    }
+
+    if (!url) {
+      showError(errorEl, 'Please enter your Canvas URL first');
+      btn.disabled = false;
+      btn.textContent = 'I\'m Logged In - Continue';
+      return;
+    }
+
     const sessionAuth = new SessionAuth(url);
 
     // Test if logged in
@@ -983,7 +1000,11 @@ async function continueLoadingInBackground(courseId, courseName, filesToDownload
           const ext = mimeToExt[blob.type];
           if (ext) fileName = fileName + ext;
         }
-        downloadedFiles.push({ blob, name: fileName });
+
+        // Compute hash immediately at download time for hash-based identification
+        const hash = await computeFileHash(blob);
+
+        downloadedFiles.push({ blob, name: fileName, hash, canvasId: file.id });
         completed++;
 
         // Send progress update
@@ -1073,12 +1094,15 @@ async function continueLoadingInBackground(courseId, courseName, filesToDownload
       }
     }
 
-    // Attach blobs to materials
+    // Attach blobs and hashes to materials
     const blobMap = new Map();
+    const hashMap = new Map();
     downloadedFiles.forEach(df => {
       blobMap.set(df.name, df.blob);
+      hashMap.set(df.name, df.hash);
       const nameWithoutExt = df.name.replace(/\.(pdf|docx?|txt|xlsx?|pptx?|csv|md|rtf|png|jpe?g|gif|webp|bmp)$/i, '');
       blobMap.set(nameWithoutExt, df.blob);
+      hashMap.set(nameWithoutExt, df.hash);
     });
 
     // Attach to all items
@@ -1088,6 +1112,7 @@ async function continueLoadingInBackground(courseId, courseName, filesToDownload
         let itemName = item.display_name || item.filename || item.name || item.title;
         if (itemName && blobMap.has(itemName)) {
           item.blob = blobMap.get(itemName);
+          item.hash = hashMap.get(itemName);
           for (const [fileName, blob] of blobMap) {
             if (blob === item.blob && fileName.includes('.')) {
               item.stored_name = fileName;
@@ -1106,6 +1131,7 @@ async function continueLoadingInBackground(courseId, courseName, filesToDownload
             let itemName = item.title || item.name || item.display_name;
             if (itemName && blobMap.has(itemName)) {
               item.blob = blobMap.get(itemName);
+              item.hash = hashMap.get(itemName);
               for (const [fileName, blob] of blobMap) {
                 if (blob === item.blob && fileName.includes('.')) {
                   item.stored_name = fileName;
@@ -1233,7 +1259,8 @@ async function createStudyBot() {
       filesToProcess.push({
         name: itemName,
         url: item.url,
-        id: item.id || item.file_id  // Canvas file ID for fresh URL generation
+        id: item.id || item.file_id,  // Canvas file ID for fresh URL generation
+        blob: item.blob  // Include blob if available (for hash computation)
       });
     };
 
@@ -1424,6 +1451,73 @@ async function createStudyBot() {
         }));
         const hashDuration = Date.now() - hashStartTime;
         console.log(`✅ Computed hashes for ${filesWithHashes.length} files in ${hashDuration}ms`);
+
+        // CRITICAL: Update materials with computed hashes so they're saved to IndexedDB
+        // This enables pure hash-based matching when backend returns
+        const hashMap = new Map();
+        filesWithHashes.forEach(f => {
+          if (f.hash) {
+            hashMap.set(f.name, f.hash);
+            // Also map without extension
+            const nameWithoutExt = f.name.replace(/\.(pdf|docx?|txt|xlsx?|pptx?|csv|md|rtf|png|jpe?g|gif|webp|bmp)$/i, '');
+            hashMap.set(nameWithoutExt, f.hash);
+          }
+        });
+
+        console.log(`🔍 [DEBUG] Hash map has ${hashMap.size} entries:`, Array.from(hashMap.keys()).slice(0, 5));
+
+        // Update all material categories with hashes
+        let hashesApplied = 0;
+        const categories = ['files', 'pages', 'assignments'];
+        for (const category of categories) {
+          if (!materialsToProcess[category]) continue;
+          materialsToProcess[category].forEach(item => {
+            // Try multiple possible name properties
+            const possibleNames = [
+              item.stored_name,
+              item.display_name,
+              item.filename,
+              item.name,
+              item.title
+            ].filter(Boolean);
+
+            for (const itemName of possibleNames) {
+              if (hashMap.has(itemName)) {
+                item.hash = hashMap.get(itemName);
+                hashesApplied++;
+                console.log(`  ✅ Applied hash to ${category} item: "${itemName}"`);
+                break;
+              }
+            }
+          });
+        }
+
+        // Update module items with hashes
+        if (materialsToProcess.modules) {
+          materialsToProcess.modules.forEach(module => {
+            if (module.items) {
+              module.items.forEach(item => {
+                const possibleNames = [
+                  item.stored_name,
+                  item.title,
+                  item.name,
+                  item.display_name
+                ].filter(Boolean);
+
+                for (const itemName of possibleNames) {
+                  if (hashMap.has(itemName)) {
+                    item.hash = hashMap.get(itemName);
+                    hashesApplied++;
+                    console.log(`  ✅ Applied hash to module item: "${itemName}"`);
+                    break;
+                  }
+                }
+              });
+            }
+          });
+        }
+
+        console.log(`✅ Applied hashes to ${hashesApplied} materials (hash map had ${hashMap.size} entries)`);
       } else {
         console.log(`⚡ Skipping hash computation - backend will download and hash files`);
       }

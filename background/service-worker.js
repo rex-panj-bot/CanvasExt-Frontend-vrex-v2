@@ -144,24 +144,65 @@ async function updateMaterialsWithStoredNames(courseId, uploadedFiles) {
     const courseName = materialsData.courseName;
     let updatedCount = 0;
 
-    // HASH-BASED: Create mapping: original_name -> {doc_id, hash, stored_name}
-    const fileMetadataMap = new Map();
+    // PURE HASH-BASED: Create mapping: hash -> {doc_id, stored_name}
+    const hashToMetadataMap = new Map();
+    // FILENAME FALLBACK: For first upload when materials don't have hashes yet
+    const filenameToMetadataMap = new Map();
     uploadedFiles.forEach(file => {
-      // Backend should return: filename (original), doc_id, hash, path, etc.
-      const originalName = file.filename || file.original_name;
-      if (originalName) {
-        fileMetadataMap.set(originalName, {
+      // Backend returns: hash, doc_id, path, filename
+      if (file.hash) {
+        hashToMetadataMap.set(file.hash, {
           doc_id: file.doc_id,        // Hash-based ID: {course_id}_{hash}
-          hash: file.hash,            // SHA-256 content hash
-          stored_name: file.path || file.stored_name  // GCS path or stored filename
+          hash: file.hash,            // Store hash for materials without it
+          stored_name: file.path || file.stored_name  // GCS path
+        });
+      }
+      // Also create filename mapping for fallback
+      const originalName = file.filename || file.original_name;
+      if (originalName && file.hash) {
+        filenameToMetadataMap.set(originalName, {
+          doc_id: file.doc_id,
+          hash: file.hash,
+          stored_name: file.path || file.stored_name
+        });
+        // Also map without extension
+        const nameWithoutExt = originalName.replace(/\.(pdf|docx?|txt|xlsx?|pptx?|csv|md|rtf|png|jpe?g|gif|webp|bmp)$/i, '');
+        filenameToMetadataMap.set(nameWithoutExt, {
+          doc_id: file.doc_id,
+          hash: file.hash,
+          stored_name: file.path || file.stored_name
         });
       }
     });
 
-    console.log(`📝 Updating materials with ${fileMetadataMap.size} hash-based IDs...`);
+    console.log(`📝 Updating materials with ${hashToMetadataMap.size} hash-based IDs (+ ${filenameToMetadataMap.size} filename fallbacks)...`);
 
-    // Update all material categories
+    // DEBUG: Check if materials have hashes
+    let materialsWithHashes = 0;
+    let materialsWithoutHashes = 0;
     const categories = ['files', 'pages', 'assignments', 'modules'];
+
+    for (const category of categories) {
+      if (!materials[category]) continue;
+      if (category === 'modules') {
+        materials[category].forEach(module => {
+          if (module.items) {
+            module.items.forEach(item => {
+              if (item.hash) materialsWithHashes++;
+              else materialsWithoutHashes++;
+            });
+          }
+        });
+      } else {
+        materials[category].forEach(item => {
+          if (item.hash) materialsWithHashes++;
+          else materialsWithoutHashes++;
+        });
+      }
+    }
+    console.log(`🔍 [DEBUG] Materials in IndexedDB: ${materialsWithHashes} WITH hashes, ${materialsWithoutHashes} WITHOUT hashes`);
+
+    // Update all material categories using HASH as the key, with filename fallback
     for (const category of categories) {
       if (!materials[category]) continue;
 
@@ -170,14 +211,24 @@ async function updateMaterialsWithStoredNames(courseId, uploadedFiles) {
         materials[category].forEach(module => {
           if (module.items) {
             module.items.forEach(item => {
-              const originalName = item.title || item.name || item.display_name;
-              if (originalName && fileMetadataMap.has(originalName)) {
-                const metadata = fileMetadataMap.get(originalName);
+              const itemName = item.title || item.name || item.display_name;
+              // Match by hash first (preferred)
+              if (item.hash && hashToMetadataMap.has(item.hash)) {
+                const metadata = hashToMetadataMap.get(item.hash);
                 item.doc_id = metadata.doc_id;           // HASH-BASED ID
-                item.hash = metadata.hash;               // Content hash
                 item.stored_name = metadata.stored_name; // GCS path
                 updatedCount++;
-                console.log(`  ✅ Updated: "${originalName}" → ID: ${metadata.doc_id?.substring(0, 24)}... (hash: ${metadata.hash?.substring(0, 16)}...)`);
+                console.log(`  ✅ Updated (hash): "${itemName}" → ID: ${metadata.doc_id?.substring(0, 24)}...`);
+              } else if (!item.hash && itemName && filenameToMetadataMap.has(itemName)) {
+                // Fallback to filename match (first upload - bootstrap hash)
+                const metadata = filenameToMetadataMap.get(itemName);
+                item.doc_id = metadata.doc_id;
+                item.hash = metadata.hash;               // BOOTSTRAP: Store hash from backend
+                item.stored_name = metadata.stored_name;
+                updatedCount++;
+                console.log(`  ✅ Updated (filename fallback): "${itemName}" → ID: ${metadata.doc_id?.substring(0, 24)}... (hash: ${metadata.hash?.substring(0, 16)}...)`);
+              } else if (!item.hash) {
+                console.log(`  ⚠️ No match for module item: "${itemName}"`);
               }
             });
           }
@@ -185,14 +236,24 @@ async function updateMaterialsWithStoredNames(courseId, uploadedFiles) {
       } else {
         // Handle standalone files/pages/assignments
         materials[category].forEach(item => {
-          const originalName = item.name || item.display_name || item.title;
-          if (originalName && fileMetadataMap.has(originalName)) {
-            const metadata = fileMetadataMap.get(originalName);
+          const itemName = item.name || item.display_name || item.title;
+          // Match by hash first (preferred)
+          if (item.hash && hashToMetadataMap.has(item.hash)) {
+            const metadata = hashToMetadataMap.get(item.hash);
             item.doc_id = metadata.doc_id;           // HASH-BASED ID
-            item.hash = metadata.hash;               // Content hash
             item.stored_name = metadata.stored_name; // GCS path
             updatedCount++;
-            console.log(`  ✅ Updated: "${originalName}" → ID: ${metadata.doc_id?.substring(0, 24)}... (hash: ${metadata.hash?.substring(0, 16)}...)`);
+            console.log(`  ✅ Updated (hash): "${itemName}" → ID: ${metadata.doc_id?.substring(0, 24)}...`);
+          } else if (!item.hash && itemName && filenameToMetadataMap.has(itemName)) {
+            // Fallback to filename match (first upload - bootstrap hash)
+            const metadata = filenameToMetadataMap.get(itemName);
+            item.doc_id = metadata.doc_id;
+            item.hash = metadata.hash;               // BOOTSTRAP: Store hash from backend
+            item.stored_name = metadata.stored_name;
+            updatedCount++;
+            console.log(`  ✅ Updated (filename fallback): "${itemName}" → ID: ${metadata.doc_id?.substring(0, 24)}... (hash: ${metadata.hash?.substring(0, 16)}...)`);
+          } else if (!item.hash) {
+            console.log(`  ⚠️ No match for ${category} item: "${itemName}"`);
           }
         });
       }
@@ -296,20 +357,21 @@ async function fetchAndMergeBackendMaterials(courseId) {
     const courseName = materialsData.courseName;
     let mergedCount = 0;
 
-    // Create mapping: original filename -> backend material metadata
-    const backendMap = new Map();
+    // PURE HASH-BASED: Create mapping: hash -> backend material metadata
+    const hashToBackendMap = new Map();
     data.materials.forEach(mat => {
       // Backend material has: id (hash-based), name (original filename), hash, path, etc.
-      backendMap.set(mat.name, {
-        doc_id: mat.id,      // Hash-based doc ID
-        hash: mat.hash,      // Content hash
-        path: mat.path       // GCS path
-      });
+      if (mat.hash) {
+        hashToBackendMap.set(mat.hash, {
+          doc_id: mat.id,      // Hash-based doc ID
+          path: mat.path       // GCS path
+        });
+      }
     });
 
-    console.log(`🔍 Merging backend metadata into ${backendMap.size} materials...`);
+    console.log(`🔍 Merging backend metadata into ${hashToBackendMap.size} materials (pure hash matching)...`);
 
-    // Merge backend metadata into frontend materials
+    // Merge backend metadata into frontend materials using HASH as the key
     const categories = ['files', 'pages', 'assignments', 'modules'];
     for (const category of categories) {
       if (!materials[category]) continue;
@@ -318,28 +380,28 @@ async function fetchAndMergeBackendMaterials(courseId) {
         materials[category].forEach(module => {
           if (module.items) {
             module.items.forEach(item => {
-              const originalName = item.title || item.name || item.display_name;
-              if (originalName && backendMap.has(originalName)) {
-                const metadata = backendMap.get(originalName);
+              // Match by hash - materials already have hash from download time
+              if (item.hash && hashToBackendMap.has(item.hash)) {
+                const metadata = hashToBackendMap.get(item.hash);
                 item.doc_id = metadata.doc_id;
-                item.hash = metadata.hash;
                 item.stored_name = metadata.path;
                 mergedCount++;
-                console.log(`  ✅ Merged: "${originalName}" → ID: ${metadata.doc_id?.substring(0, 24)}...`);
+                const itemName = item.title || item.name || item.display_name;
+                console.log(`  ✅ Merged: "${itemName}" (hash: ${item.hash?.substring(0, 16)}...) → ID: ${metadata.doc_id?.substring(0, 24)}...`);
               }
             });
           }
         });
       } else {
         materials[category].forEach(item => {
-          const originalName = item.name || item.display_name || item.title;
-          if (originalName && backendMap.has(originalName)) {
-            const metadata = backendMap.get(originalName);
+          // Match by hash - materials already have hash from download time
+          if (item.hash && hashToBackendMap.has(item.hash)) {
+            const metadata = hashToBackendMap.get(item.hash);
             item.doc_id = metadata.doc_id;
-            item.hash = metadata.hash;
             item.stored_name = metadata.path;
             mergedCount++;
-            console.log(`  ✅ Merged: "${originalName}" → ID: ${metadata.doc_id?.substring(0, 24)}...`);
+            const itemName = item.name || item.display_name || item.title;
+            console.log(`  ✅ Merged: "${itemName}" (hash: ${item.hash?.substring(0, 16)}...) → ID: ${metadata.doc_id?.substring(0, 24)}...`);
           }
         });
       }

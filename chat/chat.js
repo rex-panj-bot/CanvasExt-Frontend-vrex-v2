@@ -181,6 +181,63 @@ function setupBackgroundLoadingListener() {
   // Track if we ever found a task
   let taskFound = false;
 
+  // Smooth progress tracking
+  let lastKnownFiles = 0;
+  let targetFiles = 0;
+  let displayedFiles = 0;
+  let smoothProgressInterval = null;
+  let lastStatusMessage = '';
+
+  // Status messages for variety
+  const uploadMessages = [
+    'Processing your course materials...',
+    'Uploading files to cloud storage...',
+    'Preparing materials for AI analysis...',
+    'Converting documents for study bot...',
+    'Syncing with backend server...',
+    'Optimizing files for quick access...'
+  ];
+
+  // Get varied status message based on progress
+  const getStatusMessage = (uploaded, total, percent) => {
+    if (percent < 20) return 'Starting upload...';
+    if (percent < 40) return 'Processing course materials...';
+    if (percent < 60) return 'Uploading to cloud storage...';
+    if (percent < 80) return 'Preparing for AI analysis...';
+    if (percent < 95) return 'Almost there...';
+    return 'Finalizing upload...';
+  };
+
+  // Smooth progress animation function
+  const startSmoothProgress = (current, target, total) => {
+    if (smoothProgressInterval) {
+      clearInterval(smoothProgressInterval);
+    }
+
+    displayedFiles = current;
+    targetFiles = target;
+
+    // Animate progress smoothly between batch updates
+    smoothProgressInterval = setInterval(() => {
+      if (displayedFiles < targetFiles) {
+        // Increment by small amounts for smooth animation
+        displayedFiles = Math.min(displayedFiles + 0.1, targetFiles);
+        const smoothPercent = total > 0 ? (displayedFiles / total) * 100 : 0;
+
+        const progressFill = document.getElementById('loading-progress-fill');
+        if (progressFill) {
+          progressFill.style.width = smoothPercent + '%';
+        }
+
+        // Update message with rounded file count
+        const displayCount = Math.floor(displayedFiles);
+        const displayPercent = Math.round(smoothPercent);
+        const statusMsg = getStatusMessage(displayCount, total, displayPercent);
+        showLoadingBanner(`${statusMsg} (${displayCount}/${total} files - ${displayPercent}%)`);
+      }
+    }, 50); // Update every 50ms for smooth animation
+  };
+
   // Poll chrome.storage.local for upload/download task updates
   const pollInterval = setInterval(() => {
     chrome.storage.local.get(['uploadTask', 'downloadTask'], async (result) => {
@@ -198,6 +255,7 @@ function setupBackgroundLoadingListener() {
               console.log('⏱️ [CHAT] No task found, hiding banner');
               hideLoadingBanner();
               clearInterval(pollInterval);
+              if (smoothProgressInterval) clearInterval(smoothProgressInterval);
             }
           }, 2000);
         }
@@ -215,16 +273,16 @@ function setupBackgroundLoadingListener() {
       console.log(`📥 [CHAT] ${taskType} task status:`, task.status);
 
       if (task.status === 'uploading') {
-        // Show upload progress with individual file count
-        const percent = task.totalFiles > 0
-          ? Math.round((task.uploadedFiles / task.totalFiles) * 100)
-          : 0;
-        showLoadingBanner(`Uploading ${task.uploadedFiles}/${task.totalFiles} files (${percent}%)`);
-
-        // Update progress bar
-        const progressFill = document.getElementById('loading-progress-fill');
-        if (progressFill) {
-          progressFill.style.width = percent + '%';
+        // Check if actual progress changed (new batch completed)
+        if (task.uploadedFiles > lastKnownFiles) {
+          console.log(`📊 [CHAT] Batch completed: ${lastKnownFiles} -> ${task.uploadedFiles} / ${task.totalFiles}`);
+          lastKnownFiles = task.uploadedFiles;
+          // Start smooth animation to new target
+          startSmoothProgress(displayedFiles, task.uploadedFiles, task.totalFiles);
+        } else if (lastKnownFiles === 0 && task.totalFiles > 0) {
+          // Initial state - start smooth progress from 0
+          startSmoothProgress(0, 0, task.totalFiles);
+          showLoadingBanner(`Starting upload... (0/${task.totalFiles} files - 0%)`);
         }
 
       } else if (task.status === 'downloading') {
@@ -246,6 +304,7 @@ function setupBackgroundLoadingListener() {
       } else if (task.status === 'complete') {
         console.log(`✅ [CHAT] ${taskType} complete!`);
         clearInterval(pollInterval); // Stop polling
+        if (smoothProgressInterval) clearInterval(smoothProgressInterval); // Stop smooth animation
         showLoadingBanner('All files uploaded! Ready to chat.', 'success');
 
         // Set progress bar to 100%
@@ -272,6 +331,7 @@ function setupBackgroundLoadingListener() {
       } else if (task.status === 'error') {
         console.error(`❌ [CHAT] ${taskType} error:`, task.error);
         clearInterval(pollInterval); // Stop polling
+        if (smoothProgressInterval) clearInterval(smoothProgressInterval); // Stop smooth animation
         showLoadingBanner(`Error: ${task.error || 'Unknown error'}`, 'error');
         setTimeout(() => hideLoadingBanner(), 5000);
       }
@@ -1708,8 +1768,8 @@ function setupEventListeners() {
     );
     if (confirmed) {
       await StorageManager.clearAll();
-      // Redirect to popup to set up Canvas authentication
-      window.location.href = '../popup/popup-v2.html';
+      // Close the chat window instead of redirecting to popup (which causes full window issue)
+      window.close();
     }
   });
 
@@ -1720,7 +1780,16 @@ function setupEventListeners() {
       'This will PERMANENTLY delete all your uploaded files from our servers, all chat history, and all course materials. This action cannot be undone. Continue?'
     );
     if (confirmed) {
+      const clearBtn = document.getElementById('clear-all-data-btn');
+      const originalText = clearBtn?.textContent;
+
       try {
+        // Show loading state
+        if (clearBtn) {
+          clearBtn.disabled = true;
+          clearBtn.textContent = 'Deleting files from server...';
+        }
+
         // Get Canvas user ID for backend deletion
         const canvasUserId = await StorageManager.getCanvasUserId();
 
@@ -1744,6 +1813,11 @@ function setupEventListeners() {
           console.warn('⚠️  No Canvas user ID found, skipping backend deletion');
         }
 
+        // Update loading state
+        if (clearBtn) {
+          clearBtn.textContent = 'Clearing local data...';
+        }
+
         // Clear local storage (IndexedDB, chrome.storage.local)
         const materialsDB = new MaterialsDB();
         const courseIds = await materialsDB.listCourses();
@@ -1755,11 +1829,24 @@ function setupEventListeners() {
         await StorageManager.clearAll();
         console.log('✅ All local data cleared');
 
-        // Redirect to popup to set up Canvas authentication
-        window.location.href = '../popup/popup-v2.html';
+        // Show success and close window
+        if (clearBtn) {
+          clearBtn.textContent = 'All data cleared! Closing...';
+        }
+
+        // Close the chat window instead of redirecting to popup (which causes full window issue)
+        setTimeout(() => {
+          window.close();
+        }, 1000);
       } catch (error) {
         console.error('❌ Error clearing all data:', error);
         alert('An error occurred while clearing data. Please try again.');
+
+        // Reset button state on error
+        if (clearBtn) {
+          clearBtn.disabled = false;
+          clearBtn.textContent = originalText || 'Clear All Data';
+        }
       }
     }
   });
@@ -4059,7 +4146,6 @@ function showApiKeyModal() {
   const modal = document.getElementById('apiKeyModal');
   const input = document.getElementById('apiKeyModalInput');
   const saveBtn = document.getElementById('saveApiKeyModalBtn');
-  const settingsBtn = document.getElementById('openSettingsModalBtn');
   const status = document.getElementById('apiKeyModalStatus');
 
   if (!modal) {
@@ -4128,11 +4214,6 @@ function showApiKeyModal() {
         window.location.reload();
       }, 1500);
     }
-  };
-
-  // Settings button - open full settings page
-  settingsBtn.onclick = () => {
-    window.open(chrome.runtime.getURL('popup/settings.html'), '_blank');
   };
 
   // Enter key to save
