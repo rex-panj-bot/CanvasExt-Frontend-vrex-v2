@@ -215,11 +215,11 @@ function setupBackgroundLoadingListener() {
       console.log(`📥 [CHAT] ${taskType} task status:`, task.status);
 
       if (task.status === 'uploading') {
-        // Show upload progress with individual file count
+        // Show upload progress with total file count only
         const percent = task.totalFiles > 0
           ? Math.round((task.uploadedFiles / task.totalFiles) * 100)
           : 0;
-        showLoadingBanner(`Uploading ${task.uploadedFiles}/${task.totalFiles} files (${percent}%)`);
+        showLoadingBanner(`Uploading ${task.totalFiles} files`);
 
         // Update progress bar
         const progressFill = document.getElementById('loading-progress-fill');
@@ -614,9 +614,10 @@ function displayMaterials() {
                 ${file.title || file.name}
               </label>
               <button class="open-material-btn" title="Open file" data-module-idx="${moduleIdx}" data-item-idx="${originalItemIdx}">
-                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-                  <path d="M11 2H13C13.5523 2 14 2.44772 14 3V13C14 13.5523 13.5523 14 13 14H3C2.44772 14 2 13.5523 2 13V3C2 2.44772 2.44772 2 3 2H5" stroke-linecap="round" stroke-linejoin="round"/>
-                  <path d="M10 7L13 4M13 4V7M13 4H10" stroke-linecap="round" stroke-linejoin="round"/>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                  <polyline points="15 3 21 3 21 9"/>
+                  <line x1="10" y1="14" x2="21" y2="3"/>
                 </svg>
               </button>
               <button class="delete-material-btn" title="Remove from AI memory" data-module-idx="${moduleIdx}" data-item-idx="${originalItemIdx}">
@@ -666,9 +667,10 @@ function displayMaterials() {
             ${file.display_name || file.name}
           </label>
           <button class="open-material-btn" title="Open file" data-category="files" data-index="${originalIndex}">
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M11 2H13C13.5523 2 14 2.44772 14 3V13C14 13.5523 13.5523 14 13 14H3C2.44772 14 2 13.5523 2 13V3C2 2.44772 2.44772 2 3 2H5" stroke-linecap="round" stroke-linejoin="round"/>
-              <path d="M10 7L13 4M13 4V7M13 4H10" stroke-linecap="round" stroke-linejoin="round"/>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+              <polyline points="15 3 21 3 21 9"/>
+              <line x1="10" y1="14" x2="21" y2="3"/>
             </svg>
           </button>
           <button class="delete-material-btn" title="Remove from AI memory" data-category="files" data-index="${originalIndex}">
@@ -704,9 +706,10 @@ function displayMaterials() {
           ${page.title}
         </label>
         <button class="open-material-btn" title="Open page" data-category="pages" data-index="${pageIdx}">
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M11 2H13C13.5523 2 14 2.44772 14 3V13C14 13.5523 13.5523 14 13 14H3C2.44772 14 2 13.5523 2 13V3C2 2.44772 2.44772 2 3 2H5" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M10 7L13 4M13 4V7M13 4H10" stroke-linecap="round" stroke-linejoin="round"/>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+            <polyline points="15 3 21 3 21 9"/>
+            <line x1="10" y1="14" x2="21" y2="3"/>
           </svg>
         </button>
         <button class="delete-material-btn" title="Remove from AI memory" data-category="pages" data-index="${pageIdx}">
@@ -741,9 +744,10 @@ function displayMaterials() {
           ${assignment.name}
         </label>
         <button class="open-material-btn" title="Open assignment" data-category="assignments" data-index="${assignmentIdx}">
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M11 2H13C13.5523 2 14 2.44772 14 3V13C14 13.5523 13.5523 14 13 14H3C2.44772 14 2 13.5523 2 13V3C2 2.44772 2.44772 2 3 2H5" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M10 7L13 4M13 4V7M13 4H10" stroke-linecap="round" stroke-linejoin="round"/>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+            <polyline points="15 3 21 3 21 9"/>
+            <line x1="10" y1="14" x2="21" y2="3"/>
           </svg>
         </button>
         <button class="delete-material-btn" title="Remove from AI memory" data-category="assignments" data-index="${assignmentIdx}">

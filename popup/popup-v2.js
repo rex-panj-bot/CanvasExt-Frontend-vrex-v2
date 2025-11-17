@@ -1654,12 +1654,12 @@ function toggleDetailedView() {
   if (detailedViewVisible) {
     simpleView.classList.add('hidden');
     detailedView.classList.remove('hidden');
-    toggleBtn.textContent = '📊 Show Simple View';
+    toggleBtn.querySelector('span').textContent = 'Show Simple View';
     populateDetailedView();
   } else {
     simpleView.classList.remove('hidden');
     detailedView.classList.add('hidden');
-    toggleBtn.textContent = '📋 Show Detailed File List';
+    toggleBtn.querySelector('span').textContent = 'Show Detailed File List';
   }
 }
 
@@ -1674,28 +1674,59 @@ function populateDetailedView() {
   let html = '<div class="file-list-header">';
   html += '<h3>All Course Files</h3>';
   html += '<div class="file-list-actions">';
-  html += '<button id="select-all-files" class="btn btn-secondary btn-small">Select All</button>';
-  html += '<button id="deselect-all-files" class="btn btn-secondary btn-small">Deselect All</button>';
+  html += '<label class="select-all-label">';
+  html += '<input type="checkbox" id="master-select-all" class="master-checkbox">';
+  html += ' <span>Select All</span>';
+  html += '</label>';
   html += '</div>';
   html += '</div>';
 
+  // Handle modules first - display with sub-items like in chat view
+  if (scannedMaterials.modules && scannedMaterials.modules.length > 0) {
+    scannedMaterials.modules.forEach((module, moduleIdx) => {
+      // Only show modules that have files
+      const moduleFiles = module.items?.filter(item => item.type === 'File') || [];
+      if (moduleFiles.length === 0) return;
+
+      html += `<div class="material-module" data-category="modules" data-module-idx="${moduleIdx}">`;
+      html += `<div class="module-header">`;
+      html += `<input type="checkbox" class="module-checkbox" id="module-${moduleIdx}" data-module-idx="${moduleIdx}">`;
+      html += ` <span class="module-name">${module.name || `Module ${moduleIdx + 1}`}</span>`;
+      html += `</div>`;
+      html += `<div class="module-items">`;
+
+      moduleFiles.forEach((file, fileIdx) => {
+        const fileId = `modules-${moduleIdx}-${fileIdx}`;
+        const checked = selectedFiles.has(fileId) || selectedFiles.size === 0 ? 'checked' : '';
+        const fileName = file.title || file.name || 'Unnamed File';
+
+        html += `<div class="file-item" style="padding-left: 24px;">`;
+        html += `<input type="checkbox" id="file-${fileId}" ${checked} data-category="modules" data-module-idx="${moduleIdx}" data-file-idx="${fileIdx}">`;
+        html += ` <label for="file-${fileId}">`;
+        html += `<span class="file-name">${fileName}</span>`;
+        html += `</label>`;
+        html += `</div>`;
+      });
+
+      html += `</div></div>`;
+    });
+  }
+
+  // Handle standalone files, pages, assignments
   const categoryLabels = {
-    modules: { name: 'Modules', icon: '📚' },
-    files: { name: 'Files', icon: '📄' },
-    pages: { name: 'Pages', icon: '📝' },
-    assignments: { name: 'Assignments', icon: '✏️' }
+    files: 'Standalone Files',
+    pages: 'Pages',
+    assignments: 'Assignments'
   };
 
-  for (const [category, items] of Object.entries(scannedMaterials)) {
-    if (category === 'errors' || !items || items.length === 0) continue;
-
-    const label = categoryLabels[category] || { name: category, icon: '📦' };
+  for (const [category, label] of Object.entries(categoryLabels)) {
+    const items = scannedMaterials[category];
+    if (!items || items.length === 0) continue;
 
     html += `<div class="file-category-section" data-category="${category}">`;
     html += `<div class="file-category-header">`;
-    html += `<input type="checkbox" class="module-checkbox" id="module-${category}" data-category="${category}">`;
-    html += `<span class="category-icon">${label.icon}</span>`;
-    html += `<h4>${label.name} (${items.length})</h4>`;
+    html += `<input type="checkbox" class="category-checkbox" id="category-${category}" data-category="${category}">`;
+    html += ` <strong class="category-label">${label} (${items.length})</strong>`;
     html += `</div>`;
     html += `<div class="file-items">`;
 
@@ -1703,7 +1734,7 @@ function populateDetailedView() {
       const fileId = `${category}-${index}`;
       const checked = selectedFiles.has(fileId) || selectedFiles.size === 0 ? 'checked' : '';
 
-      // Get the correct name property based on category
+      // Get item name based on category
       let itemName = 'Unnamed';
       if (category === 'files') {
         itemName = item.display_name || item.filename || item.name || 'Unnamed File';
@@ -1711,26 +1742,14 @@ function populateDetailedView() {
         itemName = item.title || item.name || 'Unnamed Page';
       } else if (category === 'assignments') {
         itemName = item.name || 'Unnamed Assignment';
-      } else if (category === 'modules') {
-        // Modules contain items, extract from module structure
-        itemName = item.title || item.name || 'Unnamed Module Item';
-      } else {
-        itemName = item.name || item.title || item.display_name || 'Unnamed Item';
       }
 
-      const fileType = item['content-type'] || item.mimeType || item.type || 'unknown';
-      const fileIcon = getFileIcon(fileType);
-
-      html += `<div class="file-item ${item.status === 'download_failed' || item.status === 'processing_error' ? 'file-error' : ''}">`;
+      html += `<div class="file-item">`;
       html += `<input type="checkbox" id="file-${fileId}" ${checked} data-category="${category}" data-index="${index}">`;
-      html += `<label for="file-${fileId}">`;
-      html += `<span class="file-icon">${fileIcon}</span>`;
+      html += ` <label for="file-${fileId}">`;
       html += `<span class="file-name">${itemName}</span>`;
-      if (fileType !== 'unknown') {
-        html += `<span class="file-type">${getFileExtension(itemName) || fileType}</span>`;
-      }
       if (item.status === 'download_failed' || item.status === 'processing_error') {
-        html += `<span class="file-status-error">⚠️ Error</span>`;
+        html += ` <span class="file-status-error">Error</span>`;
       }
       html += `</label>`;
       html += `</div>`;
@@ -1742,7 +1761,7 @@ function populateDetailedView() {
   // Show errors if any
   if (scannedMaterials.errors && scannedMaterials.errors.length > 0) {
     html += `<div class="errors-section">`;
-    html += `<h4>⚠️ Resource Errors (${scannedMaterials.errors.length})</h4>`;
+    html += `<h4>Resource Errors (${scannedMaterials.errors.length})</h4>`;
     scannedMaterials.errors.forEach(err => {
       html += `<div class="error-item">`;
       html += `<strong>${err.type}</strong>: ${err.error}`;
@@ -1753,42 +1772,80 @@ function populateDetailedView() {
 
   detailedView.innerHTML = html;
 
-  // Add event listeners
-  document.getElementById('select-all-files')?.addEventListener('click', selectAllFiles);
-  document.getElementById('deselect-all-files')?.addEventListener('click', deselectAllFiles);
-
-  // Add listeners to module-level checkboxes (detailed view)
-  const moduleCheckboxes = detailedView.querySelectorAll('.module-checkbox');
-  console.log('[DEBUG] Found module checkboxes in detailed view:', moduleCheckboxes.length);
-
-  moduleCheckboxes.forEach((moduleCheckbox, index) => {
-    console.log('[DEBUG] Adding listener to module checkbox', index, moduleCheckbox.id);
-    moduleCheckbox.addEventListener('change', (e) => {
-      const category = e.target.dataset.category;
+  // Add master "Select All" checkbox listener
+  const masterCheckbox = document.getElementById('master-select-all');
+  if (masterCheckbox) {
+    masterCheckbox.addEventListener('change', (e) => {
       const isChecked = e.target.checked;
-      console.log('[DEBUG] Module checkbox clicked:', category, 'checked:', isChecked);
+      // Toggle all checkboxes (modules, categories, and individual files)
+      detailedView.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+        if (cb.id !== 'master-select-all') {
+          cb.checked = isChecked;
+          cb.indeterminate = false;
+        }
+      });
 
-      // Find all file checkboxes in this category and toggle them
-      const categorySection = e.target.closest('.file-category-section');
-      const fileCheckboxes = categorySection.querySelectorAll('.file-items input[type="checkbox"]');
-      console.log('[DEBUG] Toggling', fileCheckboxes.length, 'file checkboxes in category:', category);
+      // Update selectedFiles set
+      if (isChecked) {
+        // Add all files to selection
+        detailedView.querySelectorAll('.file-item input[type="checkbox"]').forEach(cb => {
+          const fileId = cb.id.replace('file-', '');
+          selectedFiles.add(fileId);
+        });
+      } else {
+        // Clear selection
+        selectedFiles.clear();
+      }
+    });
+  }
 
-      fileCheckboxes.forEach(checkbox => {
-        checkbox.checked = isChecked;
-        const fileId = checkbox.id.replace('file-', '');
+  // Add listeners to module checkboxes
+  detailedView.querySelectorAll('.module-checkbox').forEach(moduleCheckbox => {
+    moduleCheckbox.addEventListener('change', (e) => {
+      const isChecked = e.target.checked;
+      const moduleDiv = e.target.closest('.material-module');
+      const fileCheckboxes = moduleDiv.querySelectorAll('.module-items input[type="checkbox"]');
+
+      // Toggle all files in this module
+      fileCheckboxes.forEach(cb => {
+        cb.checked = isChecked;
+        const fileId = cb.id.replace('file-', '');
         if (isChecked) {
           selectedFiles.add(fileId);
         } else {
           selectedFiles.delete(fileId);
         }
       });
-      console.log('[DEBUG] Selected files after toggle:', selectedFiles.size);
+
+      updateMasterCheckbox();
+    });
+  });
+
+  // Add listeners to category checkboxes (for standalone files, pages, assignments)
+  detailedView.querySelectorAll('.category-checkbox').forEach(categoryCheckbox => {
+    categoryCheckbox.addEventListener('change', (e) => {
+      const isChecked = e.target.checked;
+      const categorySection = e.target.closest('.file-category-section');
+      const fileCheckboxes = categorySection.querySelectorAll('.file-items input[type="checkbox"]');
+
+      // Toggle all files in this category
+      fileCheckboxes.forEach(cb => {
+        cb.checked = isChecked;
+        const fileId = cb.id.replace('file-', '');
+        if (isChecked) {
+          selectedFiles.add(fileId);
+        } else {
+          selectedFiles.delete(fileId);
+        }
+      });
+
+      updateMasterCheckbox();
     });
   });
 
   // Add listeners to individual file checkboxes
-  detailedView.querySelectorAll('.file-items input[type="checkbox"]').forEach(checkbox => {
-    checkbox.addEventListener('change', (e) => {
+  detailedView.querySelectorAll('.file-item input[type="checkbox"]').forEach(fileCheckbox => {
+    fileCheckbox.addEventListener('change', (e) => {
       const fileId = e.target.id.replace('file-', '');
       if (e.target.checked) {
         selectedFiles.add(fileId);
@@ -1796,61 +1853,89 @@ function populateDetailedView() {
         selectedFiles.delete(fileId);
       }
 
-      // Update the module-level checkbox state based on its children
-      const category = e.target.dataset.category;
+      // Update parent checkbox (module or category)
+      const moduleDiv = e.target.closest('.material-module');
       const categorySection = e.target.closest('.file-category-section');
-      const moduleCheckbox = categorySection.querySelector('.module-checkbox');
-      const fileCheckboxes = categorySection.querySelectorAll('.file-items input[type="checkbox"]');
-      const allChecked = Array.from(fileCheckboxes).every(cb => cb.checked);
-      const someChecked = Array.from(fileCheckboxes).some(cb => cb.checked);
 
-      if (allChecked) {
-        moduleCheckbox.checked = true;
-        moduleCheckbox.indeterminate = false;
-      } else if (someChecked) {
-        moduleCheckbox.checked = false;
-        moduleCheckbox.indeterminate = true;
-      } else {
-        moduleCheckbox.checked = false;
-        moduleCheckbox.indeterminate = false;
+      if (moduleDiv) {
+        // Update module checkbox
+        const moduleCheckbox = moduleDiv.querySelector('.module-checkbox');
+        const allFileCheckboxes = moduleDiv.querySelectorAll('.module-items input[type="checkbox"]');
+        updateParentCheckbox(moduleCheckbox, allFileCheckboxes);
+      } else if (categorySection) {
+        // Update category checkbox
+        const categoryCheckbox = categorySection.querySelector('.category-checkbox');
+        const allFileCheckboxes = categorySection.querySelectorAll('.file-items input[type="checkbox"]');
+        updateParentCheckbox(categoryCheckbox, allFileCheckboxes);
       }
+
+      updateMasterCheckbox();
     });
   });
 
-  // Initialize module checkbox states
+  // Initialize all parent checkbox states
   detailedView.querySelectorAll('.module-checkbox').forEach(moduleCheckbox => {
-    const categorySection = moduleCheckbox.closest('.file-category-section');
-    const fileCheckboxes = categorySection.querySelectorAll('.file-items input[type="checkbox"]');
-    const allChecked = Array.from(fileCheckboxes).every(cb => cb.checked);
-    const someChecked = Array.from(fileCheckboxes).some(cb => cb.checked);
-
-    if (allChecked) {
-      moduleCheckbox.checked = true;
-      moduleCheckbox.indeterminate = false;
-    } else if (someChecked) {
-      moduleCheckbox.checked = false;
-      moduleCheckbox.indeterminate = true;
-    } else {
-      moduleCheckbox.checked = false;
-      moduleCheckbox.indeterminate = false;
-    }
+    const moduleDiv = moduleCheckbox.closest('.material-module');
+    const fileCheckboxes = moduleDiv.querySelectorAll('.module-items input[type="checkbox"]');
+    updateParentCheckbox(moduleCheckbox, fileCheckboxes);
   });
+
+  detailedView.querySelectorAll('.category-checkbox').forEach(categoryCheckbox => {
+    const categorySection = categoryCheckbox.closest('.file-category-section');
+    const fileCheckboxes = categorySection.querySelectorAll('.file-items input[type="checkbox"]');
+    updateParentCheckbox(categoryCheckbox, fileCheckboxes);
+  });
+
+  updateMasterCheckbox();
+}
+
+// Helper function to update parent checkbox state
+function updateParentCheckbox(parentCheckbox, childCheckboxes) {
+  if (!parentCheckbox || !childCheckboxes || childCheckboxes.length === 0) return;
+
+  const checkboxArray = Array.from(childCheckboxes);
+  const allChecked = checkboxArray.every(cb => cb.checked);
+  const someChecked = checkboxArray.some(cb => cb.checked);
+
+  if (allChecked) {
+    parentCheckbox.checked = true;
+    parentCheckbox.indeterminate = false;
+  } else if (someChecked) {
+    parentCheckbox.checked = false;
+    parentCheckbox.indeterminate = true;
+  } else {
+    parentCheckbox.checked = false;
+    parentCheckbox.indeterminate = false;
+  }
+}
+
+// Helper function to update master "Select All" checkbox state
+function updateMasterCheckbox() {
+  const masterCheckbox = document.getElementById('master-select-all');
+  if (!masterCheckbox) return;
+
+  const allFileCheckboxes = document.querySelectorAll('.file-item input[type="checkbox"]');
+  if (allFileCheckboxes.length === 0) return;
+
+  const checkboxArray = Array.from(allFileCheckboxes);
+  const allChecked = checkboxArray.every(cb => cb.checked);
+  const someChecked = checkboxArray.some(cb => cb.checked);
+
+  if (allChecked) {
+    masterCheckbox.checked = true;
+    masterCheckbox.indeterminate = false;
+  } else if (someChecked) {
+    masterCheckbox.checked = false;
+    masterCheckbox.indeterminate = true;
+  } else {
+    masterCheckbox.checked = false;
+    masterCheckbox.indeterminate = false;
+  }
 }
 
 function getFileIcon(mimeType) {
-  if (!mimeType || typeof mimeType !== 'string') return '📄';
-
-  const mime = mimeType.toLowerCase();
-  if (mime.includes('pdf')) return '📕';
-  if (mime.includes('word') || mime.includes('document')) return '📘';
-  if (mime.includes('powerpoint') || mime.includes('presentation')) return '📊';
-  if (mime.includes('image')) return '🖼️';
-  if (mime.includes('video')) return '🎥';
-  if (mime.includes('audio')) return '🎵';
-  if (mime.includes('text')) return '📄';
-  if (mime === 'assignment') return '✏️';
-  if (mime === 'page') return '📝';
-  return '📄';
+  // No longer using emojis for file icons
+  return '';
 }
 
 function getFileExtension(filename) {
@@ -1858,47 +1943,6 @@ function getFileExtension(filename) {
   const ext = filename.split('.').pop().toLowerCase();
   if (ext && ext.length <= 4 && ext !== filename.toLowerCase()) return `.${ext}`;
   return '';
-}
-
-function selectAllFiles() {
-  const checkboxes = document.querySelectorAll('#detailed-view input[type="checkbox"]');
-  checkboxes.forEach(cb => {
-    cb.checked = true;
-    const fileId = cb.id.replace('file-', '');
-    selectedFiles.add(fileId);
-  });
-
-  // Also check all category checkboxes in simple view
-  const categoryCheckboxes = document.querySelectorAll('.category-checkbox');
-  categoryCheckboxes.forEach(cb => {
-    cb.checked = true;
-  });
-
-  // Also check all module-level checkboxes in detailed view
-  const moduleCheckboxes = document.querySelectorAll('.module-checkbox');
-  moduleCheckboxes.forEach(cb => {
-    cb.checked = true;
-  });
-}
-
-function deselectAllFiles() {
-  const checkboxes = document.querySelectorAll('#detailed-view input[type="checkbox"]');
-  checkboxes.forEach(cb => {
-    cb.checked = false;
-  });
-  selectedFiles.clear();
-
-  // Also uncheck all category checkboxes in simple view
-  const categoryCheckboxes = document.querySelectorAll('.category-checkbox');
-  categoryCheckboxes.forEach(cb => {
-    cb.checked = false;
-  });
-
-  // Also uncheck all module-level checkboxes in detailed view
-  const moduleCheckboxes = document.querySelectorAll('.module-checkbox');
-  moduleCheckboxes.forEach(cb => {
-    cb.checked = false;
-  });
 }
 
 // Theme Management - removed (now handled at top of file with system preference detection)
