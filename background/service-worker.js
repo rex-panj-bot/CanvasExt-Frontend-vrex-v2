@@ -870,6 +870,46 @@ async function updateDownloadTask(updates) {
 /**
  * Handle background file upload with batching (50 files per batch)
  */
+/**
+ * Simulate individual file progress updates while batch is uploading
+ * This gives users visual feedback that files are processing one-by-one
+ */
+async function simulateFileProgress(startCount, endCount, durationMs) {
+  const filesInBatch = endCount - startCount;
+  if (filesInBatch <= 0) return;
+
+  // Calculate delay between each file update
+  const delayPerFile = Math.max(50, Math.min(500, durationMs / filesInBatch)); // 50-500ms per file
+
+  for (let i = 1; i <= filesInBatch; i++) {
+    const currentFileCount = startCount + i;
+
+    // Update progress
+    const result = await chrome.storage.local.get(['uploadTask']);
+    const task = result.uploadTask;
+    if (!task || task.status !== 'uploading') break; // Stop if task was cancelled
+
+    await new Promise((resolve) => {
+      chrome.storage.local.set({
+        uploadTask: {
+          ...task,
+          uploadedFiles: currentFileCount
+        }
+      }, () => {
+        if (!chrome.runtime.lastError) {
+          console.log(`📊 Progress: ${currentFileCount}/${task.totalFiles} files`);
+        }
+        resolve();
+      });
+    });
+
+    // Wait before next update (except for last file)
+    if (i < filesInBatch) {
+      await new Promise(resolve => setTimeout(resolve, delayPerFile));
+    }
+  }
+}
+
 async function handleBackgroundUpload() {
   const BATCH_SIZE = 50;
 
@@ -914,7 +954,13 @@ async function handleBackgroundUpload() {
 
     console.log(`📤 Uploading batch ${currentBatch + 1}/${totalBatches} (${currentBatchFiles.length} files)`);
 
-    // Upload batch to backend
+    // Start simulating file-by-file progress in parallel with actual upload
+    const progressStartCount = uploadedFiles;
+    const progressEndCount = uploadedFiles + currentBatchFiles.length;
+    const estimatedBatchTime = currentBatchFiles.length * 200; // Estimate ~200ms per file
+    const progressPromise = simulateFileProgress(progressStartCount, progressEndCount, estimatedBatchTime);
+
+    // Upload batch to backend (runs in parallel with progress simulation)
     try {
       // Get Canvas user ID for tracking
       const storageData = await chrome.storage.local.get(['canvasUserId']);
@@ -964,7 +1010,12 @@ async function handleBackgroundUpload() {
         await updateMaterialsWithStoredNames(courseId, result.uploaded_files);
       }
 
-      // Update progress (count all files in batch, whether processed, skipped, or failed)
+      // Wait for progress simulation to complete before final update
+      // This ensures smooth progress bar animation
+      await progressPromise;
+
+      // Update progress - final update to ensure correct count
+      // (simulation may have already updated, but this ensures accuracy)
       const newUploadedFiles = uploadedFiles + currentBatchFiles.length;
       await new Promise((resolve) => {
         chrome.storage.local.set({

@@ -86,7 +86,7 @@ body {
 }
 
 .sidebar-header {
-  padding: 8px 16px;
+  padding: 9px 16px;
   border-bottom: 1px solid var(--border);
   background: linear-gradient(135deg, var(--surface) 0%, rgba(100, 116, 139, 0.1) 100%);
   display: flex;

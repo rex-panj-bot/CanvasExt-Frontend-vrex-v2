@@ -2598,7 +2598,9 @@ async function sendMessage() {
     addMessage('assistant', assistantMessage);
 
     // Add to conversation history
-    conversationHistory.push({ role: 'user', content: message });
+    // IMPORTANT: Store the displayMessage (user's actual input) not the full mode prompt
+    // This prevents mode instructions from persisting in history after mode is deselected
+    conversationHistory.push({ role: 'user', content: displayMessage });
     conversationHistory.push({ role: 'assistant', content: assistantMessage });
 
     // Cache the full conversation if we're in a mode and have a topic
@@ -2737,11 +2739,11 @@ function parseCitations(content) {
       return match;
     } else if (pages.length === 1) {
       // Single page - one citation block
-      return `<a href="#" class="citation-link" data-doc-name="${cleanDocName}" data-page="${pages[0]}" title="Open ${cleanDocName} at page ${pages[0]}">📄 ${cleanDocName}, p.${pages[0]}</a>`;
+      return `<a href="#" class="citation-link" data-doc-name="${cleanDocName}" data-page="${pages[0]}" title="Open ${cleanDocName} at page ${pages[0]}">${cleanDocName}, p.${pages[0]}</a>`;
     } else {
       // Multiple pages - create multiple citation blocks next to each other
       return pages.map(page =>
-        `<a href="#" class="citation-link" data-doc-name="${cleanDocName}" data-page="${page}" title="Open ${cleanDocName} at page ${page}">📄 ${cleanDocName}, p.${page}</a>`
+        `<a href="#" class="citation-link" data-doc-name="${cleanDocName}" data-page="${page}" title="Open ${cleanDocName} at page ${page}">${cleanDocName}, p.${page}</a>`
       ).join(' ');
     }
   });
