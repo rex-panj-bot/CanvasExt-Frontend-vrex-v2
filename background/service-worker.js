@@ -8,44 +8,94 @@ console.log('Canvas Material Extractor: Service worker loaded');
 /**
  * Update extension icon based on theme
  */
-function updateIconForTheme(scheme) {
+async function updateIconForTheme(scheme) {
   const isDark = scheme === 'dark';
-  const iconPrefix = isDark ? 'dark' : 'light';
+  // File naming: lightmodelogo = dark lines, darkmodelogo = light lines
+  // DARK browser needs darkmodelogo (light lines for visibility)
+  // LIGHT browser needs lightmodelogo (dark lines for visibility)
+  const logoFile = isDark ? 'darkmodelogo.png' : 'lightmodelogo.png';
 
-  // Try using path with forward slash from root
-  const iconPaths = {
-    '16': `/icons/logo-${iconPrefix}-16.png`,
-    '48': `/icons/logo-${iconPrefix}-48.png`,
-    '128': `/icons/logo-${iconPrefix}-128.png`
-  };
+  console.log(`🎨 [UPDATE ICON] ===============================================`);
+  console.log(`🎨 [UPDATE ICON] Scheme: "${scheme}"`);
+  console.log(`🎨 [UPDATE ICON] Is dark mode: ${isDark}`);
+  console.log(`🎨 [UPDATE ICON] Logo file: "${logoFile}"`);
+  console.log(`🎨 [UPDATE ICON] Logic: ${isDark ? 'DARK browser → darkmodelogo (light lines)' : 'LIGHT browser → lightmodelogo (dark lines)'}`);
+  console.log(`🎨 [UPDATE ICON] ===============================================`);
 
-  console.log(`🎨 Attempting to set icon to ${scheme} mode with paths:`, iconPaths);
+  try {
+    // Method 1: Try loading as ImageData (most reliable for service workers)
+    const imagePath = `icons/${logoFile}`;
+    const imageUrl = chrome.runtime.getURL(imagePath);
 
-  chrome.action.setIcon({ path: iconPaths }).then(() => {
-    console.log(`✅ Icon updated to ${scheme} mode`);
-  }).catch((error) => {
-    console.error('Failed to update icon:', error);
-    console.error('Attempted icon prefix:', iconPrefix);
-    console.error('Attempted paths:', iconPaths);
-  });
+    console.log(`🎨 [UPDATE ICON] Fetching image from: ${imageUrl}`);
+
+    const response = await fetch(imageUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch image: ${response.status}`);
+    }
+
+    const blob = await response.blob();
+    const bitmap = await createImageBitmap(blob);
+
+    console.log(`🎨 [UPDATE ICON] Original image size: ${bitmap.width}x${bitmap.height}`);
+
+    // Chrome requires SQUARE icons - resize to 128x128
+    const size = 128;
+    const canvas = new OffscreenCanvas(size, size);
+    const ctx = canvas.getContext('2d');
+
+    // Stretch the image to fill the entire 128x128 square
+    // This ensures the icon fills the toolbar space properly
+    ctx.drawImage(bitmap, 0, 0, size, size);
+
+    const imageData = ctx.getImageData(0, 0, size, size);
+
+    console.log(`🎨 [UPDATE ICON] Stretched to square: ${size}x${size}`);
+
+    // Set the icon using ImageData
+    await chrome.action.setIcon({ imageData: imageData });
+    console.log(`✅ [UPDATE ICON SUCCESS] Toolbar icon updated to ${logoFile} using ImageData`);
+
+  } catch (error) {
+    console.error('❌ [UPDATE ICON ERROR] Failed with ImageData method:', error);
+
+    // Method 2: Fallback to path-based method
+    console.log('🔄 [UPDATE ICON RETRY] Trying path-based method...');
+    try {
+      await chrome.action.setIcon({
+        path: {
+          '16': `icons/${logoFile}`,
+          '48': `icons/${logoFile}`,
+          '128': `icons/${logoFile}`
+        }
+      });
+      console.log(`✅ [UPDATE ICON RETRY SUCCESS] Icon updated using path`);
+    } catch (pathError) {
+      console.error('❌ [UPDATE ICON RETRY FAILED]:', pathError);
+    }
+  }
 }
 
 /**
  * Initialize icon based on stored preference or system default
  */
-function initializeIcon() {
+async function initializeIcon() {
+  console.log('🎨 [INIT] Starting icon initialization...');
+
   // Try to get stored preference
-  chrome.storage.local.get(['theme-preference'], (result) => {
-    const storedTheme = result['theme-preference'];
-    if (storedTheme) {
-      console.log(`🎨 Using stored theme: ${storedTheme}`);
-      updateIconForTheme(storedTheme);
-    } else {
-      // Default to light mode if no preference stored
-      console.log('🎨 No theme preference found, defaulting to light mode');
-      updateIconForTheme('light');
-    }
-  });
+  const result = await chrome.storage.local.get(['theme-preference']);
+  const storedTheme = result['theme-preference'];
+
+  console.log(`🎨 [INIT] Stored theme preference: ${storedTheme || 'none'}`);
+
+  if (storedTheme) {
+    console.log(`🎨 [INIT] Using stored theme: ${storedTheme}`);
+    updateIconForTheme(storedTheme);
+  } else {
+    // Default to dark mode if no preference stored (assuming dark browser UI is more common)
+    console.log('🎨 [INIT] No theme preference found, defaulting to dark mode');
+    updateIconForTheme('dark');
+  }
 }
 
 // Initialize icon immediately when service worker loads
@@ -60,6 +110,19 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.runtime.onStartup.addListener(() => {
   console.log('🎨 Browser started, initializing icon');
   initializeIcon();
+});
+
+// Listen for theme preference changes (when theme-manager.js updates storage)
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  console.log(`📦 [STORAGE LISTENER] Storage changed in ${areaName}:`, Object.keys(changes));
+
+  if (areaName === 'local' && changes['theme-preference']) {
+    const oldTheme = changes['theme-preference'].oldValue;
+    const newTheme = changes['theme-preference'].newValue;
+    console.log(`🎨 [STORAGE LISTENER] Theme preference changed: "${oldTheme}" → "${newTheme}"`);
+    console.log(`🎨 [STORAGE LISTENER] Calling updateIconForTheme('${newTheme}')...`);
+    updateIconForTheme(newTheme);
+  }
 });
 
 // Store current course info
@@ -483,13 +546,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   } else if (request.type === 'theme-changed') {
     // Handle theme changes from offscreen document or pages
     const scheme = request.theme || request.scheme;
-    console.log(`🎨 Theme changed to: ${scheme}`);
+    console.log(`🎨 [MESSAGE LISTENER] Theme changed message received: ${scheme}`);
 
     // Update icon
     updateIconForTheme(scheme);
 
-    // Store theme preference
-    chrome.storage.local.set({ 'theme-preference': scheme });
+    // Store theme preference (this will also trigger storage listener)
+    chrome.storage.local.set({ 'theme-preference': scheme }, () => {
+      console.log(`📦 [MESSAGE LISTENER] Theme preference saved to storage: ${scheme}`);
+    });
 
     sendResponse({ success: true });
   }

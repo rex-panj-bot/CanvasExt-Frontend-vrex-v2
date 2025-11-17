@@ -13,6 +13,9 @@ class ThemeManager {
    * Initialize theme detection and sync
    */
   init() {
+    console.log(`🎨 [THEME-MANAGER] Initializing...`);
+    console.log(`🎨 [THEME-MANAGER] Current system theme: ${this.currentScheme}`);
+
     // Apply theme immediately
     this.applyTheme(this.currentScheme);
 
@@ -22,19 +25,20 @@ class ThemeManager {
     // Listen for system theme changes
     this.mediaQuery.addEventListener('change', (event) => {
       const newScheme = event.matches ? 'dark' : 'light';
-      console.log(`🎨 System theme changed: ${newScheme}`);
+      console.log(`🎨 [THEME-MANAGER] ⚠️ SYSTEM THEME CHANGED: ${this.currentScheme} → ${newScheme}`);
       this.currentScheme = newScheme;
       this.applyTheme(newScheme);
       this.notifyBackground(newScheme);
     });
 
-    console.log(`🎨 Theme manager initialized: ${this.currentScheme} mode`);
+    console.log(`🎨 [THEME-MANAGER] Initialized in ${this.currentScheme} mode`);
   }
 
   /**
    * Apply theme to current page
    */
   applyTheme(scheme) {
+    console.log(`🎨 [THEME-MANAGER] Applying theme: ${scheme}`);
     const isDark = scheme === 'dark';
 
     // Set data attribute on document for CSS targeting
@@ -49,6 +53,7 @@ class ThemeManager {
     // Store preference in both localStorage and chrome.storage for service worker access
     localStorage.setItem('theme-preference', scheme);
     if (typeof chrome !== 'undefined' && chrome.storage) {
+      console.log(`🎨 [THEME-MANAGER] Saving to chrome.storage: ${scheme}`);
       chrome.storage.local.set({ 'theme-preference': scheme });
     }
   }
@@ -58,39 +63,34 @@ class ThemeManager {
    */
   updateFavicon(scheme) {
     const isDark = scheme === 'dark';
-    const iconPrefix = isDark ? 'dark' : 'light';
+    // Tab favicons: use logo matching the theme
+    const logoFile = isDark ? 'darkmodelogo.png' : 'lightmodelogo.png';
 
-    // Remove existing favicon links
-    const existingLinks = document.querySelectorAll('link[rel*="icon"]');
-    existingLinks.forEach(link => link.remove());
+    console.log(`🎨 [THEME-MANAGER] Updating tab favicon:`);
+    console.log(`   Scheme: ${scheme}, Logo: ${logoFile}`);
+    console.log(`   Logic: Tab icon matches page theme (${isDark ? 'DARK page → DARK logo' : 'LIGHT page → LIGHT logo'})`);
 
-    // Add new favicon links for all sizes
-    const sizes = [
-      { size: '16x16', file: `logo-${iconPrefix}-16.png` },
-      { size: '48x48', file: `logo-${iconPrefix}-48.png` },
-      { size: '128x128', file: `logo-${iconPrefix}-128.png` }
-    ];
-
-    sizes.forEach(({ size, file }) => {
-      const link = document.createElement('link');
-      link.rel = 'icon';
-      link.type = 'image/png';
-      link.sizes = size;
-      link.href = chrome.runtime.getURL(`icons/${file}`);
-      document.head.appendChild(link);
-    });
-
-    console.log(`🎨 Tab icon updated to ${scheme} mode`);
+    // Update existing favicon element (added in HTML with id="favicon")
+    const faviconLink = document.getElementById('favicon');
+    if (faviconLink) {
+      faviconLink.href = chrome.runtime.getURL(`icons/${logoFile}`);
+      console.log(`✅ [THEME-MANAGER] Tab favicon updated to ${logoFile}`);
+    } else {
+      console.warn('⚠️ [THEME-MANAGER] Favicon element with id="favicon" not found in HTML');
+    }
   }
 
   /**
    * Notify background script of theme change (for icon update)
    */
   notifyBackground(scheme) {
+    console.log(`🎨 [THEME-MANAGER] Notifying background of theme change: ${scheme}`);
     try {
       chrome.runtime.sendMessage({
         type: 'theme-changed',
         scheme: scheme
+      }).then(() => {
+        console.log(`✅ [THEME-MANAGER] Background notified successfully`);
       }).catch(err => {
         // Ignore errors if background script isn't ready
         console.debug('Theme notification failed (background may not be ready):', err);
