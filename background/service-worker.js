@@ -916,11 +916,19 @@ async function handleBackgroundUpload() {
 
     // Upload batch to backend
     try {
+      // Get Canvas user ID for tracking
+      const storageData = await chrome.storage.local.get(['canvasUserId']);
+      const headers = {
+        'Content-Type': 'application/json'
+      };
+      if (storageData.canvasUserId) {
+        headers['X-Canvas-User-Id'] = storageData.canvasUserId;
+        console.log(`📤 Including Canvas User ID: ${storageData.canvasUserId}`);
+      }
+
       const response = await fetch('https://web-production-9aaba7.up.railway.app/process_canvas_files', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: headers,
         body: JSON.stringify({
           course_id: courseId,
           files: currentBatchFiles,
