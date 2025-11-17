@@ -1426,17 +1426,53 @@ async function createStudyBot() {
     let filesToUpload = [];
 
     if (filesToProcess.length > 0) {
-      // Check if files have blobs (frontend download) or just URLs (backend download)
-      const hasBlobs = filesToProcess.some(f => f.blob);
+      // Filter out unpublished files (files without blobs)
+      const filesWithBlobs = filesToProcess.filter(f => f.blob);
+      const unpublishedFiles = filesToProcess.filter(f => !f.blob);
 
-      let filesWithHashes = filesToProcess;
+      if (unpublishedFiles.length > 0) {
+        console.warn(`⚠️ ${unpublishedFiles.length} files are not published/accessible:`, unpublishedFiles.map(f => f.name));
+
+        // Notify user about unpublished files
+        const unpublishedNames = unpublishedFiles.map(f => f.name).slice(0, 10).join('\n• ');
+        const moreCount = unpublishedFiles.length > 10 ? `\n...and ${unpublishedFiles.length - 10} more` : '';
+        alert(`⚠️ ${unpublishedFiles.length} file(s) are not yet published or accessible and will be skipped:\n\n• ${unpublishedNames}${moreCount}\n\nThese files won't be available to the AI until they are published in Canvas.`);
+
+        // Remove unpublished files from materialsToProcess so they don't show in UI
+        const unpublishedSet = new Set(unpublishedFiles.map(f => f.name));
+        for (const [key, items] of Object.entries(materialsToProcess)) {
+          if (Array.isArray(items)) {
+            materialsToProcess[key] = items.filter(item => {
+              const itemName = item.stored_name || item.display_name || item.filename || item.name || item.title;
+              return !unpublishedSet.has(itemName);
+            });
+          }
+        }
+
+        // Also remove from module items
+        if (materialsToProcess.modules && Array.isArray(materialsToProcess.modules)) {
+          materialsToProcess.modules.forEach((module) => {
+            if (module.items && Array.isArray(module.items)) {
+              module.items = module.items.filter(item => {
+                const itemName = item.stored_name || item.title || item.name || item.display_name;
+                return !unpublishedSet.has(itemName);
+              });
+            }
+          });
+        }
+      }
+
+      // Check if files have blobs (frontend download) or just URLs (backend download)
+      const hasBlobs = filesWithBlobs.length > 0;
+
+      let filesWithHashes = filesWithBlobs;
 
       if (hasBlobs) {
         // Step 1: Compute hashes for all files (only if we have blobs)
-        updateProgress(`Computing file hashes for ${filesToProcess.length} files...`, PROGRESS_PERCENT.UPLOADING - 15);
+        updateProgress(`Computing file hashes for ${filesWithBlobs.length} files...`, PROGRESS_PERCENT.UPLOADING - 15);
 
         const hashStartTime = Date.now();
-        filesWithHashes = await Promise.all(filesToProcess.map(async (file) => {
+        filesWithHashes = await Promise.all(filesWithBlobs.map(async (file) => {
           if (file.blob) {
             const hash = await computeFileHash(file.blob);
             return {
@@ -1464,8 +1500,6 @@ async function createStudyBot() {
           }
         });
 
-        console.log(`🔍 [DEBUG] Hash map has ${hashMap.size} entries:`, Array.from(hashMap.keys()).slice(0, 5));
-
         // Update all material categories with hashes
         let hashesApplied = 0;
         const categories = ['files', 'pages', 'assignments'];
@@ -1485,7 +1519,6 @@ async function createStudyBot() {
               if (hashMap.has(itemName)) {
                 item.hash = hashMap.get(itemName);
                 hashesApplied++;
-                console.log(`  ✅ Applied hash to ${category} item: "${itemName}"`);
                 break;
               }
             }
@@ -1508,7 +1541,6 @@ async function createStudyBot() {
                   if (hashMap.has(itemName)) {
                     item.hash = hashMap.get(itemName);
                     hashesApplied++;
-                    console.log(`  ✅ Applied hash to module item: "${itemName}"`);
                     break;
                   }
                 }
@@ -1517,7 +1549,7 @@ async function createStudyBot() {
           });
         }
 
-        console.log(`✅ Applied hashes to ${hashesApplied} materials (hash map had ${hashMap.size} entries)`);
+        console.log(`✅ Applied hashes to ${hashesApplied} materials`);
       } else {
         console.log(`⚡ Skipping hash computation - backend will download and hash files`);
       }

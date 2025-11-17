@@ -177,32 +177,8 @@ async function updateMaterialsWithStoredNames(courseId, uploadedFiles) {
 
     console.log(`📝 Updating materials with ${hashToMetadataMap.size} hash-based IDs (+ ${filenameToMetadataMap.size} filename fallbacks)...`);
 
-    // DEBUG: Check if materials have hashes
-    let materialsWithHashes = 0;
-    let materialsWithoutHashes = 0;
-    const categories = ['files', 'pages', 'assignments', 'modules'];
-
-    for (const category of categories) {
-      if (!materials[category]) continue;
-      if (category === 'modules') {
-        materials[category].forEach(module => {
-          if (module.items) {
-            module.items.forEach(item => {
-              if (item.hash) materialsWithHashes++;
-              else materialsWithoutHashes++;
-            });
-          }
-        });
-      } else {
-        materials[category].forEach(item => {
-          if (item.hash) materialsWithHashes++;
-          else materialsWithoutHashes++;
-        });
-      }
-    }
-    console.log(`🔍 [DEBUG] Materials in IndexedDB: ${materialsWithHashes} WITH hashes, ${materialsWithoutHashes} WITHOUT hashes`);
-
     // Update all material categories using HASH as the key, with filename fallback
+    const categories = ['files', 'pages', 'assignments', 'modules'];
     for (const category of categories) {
       if (!materials[category]) continue;
 
@@ -215,20 +191,16 @@ async function updateMaterialsWithStoredNames(courseId, uploadedFiles) {
               // Match by hash first (preferred)
               if (item.hash && hashToMetadataMap.has(item.hash)) {
                 const metadata = hashToMetadataMap.get(item.hash);
-                item.doc_id = metadata.doc_id;           // HASH-BASED ID
-                item.stored_name = metadata.stored_name; // GCS path
+                item.doc_id = metadata.doc_id;
+                item.stored_name = metadata.stored_name;
                 updatedCount++;
-                console.log(`  ✅ Updated (hash): "${itemName}" → ID: ${metadata.doc_id?.substring(0, 24)}...`);
               } else if (!item.hash && itemName && filenameToMetadataMap.has(itemName)) {
                 // Fallback to filename match (first upload - bootstrap hash)
                 const metadata = filenameToMetadataMap.get(itemName);
                 item.doc_id = metadata.doc_id;
-                item.hash = metadata.hash;               // BOOTSTRAP: Store hash from backend
+                item.hash = metadata.hash;
                 item.stored_name = metadata.stored_name;
                 updatedCount++;
-                console.log(`  ✅ Updated (filename fallback): "${itemName}" → ID: ${metadata.doc_id?.substring(0, 24)}... (hash: ${metadata.hash?.substring(0, 16)}...)`);
-              } else if (!item.hash) {
-                console.log(`  ⚠️ No match for module item: "${itemName}"`);
               }
             });
           }
@@ -240,20 +212,16 @@ async function updateMaterialsWithStoredNames(courseId, uploadedFiles) {
           // Match by hash first (preferred)
           if (item.hash && hashToMetadataMap.has(item.hash)) {
             const metadata = hashToMetadataMap.get(item.hash);
-            item.doc_id = metadata.doc_id;           // HASH-BASED ID
-            item.stored_name = metadata.stored_name; // GCS path
+            item.doc_id = metadata.doc_id;
+            item.stored_name = metadata.stored_name;
             updatedCount++;
-            console.log(`  ✅ Updated (hash): "${itemName}" → ID: ${metadata.doc_id?.substring(0, 24)}...`);
           } else if (!item.hash && itemName && filenameToMetadataMap.has(itemName)) {
             // Fallback to filename match (first upload - bootstrap hash)
             const metadata = filenameToMetadataMap.get(itemName);
             item.doc_id = metadata.doc_id;
-            item.hash = metadata.hash;               // BOOTSTRAP: Store hash from backend
+            item.hash = metadata.hash;
             item.stored_name = metadata.stored_name;
             updatedCount++;
-            console.log(`  ✅ Updated (filename fallback): "${itemName}" → ID: ${metadata.doc_id?.substring(0, 24)}... (hash: ${metadata.hash?.substring(0, 16)}...)`);
-          } else if (!item.hash) {
-            console.log(`  ⚠️ No match for ${category} item: "${itemName}"`);
           }
         });
       }
@@ -1048,22 +1016,7 @@ async function handleBackgroundUpload() {
 
       const result = await response.json();
 
-      console.log(`✅ Batch ${currentBatch + 1} upload complete:`, {
-        processed: result.processed,
-        skipped: result.skipped,
-        failed: result.failed,
-        batchSize: currentBatchFiles.length
-      });
-
-      // DEBUG: Log detailed upload stats
-      console.log(`📊 [DEBUG] Upload stats:`, {
-        'Previously uploaded': uploadedFiles,
-        'Current batch size': currentBatchFiles.length,
-        'Actually processed': result.processed,
-        'Skipped (already in GCS)': result.skipped,
-        'Failed': result.failed,
-        'Will count as uploaded': currentBatchFiles.length
-      });
+      console.log(`✅ Batch ${currentBatch + 1} upload complete: ${result.processed} processed, ${result.skipped} skipped, ${result.failed} failed`);
 
       // CRITICAL: Update materials with stored_name from backend
       // This ensures selected doc IDs have correct extensions
