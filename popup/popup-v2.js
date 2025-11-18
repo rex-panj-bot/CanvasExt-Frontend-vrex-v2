@@ -608,10 +608,50 @@ function updateMaterialSummary() {
     fileProcessor.processMaterials(scannedMaterials, preferences);
   }
 
-  const summary = fileProcessor.getSummary();
   const totalSize = fileProcessor.getTotalSize();
 
-  // Show breakdown instead of just total (fixes count mismatch issue)
+  // Calculate summary directly from scannedMaterials for accurate counts
+  // This shows ALL modules and files, not just filtered ones
+  const summary = {
+    total: 0,
+    modules: 0,
+    moduleFiles: 0,
+    standaloneFiles: 0,
+    pages: 0,
+    assignments: 0
+  };
+
+  if (scannedMaterials) {
+    // Count ALL modules (not filtered by file type)
+    if (scannedMaterials.modules) {
+      summary.modules = scannedMaterials.modules.length;
+      scannedMaterials.modules.forEach(module => {
+        if (module.items) {
+          // Count files in modules
+          summary.moduleFiles += module.items.filter(item => item.type === 'File').length;
+        }
+      });
+    }
+
+    // Count standalone files
+    if (scannedMaterials.files) {
+      summary.standaloneFiles = scannedMaterials.files.length;
+    }
+
+    // Count pages
+    if (scannedMaterials.pages) {
+      summary.pages = scannedMaterials.pages.length;
+    }
+
+    // Count assignments
+    if (scannedMaterials.assignments) {
+      summary.assignments = scannedMaterials.assignments.length;
+    }
+
+    summary.total = summary.moduleFiles + summary.standaloneFiles + summary.pages + summary.assignments;
+  }
+
+  // Show breakdown instead of just total
   const fileCount = (summary.moduleFiles || 0) + (summary.standaloneFiles || 0);
   const pageCount = summary.pages || 0;
   const assignmentCount = summary.assignments || 0;
@@ -2142,21 +2182,52 @@ function populateDetailedView() {
     html += `</div></div>`;
   }
 
+  // Build set of module file IDs to avoid duplication
+  const moduleFileIds = new Set();
+  if (scannedMaterials.modules) {
+    scannedMaterials.modules.forEach(module => {
+      if (module.items) {
+        module.items.forEach(item => {
+          if (item.type === 'File') {
+            // Track by multiple IDs for robustness
+            if (item.content_id) moduleFileIds.add(item.content_id);
+            if (item.id) moduleFileIds.add(item.id);
+            if (item.url) moduleFileIds.add(item.url);
+          }
+        });
+      }
+    });
+  }
+
   // Handle other categories (files, pages, assignments)
   for (const [category, items] of Object.entries(scannedMaterials)) {
     if (category === 'errors' || category === 'modules' || !items || items.length === 0) continue;
 
     const label = categoryLabels[category] || { name: category };
 
+    // For files category, filter out items that are already in modules
+    let itemsToDisplay = items;
+    if (category === 'files') {
+      itemsToDisplay = items.filter(item => {
+        const isInModule = moduleFileIds.has(item.content_id) ||
+                          moduleFileIds.has(item.id) ||
+                          moduleFileIds.has(item.url);
+        return !isInModule; // Only include files NOT in modules
+      });
+
+      // Skip category if no standalone files remain
+      if (itemsToDisplay.length === 0) continue;
+    }
+
     html += `<div class="file-category-section" data-category="${category}">`;
     html += `<div class="file-category-header">`;
     html += `<input type="checkbox" class="module-checkbox" id="module-${category}" data-category="${category}">`;
     html += `<span class="section-title">${label.name}</span>`;
-    html += `<span class="section-count">${items.length}</span>`;
+    html += `<span class="section-count">${itemsToDisplay.length}</span>`;
     html += `</div>`;
     html += `<div class="file-items">`;
 
-    items.forEach((item, index) => {
+    itemsToDisplay.forEach((item, index) => {
       const fileId = `${category}-${index}`;
       const checked = selectedFiles.has(fileId) || selectedFiles.size === 0 ? 'checked' : '';
 
@@ -2404,9 +2475,26 @@ function selectAllFiles() {
     cb.checked = true;
   });
 
-  // Also check all module-level checkboxes in detailed view
-  const moduleCheckboxes = document.querySelectorAll('.module-checkbox, .module-file-checkbox');
-  moduleCheckboxes.forEach(cb => {
+  // Update module checkbox states based on their children
+  const moduleFileCheckboxes = document.querySelectorAll('.module-file-checkbox');
+  moduleFileCheckboxes.forEach(moduleCheckbox => {
+    const moduleIdx = moduleCheckbox.dataset.moduleIdx;
+    const fileCheckboxes = document.querySelectorAll(
+      `.file-item input[data-module-idx="${moduleIdx}"]`
+    );
+
+    if (fileCheckboxes.length > 0) {
+      const allChecked = Array.from(fileCheckboxes).every(cb => cb.checked);
+      const anyChecked = Array.from(fileCheckboxes).some(cb => cb.checked);
+
+      moduleCheckbox.checked = allChecked;
+      moduleCheckbox.indeterminate = !allChecked && anyChecked;
+    }
+  });
+
+  // Update category-level module checkboxes
+  const categoryModuleCheckboxes = document.querySelectorAll('.module-checkbox');
+  categoryModuleCheckboxes.forEach(cb => {
     cb.checked = true;
     cb.indeterminate = false;
   });
