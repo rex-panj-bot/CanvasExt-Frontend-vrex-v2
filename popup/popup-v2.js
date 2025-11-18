@@ -1537,7 +1537,75 @@ async function createStudyBot() {
       }
     }
 
-    // Upload pages/assignments text blobs that were created above
+    // CRITICAL: Compute hashes for assignments/pages BEFORE uploading
+    if (filesToUploadToBackend.length > 0) {
+      console.log(`🔢 [ASSIGNMENT] Computing hashes for ${filesToUploadToBackend.length} backend files (assignments/pages)...`);
+      chrome.runtime.sendMessage({
+        type: 'LOG_FROM_POPUP',
+        message: `🔢 [ASSIGNMENT] Computing hashes for ${filesToUploadToBackend.length} backend files BEFORE upload`
+      });
+
+      const hashStartTime = Date.now();
+      const backendFilesWithHashes = await Promise.all(filesToUploadToBackend.map(async (file) => {
+        if (file.blob) {
+          const hash = await computeFileHash(file.blob);
+          console.log(`🔢 [ASSIGNMENT] Hash computed for "${file.name}": ${hash?.substring(0, 16)}...`);
+          return {
+            ...file,
+            hash: hash,
+            docId: hash ? `${currentCourse.id}_${hash}` : null
+          };
+        } else {
+          return file;
+        }
+      }));
+      const hashDuration = Date.now() - hashStartTime;
+      console.log(`✅ Computed hashes for ${backendFilesWithHashes.length} assignments/pages in ${hashDuration}ms`);
+
+      // Update filesToUploadToBackend with hashed versions
+      filesToUploadToBackend = backendFilesWithHashes;
+
+      // Build hash map for applying to materials
+      const backendHashMap = new Map();
+      backendFilesWithHashes.forEach(f => {
+        if (f.hash) {
+          backendHashMap.set(f.name, f.hash);
+          // Also map without extension
+          const nameWithoutExt = f.name.replace(/\.(pdf|docx?|txt|xlsx?|pptx?|csv|md|rtf|png|jpe?g|gif|webp|bmp)$/i, '');
+          backendHashMap.set(nameWithoutExt, f.hash);
+        }
+      });
+
+      // Apply hashes to assignments and pages in materialsToProcess
+      console.log(`🔗 [ASSIGNMENT] Applying hashes to assignments and pages...`);
+      ['assignments', 'pages'].forEach(category => {
+        if (materialsToProcess[category]) {
+          materialsToProcess[category].forEach(item => {
+            const possibleNames = [
+              item.stored_name,
+              item.display_name,
+              item.filename,
+              item.name,
+              item.title
+            ].filter(Boolean);
+
+            for (const itemName of possibleNames) {
+              if (backendHashMap.has(itemName)) {
+                item.hash = backendHashMap.get(itemName);
+                console.log(`✅ [ASSIGNMENT] Hash applied to "${item.name}": ${item.hash.substring(0, 16)}... (matched by: ${itemName})`);
+                chrome.runtime.sendMessage({
+                  type: 'LOG_FROM_POPUP',
+                  message: `✅ [ASSIGNMENT] Hash applied to "${item.name}"`
+                });
+                break;
+              }
+            }
+          });
+        }
+      });
+    }
+
+    // Upload pages/assignments text blobs (now with hashes)
     if (filesToUploadToBackend.length > 0) {
       updateProgress(`Uploading ${filesToUploadToBackend.length} pages/assignments as text...`, PROGRESS_PERCENT.UPLOADING - 5);
 
@@ -1545,6 +1613,10 @@ async function createStudyBot() {
         const backendClient = new BackendClient('https://web-production-9aaba7.up.railway.app');
         const uploadResult = await backendClient.uploadPDFs(currentCourse.id, filesToUploadToBackend);
         console.log(`✅ Uploaded ${filesToUploadToBackend.length} pages/assignments as text files`);
+        chrome.runtime.sendMessage({
+          type: 'LOG_FROM_POPUP',
+          message: `✅ [ASSIGNMENT] Uploaded ${filesToUploadToBackend.length} assignments/pages with hashes`
+        });
 
         if (uploadResult.failed_count > 0) {
           console.warn(`⚠️ ${uploadResult.failed_count} text files failed to upload`);
@@ -1583,28 +1655,8 @@ async function createStudyBot() {
           }
         }));
 
-        // ALSO compute hashes for assignment/page text blobs (filesToUploadToBackend)
-        console.log(`🔢 [ASSIGNMENT] Computing hashes for ${filesToUploadToBackend.length} backend files (assignments/pages)...`);
-        chrome.runtime.sendMessage({
-          type: 'LOG_FROM_POPUP',
-          message: `🔢 [ASSIGNMENT] Computing hashes for ${filesToUploadToBackend.length} backend files`
-        });
-        const backendFilesWithHashes = await Promise.all(filesToUploadToBackend.map(async (file) => {
-          if (file.blob) {
-            const hash = await computeFileHash(file.blob);
-            console.log(`🔢 [ASSIGNMENT] Hash computed for "${file.name}": ${hash?.substring(0, 16)}...`);
-            return {
-              ...file,
-              hash: hash,
-              docId: hash ? `${currentCourse.id}_${hash}` : null
-            };
-          } else {
-            return file;
-          }
-        }));
-
         const hashDuration = Date.now() - hashStartTime;
-        console.log(`✅ Computed hashes for ${filesWithHashes.length} files + ${backendFilesWithHashes.length} assignments/pages in ${hashDuration}ms`);
+        console.log(`✅ Computed hashes for ${filesWithHashes.length} files in ${hashDuration}ms`);
 
         // CRITICAL: Update materials with computed hashes so they're saved to IndexedDB
         // This enables pure hash-based matching when backend returns
@@ -1618,19 +1670,9 @@ async function createStudyBot() {
           }
         });
 
-        // Add assignment/page hashes to the map
-        backendFilesWithHashes.forEach(f => {
-          if (f.hash) {
-            hashMap.set(f.name, f.hash);
-            // Also map without extension
-            const nameWithoutExt = f.name.replace(/\.(pdf|docx?|txt|xlsx?|pptx?|csv|md|rtf|png|jpe?g|gif|webp|bmp)$/i, '');
-            hashMap.set(nameWithoutExt, f.hash);
-          }
-        });
-
-        // Update all material categories with hashes
+        // Update all material categories with hashes (assignments/pages already done above)
         let hashesApplied = 0;
-        const categories = ['files', 'pages', 'assignments'];
+        const categories = ['files'];
         for (const category of categories) {
           if (!materialsToProcess[category]) continue;
 
