@@ -226,16 +226,35 @@ class CanvasAPI {
             const fullPage = await this.makeRequest(
               `/api/v1/courses/${courseId}/pages/${page.url}`
             );
+            // Ensure title is preserved from list if not in full page
+            if (!fullPage.title && page.title) {
+              fullPage.title = page.title;
+            }
             return fullPage;
           } catch (error) {
-            console.warn(`Failed to fetch page body: ${page.title}`, error);
-            return page; // Return without body if fetch fails
+            console.warn(`Failed to fetch page body for "${page.title || page.url}":`, error);
+            // Return page from list (has title but no body) if individual fetch fails
+            return page;
           }
         })
       );
 
-      return pagesWithBody;
+      // Filter out pages without titles (shouldn't happen, but safety check)
+      const validPages = pagesWithBody.filter(page => {
+        if (!page.title) {
+          console.warn(`Page without title found: ${page.url || 'unknown'}`, page);
+          return false;
+        }
+        return true;
+      });
+
+      return validPages;
     } catch (error) {
+      // If 404, pages feature is likely disabled for this course - return empty array instead of error
+      if (error.message && error.message.includes('Resource not found')) {
+        console.log(`Pages not available for course ${courseId} (feature may be disabled)`);
+        return [];
+      }
       console.error(`Error fetching pages for course ${courseId}:`, error);
       throw error;
     }

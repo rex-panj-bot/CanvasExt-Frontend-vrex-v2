@@ -442,8 +442,17 @@ async function loadRecentCourses() {
     const courseIds = await materialsDB.listCourses();
 
     if (!courseIds || courseIds.length === 0) {
-      // No recent courses, keep section hidden
-      document.getElementById('recent-courses-section').classList.add('hidden');
+      // No course IDs, show placeholder
+      const recentCoursesSection = document.getElementById('recent-courses-section');
+      const recentCoursesList = document.getElementById('recent-courses-list');
+
+      recentCoursesList.innerHTML = `
+        <div class="empty-state">
+          <p>Your recently created study bots will show here</p>
+        </div>
+      `;
+
+      recentCoursesSection.classList.remove('hidden');
       await materialsDB.close();
       return;
     }
@@ -481,31 +490,36 @@ async function loadRecentCourses() {
     // Sort by last updated (most recent first) - show ALL courses
     recentCourses.sort((a, b) => b.lastUpdated - a.lastUpdated);
 
-    if (recentCourses.length === 0) {
-      document.getElementById('recent-courses-section').classList.add('hidden');
-      return;
-    }
-
-    // Display recent courses
+    // Display recent courses section
     const recentCoursesSection = document.getElementById('recent-courses-section');
     const recentCoursesList = document.getElementById('recent-courses-list');
 
     recentCoursesList.innerHTML = '';
 
-    recentCourses.forEach(course => {
-      const courseItem = document.createElement('div');
-      courseItem.className = 'recent-course-card';
-      courseItem.innerHTML = `
-        <div class="recent-course-name">${course.name}</div>
-        <div class="recent-course-code">${formatTimeAgo(course.lastUpdated)}</div>
+    if (recentCourses.length === 0) {
+      // Show placeholder when no study bots exist
+      recentCoursesList.innerHTML = `
+        <div class="empty-state">
+          <p>Your recently created study bots will show here</p>
+        </div>
       `;
-      courseItem.addEventListener('click', () => {
-        // Open chat page directly for this course
-        const chatUrl = chrome.runtime.getURL(`chat/chat.html?courseId=${course.id}`);
-        chrome.tabs.create({ url: chatUrl });
+    } else {
+      // Display study bot cards
+      recentCourses.forEach(course => {
+        const courseItem = document.createElement('div');
+        courseItem.className = 'recent-course-card';
+        courseItem.innerHTML = `
+          <div class="recent-course-name">${course.name}</div>
+          <div class="recent-course-code">${formatTimeAgo(course.lastUpdated)}</div>
+        `;
+        courseItem.addEventListener('click', () => {
+          // Open chat page directly for this course
+          const chatUrl = chrome.runtime.getURL(`chat/chat.html?courseId=${course.id}`);
+          chrome.tabs.create({ url: chatUrl });
+        });
+        recentCoursesList.appendChild(courseItem);
       });
-      recentCoursesList.appendChild(courseItem);
-    });
+    }
 
     recentCoursesSection.classList.remove('hidden');
   } catch (error) {
@@ -584,6 +598,12 @@ async function scanCourseMaterials(courseId, courseName) {
     document.getElementById('scan-loading').classList.add('hidden');
     document.getElementById('material-summary').classList.remove('hidden');
 
+    // Refresh detailed view if it's currently visible
+    const detailedView = document.getElementById('detailed-view');
+    if (detailedView && !detailedView.classList.contains('hidden')) {
+      populateDetailedView();
+    }
+
     // Re-enable study bot button after materials are loaded
     studyBotBtn.disabled = false;
     studyBotBtn.title = 'Create an AI study bot for this course';
@@ -633,9 +653,30 @@ function updateMaterialSummary() {
       });
     }
 
-    // Count standalone files
+    // Build set of module file IDs to avoid double counting
+    const moduleFileIds = new Set();
+    if (scannedMaterials.modules) {
+      scannedMaterials.modules.forEach(module => {
+        if (module.items) {
+          module.items.forEach(item => {
+            if (item.type === 'File') {
+              if (item.content_id) moduleFileIds.add(item.content_id);
+              if (item.id) moduleFileIds.add(item.id);
+              if (item.url) moduleFileIds.add(item.url);
+            }
+          });
+        }
+      });
+    }
+
+    // Count standalone files (excluding those already in modules)
     if (scannedMaterials.files) {
-      summary.standaloneFiles = scannedMaterials.files.length;
+      summary.standaloneFiles = scannedMaterials.files.filter(file => {
+        const isInModule = moduleFileIds.has(file.content_id) ||
+                          moduleFileIds.has(file.id) ||
+                          moduleFileIds.has(file.url);
+        return !isInModule; // Only count files NOT in modules
+      }).length;
     }
 
     // Count pages
@@ -2431,6 +2472,26 @@ function populateDetailedView() {
     } else {
       moduleCheckbox.checked = false;
       moduleCheckbox.indeterminate = false;
+    }
+  });
+
+  // Initialize individual module file checkbox states (for module headers within modules section)
+  detailedView.querySelectorAll('.module-file-checkbox').forEach(moduleFileCheckbox => {
+    const moduleIdx = moduleFileCheckbox.dataset.moduleIdx;
+    const moduleItem = moduleFileCheckbox.closest('.module-item');
+    const fileCheckboxes = moduleItem.querySelectorAll('.module-files input[type="checkbox"]');
+    const allChecked = Array.from(fileCheckboxes).every(cb => cb.checked);
+    const someChecked = Array.from(fileCheckboxes).some(cb => cb.checked);
+
+    if (allChecked && fileCheckboxes.length > 0) {
+      moduleFileCheckbox.checked = true;
+      moduleFileCheckbox.indeterminate = false;
+    } else if (someChecked) {
+      moduleFileCheckbox.checked = false;
+      moduleFileCheckbox.indeterminate = true;
+    } else {
+      moduleFileCheckbox.checked = false;
+      moduleFileCheckbox.indeterminate = false;
     }
   });
 }
