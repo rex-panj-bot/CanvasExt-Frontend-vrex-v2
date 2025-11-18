@@ -216,8 +216,25 @@ class CanvasAPI {
    */
   async getPages(courseId) {
     try {
-      const pages = await this.makeRequest(`/api/v1/courses/${courseId}/pages?per_page=100`);
-      return pages;
+      const pageList = await this.makeRequest(`/api/v1/courses/${courseId}/pages?per_page=100`);
+
+      // Fetch full content for each page (includes body)
+      // Canvas API list endpoint doesn't include body content
+      const pagesWithBody = await Promise.all(
+        pageList.map(async (page) => {
+          try {
+            const fullPage = await this.makeRequest(
+              `/api/v1/courses/${courseId}/pages/${page.url}`
+            );
+            return fullPage;
+          } catch (error) {
+            console.warn(`Failed to fetch page body: ${page.title}`, error);
+            return page; // Return without body if fetch fails
+          }
+        })
+      );
+
+      return pagesWithBody;
     } catch (error) {
       console.error(`Error fetching pages for course ${courseId}:`, error);
       throw error;
@@ -242,7 +259,7 @@ class CanvasAPI {
    */
   async getAssignments(courseId) {
     try {
-      const assignments = await this.makeRequest(`/api/v1/courses/${courseId}/assignments?per_page=100`);
+      const assignments = await this.makeRequest(`/api/v1/courses/${courseId}/assignments?per_page=100&include[]=attachments`);
       return assignments;
     } catch (error) {
       console.error(`Error fetching assignments for course ${courseId}:`, error);

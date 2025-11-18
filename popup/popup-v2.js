@@ -1435,6 +1435,43 @@ async function createStudyBot() {
         } else {
           console.log(`⏭️ [ASSIGNMENT] "${assignment.name}" already uploaded to backend`);
         }
+
+        // Process assignment attachments as separate files
+        if (assignment.attachments && Array.isArray(assignment.attachments) && assignment.attachments.length > 0) {
+          console.log(`📎 [ASSIGNMENT] Processing ${assignment.attachments.length} attachment(s) for "${assignment.name}"`);
+          chrome.runtime.sendMessage({
+            type: 'LOG_FROM_POPUP',
+            message: `📎 [ASSIGNMENT] Processing ${assignment.attachments.length} attachment(s) for "${assignment.name}"`
+          });
+
+          assignment.attachments.forEach(attachment => {
+            if (attachment.url && attachment.filename) {
+              // Create a unique key for deduplication
+              const attachmentKey = `${currentCourse.id}_attachment_${attachment.id}`;
+
+              if (!seenFileKeys.has(attachmentKey)) {
+                seenFileKeys.add(attachmentKey);
+
+                filesToProcess.push({
+                  name: attachment.filename,
+                  url: attachment.url,
+                  id: attachment.id,
+                  canvas_id: attachment.id,
+                  size: attachment.size,
+                  type: 'attachment',
+                  parent_assignment: assignment.name,
+                  display_name: `${attachment.filename} (from ${assignment.name})`
+                });
+
+                console.log(`📎 [ASSIGNMENT] Added attachment: ${attachment.filename} (${attachment.size} bytes)`);
+                chrome.runtime.sendMessage({
+                  type: 'LOG_FROM_POPUP',
+                  message: `📎 [ASSIGNMENT] Added attachment: ${attachment.filename}`
+                });
+              }
+            }
+          });
+        }
       });
     }
 
