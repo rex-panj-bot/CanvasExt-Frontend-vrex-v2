@@ -1287,7 +1287,7 @@ async function createStudyBot() {
     // NEW APPROACH: Just collect Canvas URLs, backend will download and process
     const filesToProcess = [];
     const skippedFiles = []; // Track files without URLs
-    const filesToUploadToBackend = []; // Pages/assignments converted to text blobs
+    let filesToUploadToBackend = []; // Pages/assignments converted to text blobs (let for hash reassignment)
     const seenFileKeys = new Set(); // Track files to avoid duplicates
     let duplicatesSkipped = 0;
 
