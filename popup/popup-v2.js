@@ -1348,13 +1348,32 @@ async function createStudyBot() {
     }
 
     // Process assignments: convert descriptions to text files for AI to read
+    console.log(`🔍 [ASSIGNMENT] Checking materialsToProcess.assignments:`, {
+      exists: !!materialsToProcess.assignments,
+      isArray: Array.isArray(materialsToProcess.assignments),
+      length: materialsToProcess.assignments?.length,
+      assignments: materialsToProcess.assignments
+    });
+    chrome.runtime.sendMessage({
+      type: 'LOG_FROM_POPUP',
+      message: `🔍 [ASSIGNMENT] materialsToProcess has ${materialsToProcess.assignments?.length || 0} assignments (isArray: ${Array.isArray(materialsToProcess.assignments)})`
+    });
+
     if (materialsToProcess.assignments && Array.isArray(materialsToProcess.assignments)) {
       console.log(`📋 Processing ${materialsToProcess.assignments.length} assignment descriptions for backend upload`);
+      chrome.runtime.sendMessage({
+        type: 'LOG_FROM_POPUP',
+        message: `📋 [ASSIGNMENT] Processing ${materialsToProcess.assignments.length} assignment descriptions`
+      });
 
       materialsToProcess.assignments.forEach((assignment) => {
         // Only process assignments with descriptions
         if (!assignment.description || assignment.description.trim() === '') {
           console.log(`⏭️ Skipping assignment "${assignment.name}" - no description`);
+          chrome.runtime.sendMessage({
+            type: 'LOG_FROM_POPUP',
+            message: `⏭️ [ASSIGNMENT] Skipping "${assignment.name}" - no description`
+          });
           return;
         }
 
@@ -1392,6 +1411,10 @@ async function createStudyBot() {
           id: assignment.id,
           has_html_url: !!assignment.html_url
         });
+        chrome.runtime.sendMessage({
+          type: 'LOG_FROM_POPUP',
+          message: `📝 [ASSIGNMENT] Created blob for "${assignment.name}": size=${textBlob.size}, id=${assignment.id}, stored_name=${assignment.stored_name}`
+        });
 
         // Check if already uploaded
         const fileId = `${currentCourse.id}_[Assignment] ${safeName}`;
@@ -1405,6 +1428,10 @@ async function createStudyBot() {
           });
 
           console.log(`✅ [ASSIGNMENT] Queued "${assignment.name}" for backend upload as ${filename}`);
+          chrome.runtime.sendMessage({
+            type: 'LOG_FROM_POPUP',
+            message: `✅ [ASSIGNMENT] Queued "${assignment.name}" as ${filename}`
+          });
         } else {
           console.log(`⏭️ [ASSIGNMENT] "${assignment.name}" already uploaded to backend`);
         }
@@ -1558,6 +1585,10 @@ async function createStudyBot() {
 
         // ALSO compute hashes for assignment/page text blobs (filesToUploadToBackend)
         console.log(`🔢 [ASSIGNMENT] Computing hashes for ${filesToUploadToBackend.length} backend files (assignments/pages)...`);
+        chrome.runtime.sendMessage({
+          type: 'LOG_FROM_POPUP',
+          message: `🔢 [ASSIGNMENT] Computing hashes for ${filesToUploadToBackend.length} backend files`
+        });
         const backendFilesWithHashes = await Promise.all(filesToUploadToBackend.map(async (file) => {
           if (file.blob) {
             const hash = await computeFileHash(file.blob);
