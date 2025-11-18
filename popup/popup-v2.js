@@ -557,6 +557,9 @@ async function handleCourseChange() {
     return;
   }
 
+  // Clear selected files when switching courses
+  selectedFiles.clear();
+
   // Disable study bot button immediately when switching courses
   const studyBotBtn = document.getElementById('study-bot-btn');
   studyBotBtn.disabled = true;
@@ -2160,7 +2163,7 @@ function populateDetailedView() {
   html += '<h3>All Course Files</h3>';
   html += '<div class="file-list-actions">';
   html += '<label class="select-all-label">';
-  html += '<input type="checkbox" id="select-all-checkbox" class="select-all-checkbox">';
+  html += '<input type="checkbox" id="select-all-checkbox" class="select-all-checkbox" checked>';
   html += '<span>Select All</span>';
   html += '</label>';
   html += '</div>';
