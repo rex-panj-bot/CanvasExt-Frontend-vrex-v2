@@ -1385,6 +1385,14 @@ async function createStudyBot() {
         assignment.blob = textBlob;
         assignment.stored_name = filename;  // Enable backend matching by filename
 
+        console.log(`📝 [ASSIGNMENT] Created blob for "${assignment.name}":`, {
+          stored_name: assignment.stored_name,
+          blob_size: textBlob.size,
+          has_id: !!assignment.id,
+          id: assignment.id,
+          has_html_url: !!assignment.html_url
+        });
+
         // Check if already uploaded
         const fileId = `${currentCourse.id}_[Assignment] ${safeName}`;
 
@@ -1396,9 +1404,9 @@ async function createStudyBot() {
             type: 'txt'
           });
 
-          console.log(`✅ Queued assignment "${assignment.name}" for backend upload as ${filename}`);
+          console.log(`✅ [ASSIGNMENT] Queued "${assignment.name}" for backend upload as ${filename}`);
         } else {
-          console.log(`⏭️ Assignment "${assignment.name}" already uploaded to backend`);
+          console.log(`⏭️ [ASSIGNMENT] "${assignment.name}" already uploaded to backend`);
         }
       });
     }
@@ -1549,9 +1557,11 @@ async function createStudyBot() {
         }));
 
         // ALSO compute hashes for assignment/page text blobs (filesToUploadToBackend)
+        console.log(`🔢 [ASSIGNMENT] Computing hashes for ${filesToUploadToBackend.length} backend files (assignments/pages)...`);
         const backendFilesWithHashes = await Promise.all(filesToUploadToBackend.map(async (file) => {
           if (file.blob) {
             const hash = await computeFileHash(file.blob);
+            console.log(`🔢 [ASSIGNMENT] Hash computed for "${file.name}": ${hash?.substring(0, 16)}...`);
             return {
               ...file,
               hash: hash,
@@ -1592,6 +1602,9 @@ async function createStudyBot() {
         const categories = ['files', 'pages', 'assignments'];
         for (const category of categories) {
           if (!materialsToProcess[category]) continue;
+
+          console.log(`🔗 [ASSIGNMENT] Applying hashes to ${materialsToProcess[category].length} ${category}...`);
+
           materialsToProcess[category].forEach(item => {
             // Try multiple possible name properties
             const possibleNames = [
@@ -1606,8 +1619,16 @@ async function createStudyBot() {
               if (hashMap.has(itemName)) {
                 item.hash = hashMap.get(itemName);
                 hashesApplied++;
+
+                if (category === 'assignments') {
+                  console.log(`✅ [ASSIGNMENT] Hash applied to "${item.name}": ${item.hash.substring(0, 16)}... (matched by: ${itemName})`);
+                }
                 break;
               }
+            }
+
+            if (category === 'assignments' && !item.hash) {
+              console.warn(`⚠️ [ASSIGNMENT] No hash found for "${item.name}". Tried names:`, possibleNames);
             }
           });
         }
@@ -1823,6 +1844,18 @@ async function createStudyBot() {
     updateProgress('Opening chat...', PROGRESS_PERCENT.COMPLETE);
 
     // Save materials metadata to IndexedDB (no blobs needed - files are in GCS)
+    console.log(`💾 [ASSIGNMENT] Saving materials to IndexedDB...`);
+    if (materialsToProcess.assignments) {
+      console.log(`💾 [ASSIGNMENT] Assignments being saved:`, materialsToProcess.assignments.map(a => ({
+        name: a.name,
+        stored_name: a.stored_name,
+        hash: a.hash?.substring(0, 16),
+        has_id: !!a.id,
+        id: a.id,
+        has_doc_id: !!a.doc_id
+      })));
+    }
+
     const materialsDB = new MaterialsDB();
     await materialsDB.saveMaterials(currentCourse.id, currentCourse.name, materialsToProcess);
     await materialsDB.close();

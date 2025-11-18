@@ -485,6 +485,23 @@ async function loadMaterials() {
       errors: []
     };
 
+    // Log assignment data loaded from IndexedDB
+    if (processedMaterials.assignments && processedMaterials.assignments.length > 0) {
+      console.log(`📚 [ASSIGNMENT] Loaded ${processedMaterials.assignments.length} assignments from IndexedDB:`,
+        processedMaterials.assignments.map(a => ({
+          name: a.name,
+          stored_name: a.stored_name,
+          hash: a.hash?.substring(0, 16),
+          has_id: !!a.id,
+          id: a.id,
+          has_doc_id: !!a.doc_id,
+          doc_id: a.doc_id
+        }))
+      );
+    } else {
+      console.log(`📚 [ASSIGNMENT] No assignments found in loaded materials`);
+    }
+
     // Update UI
     elements.courseName.textContent = courseName;
     elements.welcomeCourseName.textContent = courseName;
@@ -1491,7 +1508,22 @@ function getSelectedDocIds() {
       docId = materialObj.doc_id || materialObj.id;
       console.log(`📄 Selected: "${materialName}" → ID: "${docId}"`);
     } else {
-      console.error(`❌ Material missing hash-based ID: "${materialName}"`, materialObj);
+      if (category === 'assignments') {
+        console.error(`❌ [ASSIGNMENT] Material missing hash-based ID: "${materialName}"`, {
+          category,
+          index,
+          has_doc_id: !!materialObj?.doc_id,
+          doc_id: materialObj?.doc_id,
+          has_id: !!materialObj?.id,
+          id: materialObj?.id,
+          has_hash: !!materialObj?.hash,
+          hash: materialObj?.hash?.substring(0, 16),
+          stored_name: materialObj?.stored_name,
+          materialObj
+        });
+      } else {
+        console.error(`❌ Material missing hash-based ID: "${materialName}"`, materialObj);
+      }
       console.error(`   This file may not have been uploaded with the hash-based system`);
       console.error(`   Please re-upload course files after purging GCS`);
       // Skip this file - don't add to docIds
