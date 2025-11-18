@@ -1377,12 +1377,13 @@ async function createStudyBot() {
         // Create text blob
         const textBlob = new Blob([assignmentText], { type: 'text/plain' });
 
-        // Add blob to assignment object so it can be opened locally
-        assignment.blob = textBlob;
-
         // Create filename: prefix with [Assignment] for clarity
         const safeName = assignment.name.replace(/[^a-zA-Z0-9_\-\s]/g, '_');
         const filename = `[Assignment] ${safeName}.txt`;
+
+        // Add blob and stored_name to assignment object
+        assignment.blob = textBlob;
+        assignment.stored_name = filename;  // Enable backend matching by filename
 
         // Check if already uploaded
         const fileId = `${currentCourse.id}_[Assignment] ${safeName}`;
@@ -1546,13 +1547,38 @@ async function createStudyBot() {
             return file;
           }
         }));
+
+        // ALSO compute hashes for assignment/page text blobs (filesToUploadToBackend)
+        const backendFilesWithHashes = await Promise.all(filesToUploadToBackend.map(async (file) => {
+          if (file.blob) {
+            const hash = await computeFileHash(file.blob);
+            return {
+              ...file,
+              hash: hash,
+              docId: hash ? `${currentCourse.id}_${hash}` : null
+            };
+          } else {
+            return file;
+          }
+        }));
+
         const hashDuration = Date.now() - hashStartTime;
-        console.log(`✅ Computed hashes for ${filesWithHashes.length} files in ${hashDuration}ms`);
+        console.log(`✅ Computed hashes for ${filesWithHashes.length} files + ${backendFilesWithHashes.length} assignments/pages in ${hashDuration}ms`);
 
         // CRITICAL: Update materials with computed hashes so they're saved to IndexedDB
         // This enables pure hash-based matching when backend returns
         const hashMap = new Map();
         filesWithHashes.forEach(f => {
+          if (f.hash) {
+            hashMap.set(f.name, f.hash);
+            // Also map without extension
+            const nameWithoutExt = f.name.replace(/\.(pdf|docx?|txt|xlsx?|pptx?|csv|md|rtf|png|jpe?g|gif|webp|bmp)$/i, '');
+            hashMap.set(nameWithoutExt, f.hash);
+          }
+        });
+
+        // Add assignment/page hashes to the map
+        backendFilesWithHashes.forEach(f => {
           if (f.hash) {
             hashMap.set(f.name, f.hash);
             // Also map without extension
