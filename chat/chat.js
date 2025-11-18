@@ -3034,9 +3034,39 @@ async function openCitedDocument(docName, pageNum) {
       }
     }
 
+    // Check assignments (for citations to assignment text files)
+    if (!fileItem && processedMaterials.assignments) {
+      for (const assignment of processedMaterials.assignments) {
+        const assignmentName = assignment.name || '';
+        const normalizedAssignmentName = normalizeFilename(assignmentName);
+
+        // Try exact match first, then partial match
+        if (normalizedAssignmentName === normalizedDocName ||
+            normalizedAssignmentName.includes(normalizedDocName) ||
+            normalizedDocName.includes(normalizedAssignmentName)) {
+          fileItem = assignment;
+          fileName = assignmentName;
+          break;
+        }
+      }
+    }
+
     if (!fileItem || !fileName) {
       showError(`File not found: ${docName}`);
       return;
+    }
+
+    // Special handling for assignments/pages - open Canvas URL instead of PDF viewer
+    if (fileItem.type === 'assignment' || fileItem.type === 'page') {
+      if (fileItem.html_url) {
+        console.log(`📋 Opening ${fileItem.type} in Canvas: ${fileItem.html_url}`);
+        chrome.tabs.create({ url: fileItem.html_url });
+        return; // Skip PDF viewer
+      } else {
+        console.warn(`${fileItem.type} missing html_url, cannot open`);
+        showError(`Cannot open ${fileItem.type}: missing Canvas URL`);
+        return;
+      }
     }
 
     // HASH-BASED: Open file from backend/GCS with page parameter using content hash
