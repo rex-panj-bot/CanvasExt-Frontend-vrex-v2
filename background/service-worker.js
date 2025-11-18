@@ -148,34 +148,40 @@ async function updateMaterialsWithStoredNames(courseId, uploadedFiles) {
     const hashToMetadataMap = new Map();
     // FILENAME FALLBACK: For first upload when materials don't have hashes yet
     const filenameToMetadataMap = new Map();
+    // ID-BASED FALLBACK: Match by Canvas file ID (for module items with different titles)
+    const idToMetadataMap = new Map();
+
     uploadedFiles.forEach(file => {
-      // Backend returns: hash, doc_id, path, filename
+      // Backend returns: hash, doc_id, path, filename, canvas_file_id
+      const metadata = {
+        doc_id: file.doc_id,        // Hash-based ID: {course_id}_{hash}
+        hash: file.hash,            // Store hash for materials without it
+        stored_name: file.path || file.stored_name  // GCS path
+      };
+
       if (file.hash) {
-        hashToMetadataMap.set(file.hash, {
-          doc_id: file.doc_id,        // Hash-based ID: {course_id}_{hash}
-          hash: file.hash,            // Store hash for materials without it
-          stored_name: file.path || file.stored_name  // GCS path
-        });
+        hashToMetadataMap.set(file.hash, metadata);
       }
-      // Also create filename mapping for fallback
+
+      // Canvas file ID mapping (for deduplication matching)
+      // Backend may return id, canvas_file_id, canvas_id, or file_id
+      const canvasId = file.canvas_file_id || file.canvas_id || file.id || file.file_id;
+      if (canvasId) {
+        const canvasIdStr = String(canvasId);
+        idToMetadataMap.set(canvasIdStr, metadata);
+      }
+
+      // Filename mapping fallback
       const originalName = file.filename || file.original_name;
       if (originalName && file.hash) {
-        filenameToMetadataMap.set(originalName, {
-          doc_id: file.doc_id,
-          hash: file.hash,
-          stored_name: file.path || file.stored_name
-        });
+        filenameToMetadataMap.set(originalName, metadata);
         // Also map without extension
         const nameWithoutExt = originalName.replace(/\.(pdf|docx?|txt|xlsx?|pptx?|csv|md|rtf|png|jpe?g|gif|webp|bmp)$/i, '');
-        filenameToMetadataMap.set(nameWithoutExt, {
-          doc_id: file.doc_id,
-          hash: file.hash,
-          stored_name: file.path || file.stored_name
-        });
+        filenameToMetadataMap.set(nameWithoutExt, metadata);
       }
     });
 
-    console.log(`📝 Updating materials with ${hashToMetadataMap.size} hash-based IDs (+ ${filenameToMetadataMap.size} filename fallbacks)...`);
+    console.log(`📝 Updating materials with ${hashToMetadataMap.size} hash-based IDs (${idToMetadataMap.size} ID mappings, ${filenameToMetadataMap.size} filename fallbacks)...`);
 
     // Update all material categories using HASH as the key, with filename fallback
     const categories = ['files', 'pages', 'assignments', 'modules'];
@@ -188,19 +194,35 @@ async function updateMaterialsWithStoredNames(courseId, uploadedFiles) {
           if (module.items) {
             module.items.forEach(item => {
               const itemName = item.title || item.name || item.display_name;
+              const canvasId = String(item.content_id || item.id || '');
+
               // Match by hash first (preferred)
               if (item.hash && hashToMetadataMap.has(item.hash)) {
                 const metadata = hashToMetadataMap.get(item.hash);
                 item.doc_id = metadata.doc_id;
                 item.stored_name = metadata.stored_name;
                 updatedCount++;
-              } else if (!item.hash && itemName && filenameToMetadataMap.has(itemName)) {
-                // Fallback to filename match (first upload - bootstrap hash)
+              }
+              // Match by Canvas file ID (for deduplicated files with different titles)
+              else if (!item.hash && canvasId && idToMetadataMap.has(canvasId)) {
+                const metadata = idToMetadataMap.get(canvasId);
+                item.doc_id = metadata.doc_id;
+                item.hash = metadata.hash;
+                item.stored_name = metadata.stored_name;
+                updatedCount++;
+                console.log(`✅ [ID MATCH] Module item "${itemName}" matched by Canvas ID: ${canvasId}`);
+              }
+              // Fallback to filename match (first upload - bootstrap hash)
+              else if (!item.hash && itemName && filenameToMetadataMap.has(itemName)) {
                 const metadata = filenameToMetadataMap.get(itemName);
                 item.doc_id = metadata.doc_id;
                 item.hash = metadata.hash;
                 item.stored_name = metadata.stored_name;
                 updatedCount++;
+                console.log(`✅ [NAME MATCH] Module item "${itemName}" matched by filename`);
+              }
+              else if (!item.hash) {
+                console.warn(`⚠️ [NO MATCH] Module item "${itemName}" not matched (canvasId: ${canvasId}, has filenameMap: ${filenameToMetadataMap.has(itemName)})`);
               }
             });
           }
@@ -209,14 +231,25 @@ async function updateMaterialsWithStoredNames(courseId, uploadedFiles) {
         // Handle standalone files/pages/assignments
         materials[category].forEach(item => {
           const itemName = item.name || item.display_name || item.title;
+          const canvasId = String(item.id || item.file_id || '');
+
           // Match by hash first (preferred)
           if (item.hash && hashToMetadataMap.has(item.hash)) {
             const metadata = hashToMetadataMap.get(item.hash);
             item.doc_id = metadata.doc_id;
             item.stored_name = metadata.stored_name;
             updatedCount++;
-          } else if (!item.hash && itemName && filenameToMetadataMap.has(itemName)) {
-            // Fallback to filename match (first upload - bootstrap hash)
+          }
+          // Match by Canvas file ID (for deduplicated files)
+          else if (!item.hash && canvasId && idToMetadataMap.has(canvasId)) {
+            const metadata = idToMetadataMap.get(canvasId);
+            item.doc_id = metadata.doc_id;
+            item.hash = metadata.hash;
+            item.stored_name = metadata.stored_name;
+            updatedCount++;
+          }
+          // Fallback to filename match (first upload - bootstrap hash)
+          else if (!item.hash && itemName && filenameToMetadataMap.has(itemName)) {
             const metadata = filenameToMetadataMap.get(itemName);
             item.doc_id = metadata.doc_id;
             item.hash = metadata.hash;
@@ -399,7 +432,11 @@ chrome.storage.local.get(['downloadTask'], (result) => {
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log('Background received message:', request);
 
-  if (request.type === 'COURSE_DETECTED') {
+  if (request.type === 'LOG_FROM_POPUP') {
+    // Log messages from popup to service worker console for persistence
+    console.log(request.message);
+    sendResponse({ success: true });
+  } else if (request.type === 'COURSE_DETECTED') {
     // Store course info from content script
     currentCourseInfo = request.courseInfo;
     console.log('Course info stored:', currentCourseInfo);
@@ -430,6 +467,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // Handle background file upload with batching
     console.log('🚀 [SERVICE-WORKER] Received START_BACKGROUND_UPLOAD message');
     const { courseId, files, canvasUrl, cookies } = request.payload;
+
+    // Log deduplication stats
+    const filesWithHash = files.filter(f => f.hash).length;
+    const uniqueUrls = new Set(files.map(f => f.url)).size;
+    console.log(`🔍 [DEDUP CHECK] Received ${files.length} files: ${filesWithHash} with hash, ${uniqueUrls} unique URLs`);
 
     // Store files in memory (not in chrome.storage to avoid quota issues)
     uploadFilesQueue = files;

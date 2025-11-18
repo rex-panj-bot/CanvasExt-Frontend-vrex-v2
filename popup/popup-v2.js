@@ -715,7 +715,7 @@ async function preCheckFilesInBackground(courseId, courseName) {
       filesToProcess.push({
         name: itemName,
         url: item.url,
-        id: item.id || item.file_id
+        id: item.content_id || item.id || item.file_id
       });
     };
 
@@ -789,7 +789,11 @@ async function checkCachedMaterials(courseId) {
     await materialsDB.close();
 
     if (!cached) {
-      console.log('📭 No cached materials found');
+      console.log('📭 No cached materials found in IndexedDB');
+      chrome.runtime.sendMessage({
+        type: 'LOG_FROM_POPUP',
+        message: `📭 [POPUP] No cached materials found for course ${courseId}`
+      });
       return null;
     }
 
@@ -799,10 +803,37 @@ async function checkCachedMaterials(courseId) {
 
     if (cacheAge > maxAge) {
       console.log(`🕐 Cached materials too old (${Math.floor(cacheAge / (60 * 60 * 1000))} hours), will refresh`);
+      chrome.runtime.sendMessage({
+        type: 'LOG_FROM_POPUP',
+        message: `🕐 [POPUP] Cache too old: ${Math.floor(cacheAge / (60 * 60 * 1000))} hours`
+      });
       return null;
     }
 
     console.log(`✅ Found fresh cached materials (${Math.floor(cacheAge / (60 * 1000))} minutes old)`);
+
+    // Log how many materials have hashes
+    let totalMaterials = 0;
+    let materialsWithHash = 0;
+    for (const [category, items] of Object.entries(cached.materials || {})) {
+      if (Array.isArray(items)) {
+        items.forEach(item => {
+          totalMaterials++;
+          if (item.hash) materialsWithHash++;
+        });
+      } else if (category === 'modules' && Array.isArray(items)) {
+        items.forEach(module => {
+          if (module.items) {
+            module.items.forEach(item => {
+              totalMaterials++;
+              if (item.hash) materialsWithHash++;
+            });
+          }
+        });
+      }
+    }
+    console.log(`📊 [CACHE] Loaded materials: ${totalMaterials} total, ${materialsWithHash} WITH hashes`);
+
     return cached;
   } catch (error) {
     console.error('Error checking cached materials:', error);
@@ -900,10 +931,11 @@ function mergeCachedBlobs(scanned, cached) {
     if (!Array.isArray(items)) return;
 
     items.forEach(item => {
-      if (item.url && item.blob) {
+      if (item.url) {
         blobMap.set(item.url, {
           blob: item.blob,
-          stored_name: item.stored_name
+          stored_name: item.stored_name,
+          hash: item.hash  // CRITICAL: Preserve hash for deduplication
         });
       }
     });
@@ -921,7 +953,9 @@ function mergeCachedBlobs(scanned, cached) {
     });
   }
 
-  console.log(`🔗 Built blob map with ${blobMap.size} cached blobs`);
+  // Count hashes in blob map
+  const hashCount = Array.from(blobMap.values()).filter(v => v.hash).length;
+  console.log(`🔗 Built blob map with ${blobMap.size} cached items (${hashCount} with hashes)`);
 
   // Attach cached blobs to scanned materials
   const attachBlobs = (items) => {
@@ -932,6 +966,7 @@ function mergeCachedBlobs(scanned, cached) {
         const cached = blobMap.get(item.url);
         item.blob = cached.blob;
         item.stored_name = cached.stored_name;
+        item.hash = cached.hash;  // CRITICAL: Copy hash for deduplication
       }
     });
   };
@@ -1219,7 +1254,17 @@ async function createStudyBot() {
     // If we have cached materials, merge blobs to avoid re-downloading
     if (cachedMaterials) {
       console.log('🚀 FAST PATH: Using cached materials with blobs');
+      chrome.runtime.sendMessage({
+        type: 'LOG_FROM_POPUP',
+        message: `🚀 [POPUP] FAST PATH: Merging cached materials`
+      });
       materialsToProcess = mergeCachedBlobs(materialsToProcess, cachedMaterials);
+    } else {
+      console.log('⚠️ NO CACHE: Will need to download all files');
+      chrome.runtime.sendMessage({
+        type: 'LOG_FROM_POPUP',
+        message: `⚠️ [POPUP] NO CACHE: cachedMaterials is null/undefined`
+      });
     }
 
     updateProgress('Checking backend...', PROGRESS_PERCENT.BACKEND_CHECK);
@@ -1243,6 +1288,8 @@ async function createStudyBot() {
     const filesToProcess = [];
     const skippedFiles = []; // Track files without URLs
     const filesToUploadToBackend = []; // Pages/assignments converted to text blobs
+    const seenFileKeys = new Set(); // Track files to avoid duplicates
+    let duplicatesSkipped = 0;
 
     // Helper function to collect file info
     const processItem = (item) => {
@@ -1256,11 +1303,23 @@ async function createStudyBot() {
         return;
       }
 
+      // Deduplicate: same file can appear in Files list AND modules
+      // Use Canvas file ID: content_id for modules, id for files
+      const fileId = item.content_id || item.id || item.file_id;
+      const dedupeKey = fileId || item.url || itemName;
+
+      if (seenFileKeys.has(dedupeKey)) {
+        duplicatesSkipped++;
+        return; // Skip duplicate
+      }
+      seenFileKeys.add(dedupeKey);
+
       filesToProcess.push({
         name: itemName,
         url: item.url,
-        id: item.id || item.file_id,  // Canvas file ID for fresh URL generation
-        blob: item.blob  // Include blob if available (for hash computation)
+        id: fileId,  // Canvas file ID for fresh URL generation
+        blob: item.blob,  // Include blob if available (for hash computation)
+        hash: item.hash   // Include hash if available from IndexedDB/backend
       });
     };
 
@@ -1399,9 +1458,47 @@ async function createStudyBot() {
     }
 
     // Log summary of files to process
-    console.log(`📊 Files to process: ${filesToProcess.length}`);
+    const filesWithHashInProcess = filesToProcess.filter(f => f.hash).length;
+    console.log(`📊 Files to process: ${filesToProcess.length} total, ${filesWithHashInProcess} with hash from IndexedDB`);
+    if (duplicatesSkipped > 0) {
+      console.log(`🗑️ Removed ${duplicatesSkipped} duplicate files during collection`);
+    }
+
+    // Also log to service worker for persistence
+    chrome.runtime.sendMessage({
+      type: 'LOG_FROM_POPUP',
+      message: `📊 [POPUP] Collected ${filesToProcess.length} unique files (skipped ${duplicatesSkipped} duplicates)`
+    });
     if (skippedFiles.length > 0) {
       console.warn(`⚠️ ${skippedFiles.length} files skipped (no Canvas download URL):`, skippedFiles);
+
+      // Notify user about unpublished/inaccessible files
+      const skippedNames = skippedFiles.slice(0, 10).join('\n• ');
+      const moreCount = skippedFiles.length > 10 ? `\n...and ${skippedFiles.length - 10} more` : '';
+      alert(`⚠️ ${skippedFiles.length} file(s) are not yet published or accessible and will be skipped:\n\n• ${skippedNames}${moreCount}\n\nThese files won't be available to the AI until they are published in Canvas.`);
+
+      // Remove skipped files from materialsToProcess so they don't show in UI
+      const skippedSet = new Set(skippedFiles);
+      for (const [key, items] of Object.entries(materialsToProcess)) {
+        if (Array.isArray(items)) {
+          materialsToProcess[key] = items.filter(item => {
+            const itemName = item.stored_name || item.display_name || item.filename || item.name || item.title;
+            return !skippedSet.has(itemName);
+          });
+        }
+      }
+
+      // Also remove from module items
+      if (materialsToProcess.modules && Array.isArray(materialsToProcess.modules)) {
+        materialsToProcess.modules.forEach((module) => {
+          if (module.items && Array.isArray(module.items)) {
+            module.items = module.items.filter(item => {
+              const itemName = item.stored_name || item.title || item.name || item.display_name;
+              return !skippedSet.has(itemName);
+            });
+          }
+        });
+      }
     }
 
     // Upload pages/assignments text blobs that were created above
@@ -1426,53 +1523,17 @@ async function createStudyBot() {
     let filesToUpload = [];
 
     if (filesToProcess.length > 0) {
-      // Filter out unpublished files (files without blobs)
-      const filesWithBlobs = filesToProcess.filter(f => f.blob);
-      const unpublishedFiles = filesToProcess.filter(f => !f.blob);
+      // Check if files have blobs (frontend already downloaded) or just URLs (backend will download)
+      const hasBlobs = filesToProcess.some(f => f.blob);
 
-      if (unpublishedFiles.length > 0) {
-        console.warn(`⚠️ ${unpublishedFiles.length} files are not published/accessible:`, unpublishedFiles.map(f => f.name));
-
-        // Notify user about unpublished files
-        const unpublishedNames = unpublishedFiles.map(f => f.name).slice(0, 10).join('\n• ');
-        const moreCount = unpublishedFiles.length > 10 ? `\n...and ${unpublishedFiles.length - 10} more` : '';
-        alert(`⚠️ ${unpublishedFiles.length} file(s) are not yet published or accessible and will be skipped:\n\n• ${unpublishedNames}${moreCount}\n\nThese files won't be available to the AI until they are published in Canvas.`);
-
-        // Remove unpublished files from materialsToProcess so they don't show in UI
-        const unpublishedSet = new Set(unpublishedFiles.map(f => f.name));
-        for (const [key, items] of Object.entries(materialsToProcess)) {
-          if (Array.isArray(items)) {
-            materialsToProcess[key] = items.filter(item => {
-              const itemName = item.stored_name || item.display_name || item.filename || item.name || item.title;
-              return !unpublishedSet.has(itemName);
-            });
-          }
-        }
-
-        // Also remove from module items
-        if (materialsToProcess.modules && Array.isArray(materialsToProcess.modules)) {
-          materialsToProcess.modules.forEach((module) => {
-            if (module.items && Array.isArray(module.items)) {
-              module.items = module.items.filter(item => {
-                const itemName = item.stored_name || item.title || item.name || item.display_name;
-                return !unpublishedSet.has(itemName);
-              });
-            }
-          });
-        }
-      }
-
-      // Check if files have blobs (frontend download) or just URLs (backend download)
-      const hasBlobs = filesWithBlobs.length > 0;
-
-      let filesWithHashes = filesWithBlobs;
+      let filesWithHashes = filesToProcess;
 
       if (hasBlobs) {
         // Step 1: Compute hashes for all files (only if we have blobs)
-        updateProgress(`Computing file hashes for ${filesWithBlobs.length} files...`, PROGRESS_PERCENT.UPLOADING - 15);
+        updateProgress(`Computing file hashes for ${filesToProcess.length} files...`, PROGRESS_PERCENT.UPLOADING - 15);
 
         const hashStartTime = Date.now();
-        filesWithHashes = await Promise.all(filesWithBlobs.map(async (file) => {
+        filesWithHashes = await Promise.all(filesToProcess.map(async (file) => {
           if (file.blob) {
             const hash = await computeFileHash(file.blob);
             return {
@@ -1624,21 +1685,44 @@ async function createStudyBot() {
     // NEW APPROACH: Send files to background worker for batched upload
     // This allows chat to open immediately while files upload in background
     if (filesToUpload.length > 0) {
-      // DEBUG: Check for duplicate filenames before sending to backend
-      const fileNames = filesToUpload.map(f => f.name);
-      const uniqueNames = new Set(fileNames);
-      if (fileNames.length !== uniqueNames.size) {
-        const duplicates = fileNames.filter((name, index) => fileNames.indexOf(name) !== index);
-        const duplicateCounts = {};
-        duplicates.forEach(name => {
-          duplicateCounts[name] = fileNames.filter(n => n === name).length;
+      // DEDUPLICATE: Remove duplicate files before uploading
+      // Same file can appear in both files list AND modules - deduplicate by URL or hash
+      const seenKeys = new Set();
+      const deduplicatedFiles = [];
+      let hashKeys = 0, urlKeys = 0, idKeys = 0, nameKeys = 0;
+
+      filesToUpload.forEach(f => {
+        // Use hash if available (for cached materials), otherwise URL, otherwise Canvas ID, otherwise name
+        let key;
+        if (f.hash) {
+          key = `hash:${f.hash}`;
+          hashKeys++;
+        } else if (f.url) {
+          key = `url:${f.url}`;
+          urlKeys++;
+        } else if (f.id) {
+          key = `id:${f.id}`;
+          idKeys++;
+        } else {
+          key = `name:${f.name}`;
+          nameKeys++;
+        }
+
+        if (!seenKeys.has(key)) {
+          seenKeys.add(key);
+          deduplicatedFiles.push(f);
+        }
+      });
+
+      console.log(`🔑 Dedup keys used: ${hashKeys} hash, ${urlKeys} URL, ${idKeys} Canvas ID, ${nameKeys} name`);
+      if (deduplicatedFiles.length < filesToUpload.length) {
+        console.log(`⚡ Deduplicated ${filesToUpload.length} files → ${deduplicatedFiles.length} unique (removed ${filesToUpload.length - deduplicatedFiles.length} duplicates)`);
+        chrome.runtime.sendMessage({
+          type: 'LOG_FROM_POPUP',
+          message: `⚡ [DEDUP] ${filesToUpload.length} → ${deduplicatedFiles.length} (keys: ${hashKeys} hash, ${urlKeys} url, ${idKeys} id, ${nameKeys} name)`
         });
-        console.warn(`⚠️ [POPUP-V2] WARNING: Found ${fileNames.length - uniqueNames.size} duplicate filenames!`);
-        console.warn(`   Duplicates:`, duplicateCounts);
-        console.warn(`   First 10 files:`, fileNames.slice(0, 10));
-      } else {
-        console.log(`✅ [POPUP-V2] No duplicate filenames detected (${filesToUpload.length} unique files)`);
       }
+      filesToUpload = deduplicatedFiles;
 
       // OPTIMIZATION: Prioritize important files (syllabus, small files) for faster perceived speed
       filesToUpload.sort((a, b) => {
@@ -1669,6 +1753,25 @@ async function createStudyBot() {
 
         // Extract session cookies (Canvas uses various cookie names depending on institution)
         const cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+
+        // Log what we're about to send
+        const hashCountBeforeSend = filesToUpload.filter(f => f.hash).length;
+        console.log(`📤 [POPUP] About to send ${filesToUpload.length} files to service worker: ${hashCountBeforeSend} with hash`);
+
+        // Also log to service worker console for persistence
+        chrome.runtime.sendMessage({
+          type: 'LOG_FROM_POPUP',
+          message: `📤 [POPUP] Sending ${filesToUpload.length} files: ${hashCountBeforeSend} with hash`
+        });
+
+        if (hashCountBeforeSend === 0 && filesToUpload.length > 0) {
+          console.error(`❌ [POPUP] WARNING: No files have hashes! First file:`, filesToUpload[0]);
+          // Log first 3 files to service worker for debugging
+          chrome.runtime.sendMessage({
+            type: 'LOG_FROM_POPUP',
+            message: `❌ [POPUP] First 3 files without hashes: ${JSON.stringify(filesToUpload.slice(0, 3).map(f => ({name: f.name, hash: f.hash, id: f.id, url: f.url?.substring(0, 50)})))}`
+          });
+        }
 
         // Send files to background worker for batched upload (with hashes)
         await chrome.runtime.sendMessage({
