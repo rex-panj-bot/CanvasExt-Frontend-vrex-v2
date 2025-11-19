@@ -271,6 +271,47 @@ const StorageManager = {
   async hasAnthropicAPIKey() {
     const apiKey = await this.getAnthropicAPIKey();
     return !!apiKey;
+  },
+
+  // ========== Canvas User ID Methods ==========
+
+  /**
+   * Save Canvas user ID
+   */
+  async saveCanvasUserId(userId) {
+    return new Promise((resolve, reject) => {
+      chrome.storage.local.set({ canvasUserId: String(userId) }, () => {
+        if (chrome.runtime.lastError) {
+          reject(chrome.runtime.lastError);
+        } else {
+          console.log('Canvas user ID saved:', userId);
+          resolve();
+        }
+      });
+    });
+  },
+
+  /**
+   * Get Canvas user ID
+   */
+  async getCanvasUserId() {
+    return new Promise((resolve, reject) => {
+      chrome.storage.local.get(['canvasUserId'], (result) => {
+        if (chrome.runtime.lastError) {
+          reject(chrome.runtime.lastError);
+        } else {
+          resolve(result.canvasUserId || null);
+        }
+      });
+    });
+  },
+
+  /**
+   * Check if Canvas user ID is stored
+   */
+  async hasCanvasUserId() {
+    const userId = await this.getCanvasUserId();
+    return !!userId;
   }
 };
 

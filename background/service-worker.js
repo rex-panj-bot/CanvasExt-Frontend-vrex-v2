@@ -110,6 +110,8 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.runtime.onStartup.addListener(() => {
   console.log('🎨 Browser started, initializing icon');
   initializeIcon();
+  // Check for incomplete uploads and resume
+  checkAndResumeUploads();
 });
 
 // Listen for theme preference changes (when theme-manager.js updates storage)
@@ -132,21 +134,81 @@ let currentCourseInfo = null;
 let uploadFilesQueue = null;
 
 /**
+ * Check for incomplete uploads and resume them (called on service worker startup)
+ */
+async function checkAndResumeUploads() {
+  try {
+    // Check chrome.storage.local for active upload task
+    const result = await chrome.storage.local.get(['uploadTask']);
+    const task = result.uploadTask;
+
+    if (!task || task.status !== 'uploading') {
+      console.log('✅ No incomplete uploads to resume');
+      return;
+    }
+
+    // Check if task is stale (older than 10 minutes)
+    const ageMinutes = (Date.now() - task.startTime) / 1000 / 60;
+    if (ageMinutes > 10) {
+      console.log(`⚠️ Upload task is stale (${ageMinutes.toFixed(1)} minutes old), cleaning up...`);
+      await chrome.storage.local.remove(['uploadTask']);
+      await deleteUploadQueueFromDB(task.courseId);
+      return;
+    }
+
+    // Load queue from IndexedDB
+    const queueData = await loadUploadQueueFromDB(task.courseId);
+    if (!queueData || !queueData.files) {
+      console.warn('⚠️ Upload task found but no queue in IndexedDB, marking as error');
+      await chrome.storage.local.set({
+        uploadTask: {
+          ...task,
+          status: 'error',
+          error: 'Upload queue lost during service worker restart'
+        }
+      });
+      return;
+    }
+
+    console.log(`🔄 Resuming upload for course ${task.courseId}: ${task.uploadedFiles}/${task.totalFiles} files uploaded, batch ${task.currentBatch}/${task.totalBatches}`);
+
+    // Restore queue to memory
+    uploadFilesQueue = queueData.files;
+
+    // Resume upload process
+    handleBackgroundUpload();
+
+  } catch (error) {
+    console.error('Error checking for incomplete uploads:', error);
+  }
+}
+
+/**
  * Open IndexedDB connection
  */
 async function openIndexedDB() {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open('CanvasMaterialsDB', 1);
+    const request = indexedDB.open('CanvasMaterialsDB', 2);
 
     request.onerror = () => reject(request.error);
     request.onsuccess = () => resolve(request.result);
 
     request.onupgradeneeded = (event) => {
       const db = event.target.result;
+      const oldVersion = event.oldVersion;
+
+      // Create materials store (v1)
       if (!db.objectStoreNames.contains('materials')) {
         const objectStore = db.createObjectStore('materials', { keyPath: 'courseId' });
         objectStore.createIndex('courseName', 'courseName', { unique: false });
         objectStore.createIndex('lastUpdated', 'lastUpdated', { unique: false });
+      }
+
+      // Create uploadQueue store (v2)
+      if (oldVersion < 2 && !db.objectStoreNames.contains('uploadQueue')) {
+        const uploadStore = db.createObjectStore('uploadQueue', { keyPath: 'courseId' });
+        uploadStore.createIndex('timestamp', 'timestamp', { unique: false });
+        console.log('✅ Created uploadQueue object store');
       }
     };
   });
@@ -188,6 +250,80 @@ async function saveMaterialsToDB(db, courseId, courseName, materials) {
 }
 
 /**
+ * Save upload queue to IndexedDB (persistent across service worker restarts)
+ */
+async function saveUploadQueueToDB(courseId, files, metadata) {
+  try {
+    const db = await openIndexedDB();
+    const transaction = db.transaction(['uploadQueue'], 'readwrite');
+    const store = transaction.objectStore('uploadQueue');
+
+    const data = {
+      courseId,
+      files,  // Array of file objects with hash, url, name, etc.
+      metadata,  // canvasUrl, cookies, totalFiles, currentBatch, etc.
+      timestamp: Date.now()
+    };
+
+    await new Promise((resolve, reject) => {
+      const request = store.put(data);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+
+    console.log(`💾 Saved upload queue for course ${courseId} to IndexedDB (${files.length} files)`);
+    db.close();
+  } catch (error) {
+    console.error('Error saving upload queue to IndexedDB:', error);
+  }
+}
+
+/**
+ * Load upload queue from IndexedDB
+ */
+async function loadUploadQueueFromDB(courseId) {
+  try {
+    const db = await openIndexedDB();
+    const transaction = db.transaction(['uploadQueue'], 'readonly');
+    const store = transaction.objectStore('uploadQueue');
+
+    const data = await new Promise((resolve, reject) => {
+      const request = store.get(courseId);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+
+    db.close();
+    return data;
+  } catch (error) {
+    console.error('Error loading upload queue from IndexedDB:', error);
+    return null;
+  }
+}
+
+/**
+ * Delete upload queue from IndexedDB (cleanup after completion)
+ */
+async function deleteUploadQueueFromDB(courseId) {
+  try {
+    const db = await openIndexedDB();
+    const transaction = db.transaction(['uploadQueue'], 'readwrite');
+    const store = transaction.objectStore('uploadQueue');
+
+    await new Promise((resolve, reject) => {
+      const request = store.delete(courseId);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+
+    console.log(`🗑️ Deleted upload queue for course ${courseId} from IndexedDB`);
+    db.close();
+  } catch (error) {
+    console.error('Error deleting upload queue from IndexedDB:', error);
+  }
+}
+
+/**
  * HASH-BASED: Update materials with hash-based IDs from backend upload response
  * This ensures materials have doc_id, hash, and stored_name for hash-based matching
  */
@@ -207,23 +343,46 @@ async function updateMaterialsWithStoredNames(courseId, uploadedFiles) {
     const courseName = materialsData.courseName;
     let updatedCount = 0;
 
-    // HASH-BASED: Create mapping: original_name -> {doc_id, hash, stored_name}
-    const fileMetadataMap = new Map();
+    // PURE HASH-BASED: Create mapping: hash -> {doc_id, stored_name}
+    const hashToMetadataMap = new Map();
+    // FILENAME FALLBACK: For first upload when materials don't have hashes yet
+    const filenameToMetadataMap = new Map();
+    // ID-BASED FALLBACK: Match by Canvas file ID (for module items with different titles)
+    const idToMetadataMap = new Map();
+
     uploadedFiles.forEach(file => {
-      // Backend should return: filename (original), doc_id, hash, path, etc.
+      // Backend returns: hash, doc_id, path, filename, canvas_file_id
+      const metadata = {
+        doc_id: file.doc_id,        // Hash-based ID: {course_id}_{hash}
+        hash: file.hash,            // Store hash for materials without it
+        stored_name: file.path || file.stored_name  // GCS path
+      };
+
+      if (file.hash) {
+        hashToMetadataMap.set(file.hash, metadata);
+      }
+
+      // Canvas file ID mapping (for deduplication matching)
+      // Backend may return id, canvas_file_id, canvas_id, or file_id
+      const canvasId = file.canvas_file_id || file.canvas_id || file.id || file.file_id;
+      if (canvasId) {
+        const canvasIdStr = String(canvasId);
+        idToMetadataMap.set(canvasIdStr, metadata);
+      }
+
+      // Filename mapping fallback
       const originalName = file.filename || file.original_name;
-      if (originalName) {
-        fileMetadataMap.set(originalName, {
-          doc_id: file.doc_id,        // Hash-based ID: {course_id}_{hash}
-          hash: file.hash,            // SHA-256 content hash
-          stored_name: file.path || file.stored_name  // GCS path or stored filename
-        });
+      if (originalName && file.hash) {
+        filenameToMetadataMap.set(originalName, metadata);
+        // Also map without extension
+        const nameWithoutExt = originalName.replace(/\.(pdf|docx?|txt|xlsx?|pptx?|csv|md|rtf|png|jpe?g|gif|webp|bmp)$/i, '');
+        filenameToMetadataMap.set(nameWithoutExt, metadata);
       }
     });
 
-    console.log(`📝 Updating materials with ${fileMetadataMap.size} hash-based IDs...`);
+    console.log(`📝 Updating materials with ${hashToMetadataMap.size} hash-based IDs (${idToMetadataMap.size} ID mappings, ${filenameToMetadataMap.size} filename fallbacks)...`);
 
-    // Update all material categories
+    // Update all material categories using HASH as the key, with filename fallback
     const categories = ['files', 'pages', 'assignments', 'modules'];
     for (const category of categories) {
       if (!materials[category]) continue;
@@ -233,14 +392,36 @@ async function updateMaterialsWithStoredNames(courseId, uploadedFiles) {
         materials[category].forEach(module => {
           if (module.items) {
             module.items.forEach(item => {
-              const originalName = item.title || item.name || item.display_name;
-              if (originalName && fileMetadataMap.has(originalName)) {
-                const metadata = fileMetadataMap.get(originalName);
-                item.doc_id = metadata.doc_id;           // HASH-BASED ID
-                item.hash = metadata.hash;               // Content hash
-                item.stored_name = metadata.stored_name; // GCS path
+              const itemName = item.title || item.name || item.display_name;
+              const canvasId = String(item.content_id || item.id || '');
+
+              // Match by hash first (preferred)
+              if (item.hash && hashToMetadataMap.has(item.hash)) {
+                const metadata = hashToMetadataMap.get(item.hash);
+                item.doc_id = metadata.doc_id;
+                item.stored_name = metadata.stored_name;
                 updatedCount++;
-                console.log(`  ✅ Updated: "${originalName}" → ID: ${metadata.doc_id?.substring(0, 24)}... (hash: ${metadata.hash?.substring(0, 16)}...)`);
+              }
+              // Match by Canvas file ID (for deduplicated files with different titles)
+              else if (!item.hash && canvasId && idToMetadataMap.has(canvasId)) {
+                const metadata = idToMetadataMap.get(canvasId);
+                item.doc_id = metadata.doc_id;
+                item.hash = metadata.hash;
+                item.stored_name = metadata.stored_name;
+                updatedCount++;
+                console.log(`✅ [ID MATCH] Module item "${itemName}" matched by Canvas ID: ${canvasId}`);
+              }
+              // Fallback to filename match (first upload - bootstrap hash)
+              else if (!item.hash && itemName && filenameToMetadataMap.has(itemName)) {
+                const metadata = filenameToMetadataMap.get(itemName);
+                item.doc_id = metadata.doc_id;
+                item.hash = metadata.hash;
+                item.stored_name = metadata.stored_name;
+                updatedCount++;
+                console.log(`✅ [NAME MATCH] Module item "${itemName}" matched by filename`);
+              }
+              else if (!item.hash) {
+                console.warn(`⚠️ [NO MATCH] Module item "${itemName}" not matched (canvasId: ${canvasId}, has filenameMap: ${filenameToMetadataMap.has(itemName)})`);
               }
             });
           }
@@ -248,14 +429,31 @@ async function updateMaterialsWithStoredNames(courseId, uploadedFiles) {
       } else {
         // Handle standalone files/pages/assignments
         materials[category].forEach(item => {
-          const originalName = item.name || item.display_name || item.title;
-          if (originalName && fileMetadataMap.has(originalName)) {
-            const metadata = fileMetadataMap.get(originalName);
-            item.doc_id = metadata.doc_id;           // HASH-BASED ID
-            item.hash = metadata.hash;               // Content hash
-            item.stored_name = metadata.stored_name; // GCS path
+          const itemName = item.name || item.display_name || item.title;
+          const canvasId = String(item.id || item.file_id || '');
+
+          // Match by hash first (preferred)
+          if (item.hash && hashToMetadataMap.has(item.hash)) {
+            const metadata = hashToMetadataMap.get(item.hash);
+            item.doc_id = metadata.doc_id;
+            item.stored_name = metadata.stored_name;
             updatedCount++;
-            console.log(`  ✅ Updated: "${originalName}" → ID: ${metadata.doc_id?.substring(0, 24)}... (hash: ${metadata.hash?.substring(0, 16)}...)`);
+          }
+          // Match by Canvas file ID (for deduplicated files)
+          else if (!item.hash && canvasId && idToMetadataMap.has(canvasId)) {
+            const metadata = idToMetadataMap.get(canvasId);
+            item.doc_id = metadata.doc_id;
+            item.hash = metadata.hash;
+            item.stored_name = metadata.stored_name;
+            updatedCount++;
+          }
+          // Fallback to filename match (first upload - bootstrap hash)
+          else if (!item.hash && itemName && filenameToMetadataMap.has(itemName)) {
+            const metadata = filenameToMetadataMap.get(itemName);
+            item.doc_id = metadata.doc_id;
+            item.hash = metadata.hash;
+            item.stored_name = metadata.stored_name;
+            updatedCount++;
           }
         });
       }
@@ -359,20 +557,21 @@ async function fetchAndMergeBackendMaterials(courseId) {
     const courseName = materialsData.courseName;
     let mergedCount = 0;
 
-    // Create mapping: original filename -> backend material metadata
-    const backendMap = new Map();
+    // PURE HASH-BASED: Create mapping: hash -> backend material metadata
+    const hashToBackendMap = new Map();
     data.materials.forEach(mat => {
       // Backend material has: id (hash-based), name (original filename), hash, path, etc.
-      backendMap.set(mat.name, {
-        doc_id: mat.id,      // Hash-based doc ID
-        hash: mat.hash,      // Content hash
-        path: mat.path       // GCS path
-      });
+      if (mat.hash) {
+        hashToBackendMap.set(mat.hash, {
+          doc_id: mat.id,      // Hash-based doc ID
+          path: mat.path       // GCS path
+        });
+      }
     });
 
-    console.log(`🔍 Merging backend metadata into ${backendMap.size} materials...`);
+    console.log(`🔍 Merging backend metadata into ${hashToBackendMap.size} materials (pure hash matching)...`);
 
-    // Merge backend metadata into frontend materials
+    // Merge backend metadata into frontend materials using HASH as the key
     const categories = ['files', 'pages', 'assignments', 'modules'];
     for (const category of categories) {
       if (!materials[category]) continue;
@@ -381,28 +580,28 @@ async function fetchAndMergeBackendMaterials(courseId) {
         materials[category].forEach(module => {
           if (module.items) {
             module.items.forEach(item => {
-              const originalName = item.title || item.name || item.display_name;
-              if (originalName && backendMap.has(originalName)) {
-                const metadata = backendMap.get(originalName);
+              // Match by hash - materials already have hash from download time
+              if (item.hash && hashToBackendMap.has(item.hash)) {
+                const metadata = hashToBackendMap.get(item.hash);
                 item.doc_id = metadata.doc_id;
-                item.hash = metadata.hash;
                 item.stored_name = metadata.path;
                 mergedCount++;
-                console.log(`  ✅ Merged: "${originalName}" → ID: ${metadata.doc_id?.substring(0, 24)}...`);
+                const itemName = item.title || item.name || item.display_name;
+                console.log(`  ✅ Merged: "${itemName}" (hash: ${item.hash?.substring(0, 16)}...) → ID: ${metadata.doc_id?.substring(0, 24)}...`);
               }
             });
           }
         });
       } else {
         materials[category].forEach(item => {
-          const originalName = item.name || item.display_name || item.title;
-          if (originalName && backendMap.has(originalName)) {
-            const metadata = backendMap.get(originalName);
+          // Match by hash - materials already have hash from download time
+          if (item.hash && hashToBackendMap.has(item.hash)) {
+            const metadata = hashToBackendMap.get(item.hash);
             item.doc_id = metadata.doc_id;
-            item.hash = metadata.hash;
             item.stored_name = metadata.path;
             mergedCount++;
-            console.log(`  ✅ Merged: "${originalName}" → ID: ${metadata.doc_id?.substring(0, 24)}...`);
+            const itemName = item.name || item.display_name || item.title;
+            console.log(`  ✅ Merged: "${itemName}" (hash: ${item.hash?.substring(0, 16)}...) → ID: ${metadata.doc_id?.substring(0, 24)}...`);
           }
         });
       }
@@ -432,7 +631,11 @@ chrome.storage.local.get(['downloadTask'], (result) => {
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log('Background received message:', request);
 
-  if (request.type === 'COURSE_DETECTED') {
+  if (request.type === 'LOG_FROM_POPUP') {
+    // Log messages from popup to service worker console for persistence
+    console.log(request.message);
+    sendResponse({ success: true });
+  } else if (request.type === 'COURSE_DETECTED') {
     // Store course info from content script
     currentCourseInfo = request.courseInfo;
     console.log('Course info stored:', currentCourseInfo);
@@ -464,8 +667,26 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     console.log('🚀 [SERVICE-WORKER] Received START_BACKGROUND_UPLOAD message');
     const { courseId, files, canvasUrl, cookies } = request.payload;
 
+    // Log deduplication stats
+    const filesWithHash = files.filter(f => f.hash).length;
+    const uniqueUrls = new Set(files.map(f => f.url)).size;
+    console.log(`🔍 [DEDUP CHECK] Received ${files.length} files: ${filesWithHash} with hash, ${uniqueUrls} unique URLs`);
+
     // Store files in memory (not in chrome.storage to avoid quota issues)
     uploadFilesQueue = files;
+
+    // Persist queue to IndexedDB (survives service worker restart)
+    const metadata = {
+      canvasUrl,
+      cookies,
+      totalFiles: files.length,
+      currentBatch: 0,
+      totalBatches: Math.ceil(files.length / 50),  // Match BATCH_SIZE
+      startTime: Date.now()
+    };
+    saveUploadQueueToDB(courseId, files, metadata).catch(err => {
+      console.error('Failed to persist upload queue:', err);
+    });
 
     // Initialize upload task in storage (without files array to avoid quota issues)
     chrome.storage.local.set({
@@ -477,7 +698,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         totalFiles: files.length,
         uploadedFiles: 0,
         currentBatch: 0,
-        totalBatches: Math.ceil(files.length / 8),
+        totalBatches: Math.ceil(files.length / 50),  // Match BATCH_SIZE
         startTime: Date.now()
       }
     }, () => {
@@ -485,7 +706,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         console.error('❌ Storage write failed:', chrome.runtime.lastError);
         sendResponse({ success: false, error: chrome.runtime.lastError.message });
       } else {
-        console.log(`📤 Starting background upload: ${files.length} files in ${Math.ceil(files.length / 8)} batches`);
+        console.log(`📤 Starting background upload: ${files.length} files in ${Math.ceil(files.length / 50)} batches`);
         // Start the upload process
         handleBackgroundUpload();
         sendResponse({ success: true });
@@ -661,8 +882,17 @@ async function handleBackgroundLoading(request) {
           formData.append('files', file.blob, file.name);
         });
 
+        // Get Canvas user ID for user-specific tracking
+        const storageData = await chrome.storage.local.get(['canvasUserId']);
+        const headers = {};
+        if (storageData.canvasUserId) {
+          headers['X-Canvas-User-Id'] = storageData.canvasUserId;
+          console.log(`📤 Including Canvas User ID: ${storageData.canvasUserId}`);
+        }
+
         const response = await fetch(`${backendUrl}/upload_pdfs?course_id=${courseId}`, {
           method: 'POST',
+          headers: headers,
           body: formData
         });
 
@@ -863,8 +1093,16 @@ async function handleBackgroundDownloads(downloadTask) {
             formData.append('files', file.blob, file.name);
           });
 
+          // Get Canvas user ID for user-specific tracking
+          const storageData = await chrome.storage.local.get(['canvasUserId']);
+          const headers = {};
+          if (storageData.canvasUserId) {
+            headers['X-Canvas-User-Id'] = storageData.canvasUserId;
+          }
+
           const response = await fetch(`${backendUrl}/upload_pdfs?course_id=${courseId}`, {
             method: 'POST',
+            headers: headers,
             body: formData
           });
 
@@ -992,6 +1230,8 @@ async function handleBackgroundUpload() {
       });
       // Clear files from memory
       uploadFilesQueue = null;
+      // Clean up IndexedDB queue
+      await deleteUploadQueueFromDB(courseId);
       return;
     }
 
@@ -1010,11 +1250,19 @@ async function handleBackgroundUpload() {
 
     // Upload batch to backend (runs in parallel with progress simulation)
     try {
+      // Get Canvas user ID for tracking
+      const storageData = await chrome.storage.local.get(['canvasUserId']);
+      const headers = {
+        'Content-Type': 'application/json'
+      };
+      if (storageData.canvasUserId) {
+        headers['X-Canvas-User-Id'] = storageData.canvasUserId;
+        console.log(`📤 Including Canvas User ID: ${storageData.canvasUserId}`);
+      }
+
       const response = await fetch('https://web-production-9aaba7.up.railway.app/process_canvas_files', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: headers,
         body: JSON.stringify({
           course_id: courseId,
           files: currentBatchFiles,
@@ -1026,22 +1274,7 @@ async function handleBackgroundUpload() {
 
       const result = await response.json();
 
-      console.log(`✅ Batch ${currentBatch + 1} upload complete:`, {
-        processed: result.processed,
-        skipped: result.skipped,
-        failed: result.failed,
-        batchSize: currentBatchFiles.length
-      });
-
-      // DEBUG: Log detailed upload stats
-      console.log(`📊 [DEBUG] Upload stats:`, {
-        'Previously uploaded': uploadedFiles,
-        'Current batch size': currentBatchFiles.length,
-        'Actually processed': result.processed,
-        'Skipped (already in GCS)': result.skipped,
-        'Failed': result.failed,
-        'Will count as uploaded': currentBatchFiles.length
-      });
+      console.log(`✅ Batch ${currentBatch + 1} upload complete: ${result.processed} processed, ${result.skipped} skipped, ${result.failed} failed`);
 
       // CRITICAL: Update materials with stored_name from backend
       // This ensures selected doc IDs have correct extensions
@@ -1105,6 +1338,8 @@ async function handleBackgroundUpload() {
         });
         // Clear files from memory
         uploadFilesQueue = null;
+        // Clean up IndexedDB queue
+        await deleteUploadQueueFromDB(courseId);
       }
 
     } catch (error) {
@@ -1128,6 +1363,8 @@ async function handleBackgroundUpload() {
       });
       // Clear files from memory
       uploadFilesQueue = null;
+      // Clean up IndexedDB queue
+      await deleteUploadQueueFromDB(courseId);
     }
 
   } catch (error) {

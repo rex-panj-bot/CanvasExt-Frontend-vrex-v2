@@ -282,7 +282,7 @@ async function loadSyllabusSettings() {
     }
 
     // Get backend URL
-    const backendUrl = 'https://canvasext-backend-production.up.railway.app';
+    const backendUrl = 'https://web-production-9aaba7.up.railway.app';
 
     // Fetch current syllabus
     const syllabusResponse = await fetch(`${backendUrl}/courses/${courseId}/syllabus`);

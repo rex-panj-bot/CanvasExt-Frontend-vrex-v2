@@ -15,6 +15,7 @@ class WebSocketClient {
     this.reconnectDelay = 1000; // Start with 1 second
     this.reconnectTimeout = null;
     this.pendingMessages = new Map(); // Track pending requests
+    this.pendingQueries = []; // Queue for queries when disconnected - auto-replay on reconnect
 
     // Heartbeat/keepalive settings
     // Railway WebSocket timeout is ~55-60s, so ping every 20s to stay well within limit
@@ -59,6 +60,21 @@ class WebSocketClient {
         this.startConnectionMonitor();
         this.notifyConnectionState('connected');
 
+        // Auto-replay any queued queries (invisible reconnection)
+        if (this.pendingQueries.length > 0) {
+          console.log(`📤 Replaying ${this.pendingQueries.length} queued queries...`);
+          const queries = [...this.pendingQueries];
+          this.pendingQueries = [];
+
+          for (const query of queries) {
+            this.sendQuery(
+              query.message, query.conversationHistory, query.selectedDocs,
+              query.syllabusId, query.sessionId, query.apiKey, query.enableWebSearch,
+              query.useSmartSelection, query.onChunk, query.onComplete, query.onError
+            ).then(query.resolve).catch(query.reject);
+          }
+        }
+
         resolve();
       };
 
@@ -76,8 +92,8 @@ class WebSocketClient {
         this.stopHeartbeat();
         this.stopConnectionMonitor();
 
-        // Attempt to reconnect if not manually closed
-        if (event.code !== 1000 && this.reconnectAttempts < this.maxReconnectAttempts) {
+        // Attempt to reconnect if not manually closed OR if queries pending (invisible retry)
+        if ((event.code !== 1000 || this.pendingQueries.length > 0) && this.reconnectAttempts < this.maxReconnectAttempts) {
           this.attemptReconnect();
         } else if (this.reconnectAttempts >= this.maxReconnectAttempts) {
           console.error('❌ Max reconnection attempts reached');
@@ -195,6 +211,18 @@ class WebSocketClient {
   }
 
   /**
+   * Force immediate reconnection (resets retry counter)
+   */
+  forceReconnect() {
+    console.log('🔄 Force reconnecting...');
+    this.reconnectAttempts = 0;  // Reset attempts counter
+    if (this.ws) {
+      this.ws.close();  // Close existing connection
+    }
+    // attemptReconnect will be triggered by onclose handler
+  }
+
+  /**
    * Stop current streaming
    */
   stopStreaming() {
@@ -212,25 +240,44 @@ class WebSocketClient {
    * Send query and receive streaming response
    */
   async sendQuery(message, conversationHistory, selectedDocs, syllabusId, sessionId, apiKey, enableWebSearch, useSmartSelection, onChunk, onComplete, onError) {
-    if (!this.isConnected) {
-      console.error('WebSocket not connected');
-      if (onError) onError(new Error('Not connected to backend'));
-      return Promise.reject(new Error('Not connected to backend'));
+    // Check if connected - if not, queue and reconnect invisibly
+    if (!this.isReady()) {
+      console.log('⚠️ Query submitted but backend disconnected - queuing and reconnecting...');
+
+      // Return promise that will resolve after reconnect and replay
+      return new Promise((resolve, reject) => {
+        // Queue this query for replay after reconnection
+        this.pendingQueries.push({
+          message, conversationHistory, selectedDocs, syllabusId, sessionId,
+          apiKey, enableWebSearch, useSmartSelection, onChunk, onComplete, onError,
+          resolve, reject
+        });
+
+        // Trigger immediate reconnection
+        this.forceReconnect();
+      });
     }
 
-    // Return a Promise that resolves when streaming is complete
+    // Connection is good - send query normally
     return new Promise((resolve, reject) => {
       let closeHandler = null;
       let isComplete = false;
 
-      // Handle connection close during query
+      // Handle connection close during query - queue for auto-retry
       closeHandler = (event) => {
         if (!isComplete) {
           isComplete = true;
-          console.error(`❌ Connection closed during query (code: ${event.code})`);
-          const closeError = new Error('Connection closed unexpectedly. Please retry your query.');
-          if (onError) onError(closeError);
-          reject(closeError);
+          console.log('⚠️ Connection closed during query - will reconnect and retry invisibly');
+
+          // Queue this query for automatic retry after reconnection
+          this.pendingQueries.push({
+            message, conversationHistory, selectedDocs, syllabusId, sessionId,
+            apiKey, enableWebSearch, useSmartSelection, onChunk, onComplete, onError,
+            resolve, reject
+          });
+
+          // Trigger reconnection (will replay queued queries)
+          this.forceReconnect();
         }
       };
       this.ws.addEventListener('close', closeHandler);
@@ -376,8 +423,17 @@ class BackendClient {
     }
 
     try {
+      // Get Canvas user ID for user-specific tracking
+      const canvasUserId = await StorageManager.getCanvasUserId();
+      const headers = {};
+      if (canvasUserId) {
+        headers['X-Canvas-User-Id'] = canvasUserId;
+        console.log(`📤 Including Canvas User ID: ${canvasUserId}`);
+      }
+
       const response = await fetch(`${this.backendUrl}/upload_pdfs?course_id=${courseId}`, {
         method: 'POST',
+        headers: headers,
         body: formData
       });
 

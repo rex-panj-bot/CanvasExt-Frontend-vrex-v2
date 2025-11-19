@@ -216,9 +216,45 @@ class CanvasAPI {
    */
   async getPages(courseId) {
     try {
-      const pages = await this.makeRequest(`/api/v1/courses/${courseId}/pages?per_page=100`);
-      return pages;
+      const pageList = await this.makeRequest(`/api/v1/courses/${courseId}/pages?per_page=100`);
+
+      // Fetch full content for each page (includes body)
+      // Canvas API list endpoint doesn't include body content
+      const pagesWithBody = await Promise.all(
+        pageList.map(async (page) => {
+          try {
+            const fullPage = await this.makeRequest(
+              `/api/v1/courses/${courseId}/pages/${page.url}`
+            );
+            // Ensure title is preserved from list if not in full page
+            if (!fullPage.title && page.title) {
+              fullPage.title = page.title;
+            }
+            return fullPage;
+          } catch (error) {
+            console.warn(`Failed to fetch page body for "${page.title || page.url}":`, error);
+            // Return page from list (has title but no body) if individual fetch fails
+            return page;
+          }
+        })
+      );
+
+      // Filter out pages without titles (shouldn't happen, but safety check)
+      const validPages = pagesWithBody.filter(page => {
+        if (!page.title) {
+          console.warn(`Page without title found: ${page.url || 'unknown'}`, page);
+          return false;
+        }
+        return true;
+      });
+
+      return validPages;
     } catch (error) {
+      // If 404, pages feature is likely disabled for this course - return empty array instead of error
+      if (error.message && error.message.includes('Resource not found')) {
+        console.log(`Pages not available for course ${courseId} (feature may be disabled)`);
+        return [];
+      }
       console.error(`Error fetching pages for course ${courseId}:`, error);
       throw error;
     }
@@ -242,7 +278,7 @@ class CanvasAPI {
    */
   async getAssignments(courseId) {
     try {
-      const assignments = await this.makeRequest(`/api/v1/courses/${courseId}/assignments?per_page=100`);
+      const assignments = await this.makeRequest(`/api/v1/courses/${courseId}/assignments?per_page=100&include[]=attachments`);
       return assignments;
     } catch (error) {
       console.error(`Error fetching assignments for course ${courseId}:`, error);
@@ -399,6 +435,27 @@ class CanvasAPI {
     } catch (error) {
       console.error('Connection test failed:', error);
       return false;
+    }
+  }
+
+  /**
+   * Fetch and store Canvas user ID
+   * Returns the user ID if successful, null otherwise
+   */
+  async fetchAndStoreUserId() {
+    try {
+      const userData = await this.makeRequest('/api/v1/users/self');
+      const user = Array.isArray(userData) ? userData[0] : userData;
+
+      if (user && user.id && typeof StorageManager !== 'undefined') {
+        await StorageManager.saveCanvasUserId(user.id);
+        console.log('Canvas user ID saved:', user.id);
+        return user.id;
+      }
+      return null;
+    } catch (error) {
+      console.error('Error fetching Canvas user ID:', error);
+      return null;
     }
   }
 }
