@@ -329,7 +329,24 @@ async function handleSessionContinue() {
     btn.disabled = true;
     btn.textContent = 'Checking login status...';
 
-    const url = await StorageManager.getCanvasUrl();
+    // First check if URL has been entered
+    const urlInput = document.getElementById('session-canvas-url');
+    let url = await StorageManager.getCanvasUrl();
+
+    // If no URL saved yet, try to save from input field
+    if (!url && urlInput && urlInput.value.trim()) {
+      await StorageManager.saveCanvasUrl(urlInput.value.trim());
+      await StorageManager.saveAuthMethod('session');
+      url = await StorageManager.getCanvasUrl();
+    }
+
+    if (!url) {
+      showError(errorEl, 'Please enter your Canvas URL first');
+      btn.disabled = false;
+      btn.textContent = 'I\'m Logged In - Continue';
+      return;
+    }
+
     const sessionAuth = new SessionAuth(url);
 
     // Test if logged in
@@ -367,6 +384,12 @@ async function loadMainScreen() {
     if (!canvasAPI) {
       const url = await StorageManager.getCanvasUrl();
       canvasAPI = new CanvasAPI(url, null, 'session');
+    }
+
+    // Fetch and store Canvas user ID if not already stored
+    const existingUserId = await StorageManager.getCanvasUserId();
+    if (!existingUserId && canvasAPI) {
+      await canvasAPI.fetchAndStoreUserId();
     }
 
     showScreen('main');
@@ -419,8 +442,17 @@ async function loadRecentCourses() {
     const courseIds = await materialsDB.listCourses();
 
     if (!courseIds || courseIds.length === 0) {
-      // No recent courses, keep section hidden
-      document.getElementById('recent-courses-section').classList.add('hidden');
+      // No course IDs, show placeholder
+      const recentCoursesSection = document.getElementById('recent-courses-section');
+      const recentCoursesList = document.getElementById('recent-courses-list');
+
+      recentCoursesList.innerHTML = `
+        <div class="empty-state">
+          <p>Your recently created study bots will show here</p>
+        </div>
+      `;
+
+      recentCoursesSection.classList.remove('hidden');
       await materialsDB.close();
       return;
     }
@@ -431,7 +463,7 @@ async function loadRecentCourses() {
       const materialsData = await materialsDB.loadMaterials(courseId);
       if (materialsData && materialsData.courseName) {
         // Debug log to check what courseName type we're getting
-        console.log('📚 [Recent Courses] courseId:', courseId, 'courseName type:', typeof materialsData.courseName, 'value:', materialsData.courseName);
+        console.log('[Recent Courses] courseId:', courseId, 'courseName type:', typeof materialsData.courseName, 'value:', materialsData.courseName);
 
         // Ensure we have a valid course name (not an object)
         let courseName;
@@ -458,31 +490,36 @@ async function loadRecentCourses() {
     // Sort by last updated (most recent first) - show ALL courses
     recentCourses.sort((a, b) => b.lastUpdated - a.lastUpdated);
 
-    if (recentCourses.length === 0) {
-      document.getElementById('recent-courses-section').classList.add('hidden');
-      return;
-    }
-
-    // Display recent courses
+    // Display recent courses section
     const recentCoursesSection = document.getElementById('recent-courses-section');
     const recentCoursesList = document.getElementById('recent-courses-list');
 
     recentCoursesList.innerHTML = '';
 
-    recentCourses.forEach(course => {
-      const courseItem = document.createElement('div');
-      courseItem.className = 'recent-course-card';
-      courseItem.innerHTML = `
-        <div class="recent-course-name">${course.name}</div>
-        <div class="recent-course-code">${formatTimeAgo(course.lastUpdated)}</div>
+    if (recentCourses.length === 0) {
+      // Show placeholder when no study bots exist
+      recentCoursesList.innerHTML = `
+        <div class="empty-state">
+          <p>Your recently created study bots will show here</p>
+        </div>
       `;
-      courseItem.addEventListener('click', () => {
-        // Open chat page directly for this course
-        const chatUrl = chrome.runtime.getURL(`chat/chat.html?courseId=${course.id}`);
-        chrome.tabs.create({ url: chatUrl });
+    } else {
+      // Display study bot cards
+      recentCourses.forEach(course => {
+        const courseItem = document.createElement('div');
+        courseItem.className = 'recent-course-card';
+        courseItem.innerHTML = `
+          <div class="recent-course-name">${course.name}</div>
+          <div class="recent-course-code">${formatTimeAgo(course.lastUpdated)}</div>
+        `;
+        courseItem.addEventListener('click', () => {
+          // Open chat page directly for this course
+          const chatUrl = chrome.runtime.getURL(`chat/chat.html?courseId=${course.id}`);
+          chrome.tabs.create({ url: chatUrl });
+        });
+        recentCoursesList.appendChild(courseItem);
       });
-      recentCoursesList.appendChild(courseItem);
-    });
+    }
 
     recentCoursesSection.classList.remove('hidden');
   } catch (error) {
@@ -519,6 +556,9 @@ async function handleCourseChange() {
     studyBotBtn.title = 'Please select a course first';
     return;
   }
+
+  // Clear selected files when switching courses
+  selectedFiles.clear();
 
   // Disable study bot button immediately when switching courses
   const studyBotBtn = document.getElementById('study-bot-btn');
@@ -561,6 +601,12 @@ async function scanCourseMaterials(courseId, courseName) {
     document.getElementById('scan-loading').classList.add('hidden');
     document.getElementById('material-summary').classList.remove('hidden');
 
+    // Refresh detailed view if it's currently visible
+    const detailedView = document.getElementById('detailed-view');
+    if (detailedView && !detailedView.classList.contains('hidden')) {
+      populateDetailedView();
+    }
+
     // Re-enable study bot button after materials are loaded
     studyBotBtn.disabled = false;
     studyBotBtn.title = 'Create an AI study bot for this course';
@@ -585,10 +631,71 @@ function updateMaterialSummary() {
     fileProcessor.processMaterials(scannedMaterials, preferences);
   }
 
-  const summary = fileProcessor.getSummary();
   const totalSize = fileProcessor.getTotalSize();
 
-  // Show breakdown instead of just total (fixes count mismatch issue)
+  // Calculate summary directly from scannedMaterials for accurate counts
+  // This shows ALL modules and files, not just filtered ones
+  const summary = {
+    total: 0,
+    modules: 0,
+    moduleFiles: 0,
+    standaloneFiles: 0,
+    pages: 0,
+    assignments: 0
+  };
+
+  if (scannedMaterials) {
+    // Count ALL modules (not filtered by file type)
+    if (scannedMaterials.modules) {
+      summary.modules = scannedMaterials.modules.length;
+      scannedMaterials.modules.forEach(module => {
+        if (module.items) {
+          // Count files in modules
+          summary.moduleFiles += module.items.filter(item => item.type === 'File').length;
+        }
+      });
+    }
+
+    // Build set of module file IDs to avoid double counting
+    const moduleFileIds = new Set();
+    if (scannedMaterials.modules) {
+      scannedMaterials.modules.forEach(module => {
+        if (module.items) {
+          module.items.forEach(item => {
+            if (item.type === 'File') {
+              if (item.content_id) moduleFileIds.add(item.content_id);
+              if (item.id) moduleFileIds.add(item.id);
+              if (item.url) moduleFileIds.add(item.url);
+            }
+          });
+        }
+      });
+    }
+
+    // Count standalone files (excluding those already in modules)
+    if (scannedMaterials.files) {
+      summary.standaloneFiles = scannedMaterials.files.filter(file => {
+        const isInModule = moduleFileIds.has(file.content_id) ||
+                          moduleFileIds.has(file.id) ||
+                          moduleFileIds.has(file.url);
+        return !isInModule; // Only count files NOT in modules
+      }).length;
+    }
+
+    // Count pages
+    if (scannedMaterials.pages) {
+      summary.pages = scannedMaterials.pages.length;
+    }
+
+    // Count assignments
+    if (scannedMaterials.assignments) {
+      summary.assignments = scannedMaterials.assignments.length;
+    }
+
+    summary.total = summary.moduleFiles + summary.standaloneFiles + summary.pages + summary.assignments;
+  }
+
+  // Show breakdown instead of just total
   const fileCount = (summary.moduleFiles || 0) + (summary.standaloneFiles || 0);
   const pageCount = summary.pages || 0;
   const assignmentCount = summary.assignments || 0;
@@ -692,7 +799,7 @@ async function preCheckFilesInBackground(courseId, courseName) {
       filesToProcess.push({
         name: itemName,
         url: item.url,
-        id: item.id || item.file_id
+        id: item.content_id || item.id || item.file_id
       });
     };
 
@@ -766,7 +873,11 @@ async function checkCachedMaterials(courseId) {
     await materialsDB.close();
 
     if (!cached) {
-      console.log('📭 No cached materials found');
+      console.log('📭 No cached materials found in IndexedDB');
+      chrome.runtime.sendMessage({
+        type: 'LOG_FROM_POPUP',
+        message: `📭 [POPUP] No cached materials found for course ${courseId}`
+      });
       return null;
     }
 
@@ -776,10 +887,37 @@ async function checkCachedMaterials(courseId) {
 
     if (cacheAge > maxAge) {
       console.log(`🕐 Cached materials too old (${Math.floor(cacheAge / (60 * 60 * 1000))} hours), will refresh`);
+      chrome.runtime.sendMessage({
+        type: 'LOG_FROM_POPUP',
+        message: `🕐 [POPUP] Cache too old: ${Math.floor(cacheAge / (60 * 60 * 1000))} hours`
+      });
       return null;
     }
 
     console.log(`✅ Found fresh cached materials (${Math.floor(cacheAge / (60 * 1000))} minutes old)`);
+
+    // Log how many materials have hashes
+    let totalMaterials = 0;
+    let materialsWithHash = 0;
+    for (const [category, items] of Object.entries(cached.materials || {})) {
+      if (Array.isArray(items)) {
+        items.forEach(item => {
+          totalMaterials++;
+          if (item.hash) materialsWithHash++;
+        });
+      } else if (category === 'modules' && Array.isArray(items)) {
+        items.forEach(module => {
+          if (module.items) {
+            module.items.forEach(item => {
+              totalMaterials++;
+              if (item.hash) materialsWithHash++;
+            });
+          }
+        });
+      }
+    }
+    console.log(`[CACHE] Loaded materials: ${totalMaterials} total, ${materialsWithHash} WITH hashes`);
+
     return cached;
   } catch (error) {
     console.error('Error checking cached materials:', error);
@@ -877,10 +1015,11 @@ function mergeCachedBlobs(scanned, cached) {
     if (!Array.isArray(items)) return;
 
     items.forEach(item => {
-      if (item.url && item.blob) {
+      if (item.url) {
         blobMap.set(item.url, {
           blob: item.blob,
-          stored_name: item.stored_name
+          stored_name: item.stored_name,
+          hash: item.hash  // CRITICAL: Preserve hash for deduplication
         });
       }
     });
@@ -898,7 +1037,9 @@ function mergeCachedBlobs(scanned, cached) {
     });
   }
 
-  console.log(`🔗 Built blob map with ${blobMap.size} cached blobs`);
+  // Count hashes in blob map
+  const hashCount = Array.from(blobMap.values()).filter(v => v.hash).length;
+  console.log(`🔗 Built blob map with ${blobMap.size} cached items (${hashCount} with hashes)`);
 
   // Attach cached blobs to scanned materials
   const attachBlobs = (items) => {
@@ -909,6 +1050,7 @@ function mergeCachedBlobs(scanned, cached) {
         const cached = blobMap.get(item.url);
         item.blob = cached.blob;
         item.stored_name = cached.stored_name;
+        item.hash = cached.hash;  // CRITICAL: Copy hash for deduplication
       }
     });
   };
@@ -977,7 +1119,11 @@ async function continueLoadingInBackground(courseId, courseName, filesToDownload
           const ext = mimeToExt[blob.type];
           if (ext) fileName = fileName + ext;
         }
-        downloadedFiles.push({ blob, name: fileName });
+
+        // Compute hash immediately at download time for hash-based identification
+        const hash = await computeFileHash(blob);
+
+        downloadedFiles.push({ blob, name: fileName, hash, canvasId: file.id });
         completed++;
 
         // Send progress update
@@ -1067,12 +1213,15 @@ async function continueLoadingInBackground(courseId, courseName, filesToDownload
       }
     }
 
-    // Attach blobs to materials
+    // Attach blobs and hashes to materials
     const blobMap = new Map();
+    const hashMap = new Map();
     downloadedFiles.forEach(df => {
       blobMap.set(df.name, df.blob);
+      hashMap.set(df.name, df.hash);
       const nameWithoutExt = df.name.replace(/\.(pdf|docx?|txt|xlsx?|pptx?|csv|md|rtf|png|jpe?g|gif|webp|bmp)$/i, '');
       blobMap.set(nameWithoutExt, df.blob);
+      hashMap.set(nameWithoutExt, df.hash);
     });
 
     // Attach to all items
@@ -1082,6 +1231,7 @@ async function continueLoadingInBackground(courseId, courseName, filesToDownload
         let itemName = item.display_name || item.filename || item.name || item.title;
         if (itemName && blobMap.has(itemName)) {
           item.blob = blobMap.get(itemName);
+          item.hash = hashMap.get(itemName);
           for (const [fileName, blob] of blobMap) {
             if (blob === item.blob && fileName.includes('.')) {
               item.stored_name = fileName;
@@ -1100,6 +1250,7 @@ async function continueLoadingInBackground(courseId, courseName, filesToDownload
             let itemName = item.title || item.name || item.display_name;
             if (itemName && blobMap.has(itemName)) {
               item.blob = blobMap.get(itemName);
+              item.hash = hashMap.get(itemName);
               for (const [fileName, blob] of blobMap) {
                 if (blob === item.blob && fileName.includes('.')) {
                   item.stored_name = fileName;
@@ -1187,7 +1338,17 @@ async function createStudyBot() {
     // If we have cached materials, merge blobs to avoid re-downloading
     if (cachedMaterials) {
       console.log('🚀 FAST PATH: Using cached materials with blobs');
+      chrome.runtime.sendMessage({
+        type: 'LOG_FROM_POPUP',
+        message: `🚀 [POPUP] FAST PATH: Merging cached materials`
+      });
       materialsToProcess = mergeCachedBlobs(materialsToProcess, cachedMaterials);
+    } else {
+      console.log('⚠️ NO CACHE: Will need to download all files');
+      chrome.runtime.sendMessage({
+        type: 'LOG_FROM_POPUP',
+        message: `⚠️ [POPUP] NO CACHE: cachedMaterials is null/undefined`
+      });
     }
 
     updateProgress('Checking backend...', PROGRESS_PERCENT.BACKEND_CHECK);
@@ -1210,7 +1371,9 @@ async function createStudyBot() {
     // NEW APPROACH: Just collect Canvas URLs, backend will download and process
     const filesToProcess = [];
     const skippedFiles = []; // Track files without URLs
-    const filesToUploadToBackend = []; // Pages/assignments converted to text blobs
+    let filesToUploadToBackend = []; // Pages/assignments converted to text blobs (let for hash reassignment)
+    const seenFileKeys = new Set(); // Track files to avoid duplicates
+    let duplicatesSkipped = 0;
 
     // Helper function to collect file info
     const processItem = (item) => {
@@ -1224,10 +1387,23 @@ async function createStudyBot() {
         return;
       }
 
+      // Deduplicate: same file can appear in Files list AND modules
+      // Use Canvas file ID: content_id for modules, id for files
+      const fileId = item.content_id || item.id || item.file_id;
+      const dedupeKey = fileId || item.url || itemName;
+
+      if (seenFileKeys.has(dedupeKey)) {
+        duplicatesSkipped++;
+        return; // Skip duplicate
+      }
+      seenFileKeys.add(dedupeKey);
+
       filesToProcess.push({
         name: itemName,
         url: item.url,
-        id: item.id || item.file_id  // Canvas file ID for fresh URL generation
+        id: fileId,  // Canvas file ID for fresh URL generation
+        blob: item.blob,  // Include blob if available (for hash computation)
+        hash: item.hash   // Include hash if available from IndexedDB/backend
       });
     };
 
@@ -1256,13 +1432,32 @@ async function createStudyBot() {
     }
 
     // Process assignments: convert descriptions to text files for AI to read
+    console.log(`[ASSIGNMENT] Checking materialsToProcess.assignments:`, {
+      exists: !!materialsToProcess.assignments,
+      isArray: Array.isArray(materialsToProcess.assignments),
+      length: materialsToProcess.assignments?.length,
+      assignments: materialsToProcess.assignments
+    });
+    chrome.runtime.sendMessage({
+      type: 'LOG_FROM_POPUP',
+      message: `🔍 [ASSIGNMENT] materialsToProcess has ${materialsToProcess.assignments?.length || 0} assignments (isArray: ${Array.isArray(materialsToProcess.assignments)})`
+    });
+
     if (materialsToProcess.assignments && Array.isArray(materialsToProcess.assignments)) {
       console.log(`📋 Processing ${materialsToProcess.assignments.length} assignment descriptions for backend upload`);
+      chrome.runtime.sendMessage({
+        type: 'LOG_FROM_POPUP',
+        message: `📋 [ASSIGNMENT] Processing ${materialsToProcess.assignments.length} assignment descriptions`
+      });
 
       materialsToProcess.assignments.forEach((assignment) => {
         // Only process assignments with descriptions
         if (!assignment.description || assignment.description.trim() === '') {
           console.log(`⏭️ Skipping assignment "${assignment.name}" - no description`);
+          chrome.runtime.sendMessage({
+            type: 'LOG_FROM_POPUP',
+            message: `⏭️ [ASSIGNMENT] Skipping "${assignment.name}" - no description`
+          });
           return;
         }
 
@@ -1285,12 +1480,25 @@ async function createStudyBot() {
         // Create text blob
         const textBlob = new Blob([assignmentText], { type: 'text/plain' });
 
-        // Add blob to assignment object so it can be opened locally
-        assignment.blob = textBlob;
-
         // Create filename: prefix with [Assignment] for clarity
         const safeName = assignment.name.replace(/[^a-zA-Z0-9_\-\s]/g, '_');
         const filename = `[Assignment] ${safeName}.txt`;
+
+        // Add blob and stored_name to assignment object
+        assignment.blob = textBlob;
+        assignment.stored_name = filename;  // Enable backend matching by filename
+
+        console.log(`📝 [ASSIGNMENT] Created blob for "${assignment.name}":`, {
+          stored_name: assignment.stored_name,
+          blob_size: textBlob.size,
+          has_id: !!assignment.id,
+          id: assignment.id,
+          has_html_url: !!assignment.html_url
+        });
+        chrome.runtime.sendMessage({
+          type: 'LOG_FROM_POPUP',
+          message: `📝 [ASSIGNMENT] Created blob for "${assignment.name}": size=${textBlob.size}, id=${assignment.id}, stored_name=${assignment.stored_name}`
+        });
 
         // Check if already uploaded
         const fileId = `${currentCourse.id}_[Assignment] ${safeName}`;
@@ -1303,9 +1511,50 @@ async function createStudyBot() {
             type: 'txt'
           });
 
-          console.log(`✅ Queued assignment "${assignment.name}" for backend upload as ${filename}`);
+          console.log(`✅ [ASSIGNMENT] Queued "${assignment.name}" for backend upload as ${filename}`);
+          chrome.runtime.sendMessage({
+            type: 'LOG_FROM_POPUP',
+            message: `✅ [ASSIGNMENT] Queued "${assignment.name}" as ${filename}`
+          });
         } else {
-          console.log(`⏭️ Assignment "${assignment.name}" already uploaded to backend`);
+          console.log(`⏭️ [ASSIGNMENT] "${assignment.name}" already uploaded to backend`);
+        }
+
+        // Process assignment attachments as separate files
+        if (assignment.attachments && Array.isArray(assignment.attachments) && assignment.attachments.length > 0) {
+          console.log(`📎 [ASSIGNMENT] Processing ${assignment.attachments.length} attachment(s) for "${assignment.name}"`);
+          chrome.runtime.sendMessage({
+            type: 'LOG_FROM_POPUP',
+            message: `📎 [ASSIGNMENT] Processing ${assignment.attachments.length} attachment(s) for "${assignment.name}"`
+          });
+
+          assignment.attachments.forEach(attachment => {
+            if (attachment.url && attachment.filename) {
+              // Create a unique key for deduplication
+              const attachmentKey = `${currentCourse.id}_attachment_${attachment.id}`;
+
+              if (!seenFileKeys.has(attachmentKey)) {
+                seenFileKeys.add(attachmentKey);
+
+                filesToProcess.push({
+                  name: attachment.filename,
+                  url: attachment.url,
+                  id: attachment.id,
+                  canvas_id: attachment.id,
+                  size: attachment.size,
+                  type: 'attachment',
+                  parent_assignment: assignment.name,
+                  display_name: `${attachment.filename} (from ${assignment.name})`
+                });
+
+                console.log(`📎 [ASSIGNMENT] Added attachment: ${attachment.filename} (${attachment.size} bytes)`);
+                chrome.runtime.sendMessage({
+                  type: 'LOG_FROM_POPUP',
+                  message: `📎 [ASSIGNMENT] Added attachment: ${attachment.filename}`
+                });
+              }
+            }
+          });
         }
       });
     }
@@ -1366,12 +1615,118 @@ async function createStudyBot() {
     }
 
     // Log summary of files to process
-    console.log(`📊 Files to process: ${filesToProcess.length}`);
-    if (skippedFiles.length > 0) {
-      console.warn(`⚠️ ${skippedFiles.length} files skipped (no Canvas download URL):`, skippedFiles);
+    const filesWithHashInProcess = filesToProcess.filter(f => f.hash).length;
+    console.log(`📊 Files to process: ${filesToProcess.length} total, ${filesWithHashInProcess} with hash from IndexedDB`);
+    if (duplicatesSkipped > 0) {
+      console.log(`🗑️ Removed ${duplicatesSkipped} duplicate files during collection`);
     }
 
-    // Upload pages/assignments text blobs that were created above
+    // Also log to service worker for persistence
+    chrome.runtime.sendMessage({
+      type: 'LOG_FROM_POPUP',
+      message: `📊 [POPUP] Collected ${filesToProcess.length} unique files (skipped ${duplicatesSkipped} duplicates)`
+    });
+    if (skippedFiles.length > 0) {
+      console.warn(`⚠️ ${skippedFiles.length} files skipped (no Canvas download URL):`, skippedFiles);
+
+      // Notify user about unpublished/inaccessible files
+      const skippedNames = skippedFiles.slice(0, 10).join('\n• ');
+      const moreCount = skippedFiles.length > 10 ? `\n...and ${skippedFiles.length - 10} more` : '';
+      alert(`⚠️ ${skippedFiles.length} file(s) are not yet published or accessible and will be skipped:\n\n• ${skippedNames}${moreCount}\n\nThese files won't be available to the AI until they are published in Canvas.`);
+
+      // Remove skipped files from materialsToProcess so they don't show in UI
+      const skippedSet = new Set(skippedFiles);
+      for (const [key, items] of Object.entries(materialsToProcess)) {
+        if (Array.isArray(items)) {
+          materialsToProcess[key] = items.filter(item => {
+            const itemName = item.stored_name || item.display_name || item.filename || item.name || item.title;
+            return !skippedSet.has(itemName);
+          });
+        }
+      }
+
+      // Also remove from module items
+      if (materialsToProcess.modules && Array.isArray(materialsToProcess.modules)) {
+        materialsToProcess.modules.forEach((module) => {
+          if (module.items && Array.isArray(module.items)) {
+            module.items = module.items.filter(item => {
+              const itemName = item.stored_name || item.title || item.name || item.display_name;
+              return !skippedSet.has(itemName);
+            });
+          }
+        });
+      }
+    }
+
+    // CRITICAL: Compute hashes for assignments/pages BEFORE uploading
+    if (filesToUploadToBackend.length > 0) {
+      console.log(`🔢 [ASSIGNMENT] Computing hashes for ${filesToUploadToBackend.length} backend files (assignments/pages)...`);
+      chrome.runtime.sendMessage({
+        type: 'LOG_FROM_POPUP',
+        message: `🔢 [ASSIGNMENT] Computing hashes for ${filesToUploadToBackend.length} backend files BEFORE upload`
+      });
+
+      const hashStartTime = Date.now();
+      const backendFilesWithHashes = await Promise.all(filesToUploadToBackend.map(async (file) => {
+        if (file.blob) {
+          const hash = await computeFileHash(file.blob);
+          console.log(`🔢 [ASSIGNMENT] Hash computed for "${file.name}": ${hash?.substring(0, 16)}...`);
+          return {
+            ...file,
+            hash: hash,
+            docId: hash ? `${currentCourse.id}_${hash}` : null
+          };
+        } else {
+          return file;
+        }
+      }));
+      const hashDuration = Date.now() - hashStartTime;
+      console.log(`✅ Computed hashes for ${backendFilesWithHashes.length} assignments/pages in ${hashDuration}ms`);
+
+      // Update filesToUploadToBackend with hashed versions
+      filesToUploadToBackend = backendFilesWithHashes;
+
+      // Build hash map for applying to materials
+      const backendHashMap = new Map();
+      backendFilesWithHashes.forEach(f => {
+        if (f.hash) {
+          backendHashMap.set(f.name, f.hash);
+          // Also map without extension
+          const nameWithoutExt = f.name.replace(/\.(pdf|docx?|txt|xlsx?|pptx?|csv|md|rtf|png|jpe?g|gif|webp|bmp)$/i, '');
+          backendHashMap.set(nameWithoutExt, f.hash);
+        }
+      });
+
+      // Apply hashes to assignments and pages in materialsToProcess
+      console.log(`🔗 [ASSIGNMENT] Applying hashes to assignments and pages...`);
+      ['assignments', 'pages'].forEach(category => {
+        if (materialsToProcess[category]) {
+          materialsToProcess[category].forEach(item => {
+            const possibleNames = [
+              item.stored_name,
+              item.display_name,
+              item.filename,
+              item.name,
+              item.title
+            ].filter(Boolean);
+
+            for (const itemName of possibleNames) {
+              if (backendHashMap.has(itemName)) {
+                item.hash = backendHashMap.get(itemName);
+                console.log(`✅ [ASSIGNMENT] Hash applied to "${item.name}": ${item.hash.substring(0, 16)}... (matched by: ${itemName})`);
+                chrome.runtime.sendMessage({
+                  type: 'LOG_FROM_POPUP',
+                  message: `✅ [ASSIGNMENT] Hash applied to "${item.name}"`
+                });
+                break;
+              }
+            }
+          });
+        }
+      });
+    }
+
+    // Upload pages/assignments text blobs (now with hashes)
     if (filesToUploadToBackend.length > 0) {
       updateProgress(`Uploading ${filesToUploadToBackend.length} pages/assignments as text...`, PROGRESS_PERCENT.UPLOADING - 5);
 
@@ -1379,6 +1734,10 @@ async function createStudyBot() {
         const backendClient = new BackendClient('https://web-production-9aaba7.up.railway.app');
         const uploadResult = await backendClient.uploadPDFs(currentCourse.id, filesToUploadToBackend);
         console.log(`✅ Uploaded ${filesToUploadToBackend.length} pages/assignments as text files`);
+        chrome.runtime.sendMessage({
+          type: 'LOG_FROM_POPUP',
+          message: `✅ [ASSIGNMENT] Uploaded ${filesToUploadToBackend.length} assignments/pages with hashes`
+        });
 
         if (uploadResult.failed_count > 0) {
           console.warn(`⚠️ ${uploadResult.failed_count} text files failed to upload`);
@@ -1393,7 +1752,7 @@ async function createStudyBot() {
     let filesToUpload = [];
 
     if (filesToProcess.length > 0) {
-      // Check if files have blobs (frontend download) or just URLs (backend download)
+      // Check if files have blobs (frontend already downloaded) or just URLs (backend will download)
       const hasBlobs = filesToProcess.some(f => f.blob);
 
       let filesWithHashes = filesToProcess;
@@ -1416,8 +1775,83 @@ async function createStudyBot() {
             return file;
           }
         }));
+
         const hashDuration = Date.now() - hashStartTime;
         console.log(`✅ Computed hashes for ${filesWithHashes.length} files in ${hashDuration}ms`);
+
+        // CRITICAL: Update materials with computed hashes so they're saved to IndexedDB
+        // This enables pure hash-based matching when backend returns
+        const hashMap = new Map();
+        filesWithHashes.forEach(f => {
+          if (f.hash) {
+            hashMap.set(f.name, f.hash);
+            // Also map without extension
+            const nameWithoutExt = f.name.replace(/\.(pdf|docx?|txt|xlsx?|pptx?|csv|md|rtf|png|jpe?g|gif|webp|bmp)$/i, '');
+            hashMap.set(nameWithoutExt, f.hash);
+          }
+        });
+
+        // Update all material categories with hashes (assignments/pages already done above)
+        let hashesApplied = 0;
+        const categories = ['files'];
+        for (const category of categories) {
+          if (!materialsToProcess[category]) continue;
+
+          console.log(`🔗 [ASSIGNMENT] Applying hashes to ${materialsToProcess[category].length} ${category}...`);
+
+          materialsToProcess[category].forEach(item => {
+            // Try multiple possible name properties
+            const possibleNames = [
+              item.stored_name,
+              item.display_name,
+              item.filename,
+              item.name,
+              item.title
+            ].filter(Boolean);
+
+            for (const itemName of possibleNames) {
+              if (hashMap.has(itemName)) {
+                item.hash = hashMap.get(itemName);
+                hashesApplied++;
+
+                if (category === 'assignments') {
+                  console.log(`✅ [ASSIGNMENT] Hash applied to "${item.name}": ${item.hash.substring(0, 16)}... (matched by: ${itemName})`);
+                }
+                break;
+              }
+            }
+
+            if (category === 'assignments' && !item.hash) {
+              console.warn(`⚠️ [ASSIGNMENT] No hash found for "${item.name}". Tried names:`, possibleNames);
+            }
+          });
+        }
+
+        // Update module items with hashes
+        if (materialsToProcess.modules) {
+          materialsToProcess.modules.forEach(module => {
+            if (module.items) {
+              module.items.forEach(item => {
+                const possibleNames = [
+                  item.stored_name,
+                  item.title,
+                  item.name,
+                  item.display_name
+                ].filter(Boolean);
+
+                for (const itemName of possibleNames) {
+                  if (hashMap.has(itemName)) {
+                    item.hash = hashMap.get(itemName);
+                    hashesApplied++;
+                    break;
+                  }
+                }
+              });
+            }
+          });
+        }
+
+        console.log(`✅ Applied hashes to ${hashesApplied} materials`);
       } else {
         console.log(`⚡ Skipping hash computation - backend will download and hash files`);
       }
@@ -1492,21 +1926,44 @@ async function createStudyBot() {
     // NEW APPROACH: Send files to background worker for batched upload
     // This allows chat to open immediately while files upload in background
     if (filesToUpload.length > 0) {
-      // DEBUG: Check for duplicate filenames before sending to backend
-      const fileNames = filesToUpload.map(f => f.name);
-      const uniqueNames = new Set(fileNames);
-      if (fileNames.length !== uniqueNames.size) {
-        const duplicates = fileNames.filter((name, index) => fileNames.indexOf(name) !== index);
-        const duplicateCounts = {};
-        duplicates.forEach(name => {
-          duplicateCounts[name] = fileNames.filter(n => n === name).length;
+      // DEDUPLICATE: Remove duplicate files before uploading
+      // Same file can appear in both files list AND modules - deduplicate by URL or hash
+      const seenKeys = new Set();
+      const deduplicatedFiles = [];
+      let hashKeys = 0, urlKeys = 0, idKeys = 0, nameKeys = 0;
+
+      filesToUpload.forEach(f => {
+        // Use hash if available (for cached materials), otherwise URL, otherwise Canvas ID, otherwise name
+        let key;
+        if (f.hash) {
+          key = `hash:${f.hash}`;
+          hashKeys++;
+        } else if (f.url) {
+          key = `url:${f.url}`;
+          urlKeys++;
+        } else if (f.id) {
+          key = `id:${f.id}`;
+          idKeys++;
+        } else {
+          key = `name:${f.name}`;
+          nameKeys++;
+        }
+
+        if (!seenKeys.has(key)) {
+          seenKeys.add(key);
+          deduplicatedFiles.push(f);
+        }
+      });
+
+      console.log(`🔑 Dedup keys used: ${hashKeys} hash, ${urlKeys} URL, ${idKeys} Canvas ID, ${nameKeys} name`);
+      if (deduplicatedFiles.length < filesToUpload.length) {
+        console.log(`⚡ Deduplicated ${filesToUpload.length} files → ${deduplicatedFiles.length} unique (removed ${filesToUpload.length - deduplicatedFiles.length} duplicates)`);
+        chrome.runtime.sendMessage({
+          type: 'LOG_FROM_POPUP',
+          message: `⚡ [DEDUP] ${filesToUpload.length} → ${deduplicatedFiles.length} (keys: ${hashKeys} hash, ${urlKeys} url, ${idKeys} id, ${nameKeys} name)`
         });
-        console.warn(`⚠️ [POPUP-V2] WARNING: Found ${fileNames.length - uniqueNames.size} duplicate filenames!`);
-        console.warn(`   Duplicates:`, duplicateCounts);
-        console.warn(`   First 10 files:`, fileNames.slice(0, 10));
-      } else {
-        console.log(`✅ [POPUP-V2] No duplicate filenames detected (${filesToUpload.length} unique files)`);
       }
+      filesToUpload = deduplicatedFiles;
 
       // OPTIMIZATION: Prioritize important files (syllabus, small files) for faster perceived speed
       filesToUpload.sort((a, b) => {
@@ -1538,6 +1995,25 @@ async function createStudyBot() {
         // Extract session cookies (Canvas uses various cookie names depending on institution)
         const cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
 
+        // Log what we're about to send
+        const hashCountBeforeSend = filesToUpload.filter(f => f.hash).length;
+        console.log(`📤 [POPUP] About to send ${filesToUpload.length} files to service worker: ${hashCountBeforeSend} with hash`);
+
+        // Also log to service worker console for persistence
+        chrome.runtime.sendMessage({
+          type: 'LOG_FROM_POPUP',
+          message: `📤 [POPUP] Sending ${filesToUpload.length} files: ${hashCountBeforeSend} with hash`
+        });
+
+        if (hashCountBeforeSend === 0 && filesToUpload.length > 0) {
+          console.error(`❌ [POPUP] WARNING: No files have hashes! First file:`, filesToUpload[0]);
+          // Log first 3 files to service worker for debugging
+          chrome.runtime.sendMessage({
+            type: 'LOG_FROM_POPUP',
+            message: `❌ [POPUP] First 3 files without hashes: ${JSON.stringify(filesToUpload.slice(0, 3).map(f => ({name: f.name, hash: f.hash, id: f.id, url: f.url?.substring(0, 50)})))}`
+          });
+        }
+
         // Send files to background worker for batched upload (with hashes)
         await chrome.runtime.sendMessage({
           type: 'START_BACKGROUND_UPLOAD',
@@ -1562,6 +2038,18 @@ async function createStudyBot() {
     updateProgress('Opening chat...', PROGRESS_PERCENT.COMPLETE);
 
     // Save materials metadata to IndexedDB (no blobs needed - files are in GCS)
+    console.log(`💾 [ASSIGNMENT] Saving materials to IndexedDB...`);
+    if (materialsToProcess.assignments) {
+      console.log(`💾 [ASSIGNMENT] Assignments being saved:`, materialsToProcess.assignments.map(a => ({
+        name: a.name,
+        stored_name: a.stored_name,
+        hash: a.hash?.substring(0, 16),
+        has_id: !!a.id,
+        id: a.id,
+        has_doc_id: !!a.doc_id
+      })));
+    }
+
     const materialsDB = new MaterialsDB();
     await materialsDB.saveMaterials(currentCourse.id, currentCourse.name, materialsToProcess);
     await materialsDB.close();
@@ -1675,66 +2163,119 @@ function populateDetailedView() {
   html += '<h3>All Course Files</h3>';
   html += '<div class="file-list-actions">';
   html += '<label class="select-all-label">';
-  html += '<input type="checkbox" id="master-select-all" class="master-checkbox">';
-  html += ' <span>Select All</span>';
+  html += '<input type="checkbox" id="select-all-checkbox" class="select-all-checkbox" checked>';
+  html += '<span>Select All</span>';
   html += '</label>';
   html += '</div>';
   html += '</div>';
 
-  // Handle modules first - display with sub-items like in chat view
-  if (scannedMaterials.modules && scannedMaterials.modules.length > 0) {
-    scannedMaterials.modules.forEach((module, moduleIdx) => {
-      // Only show modules that have files
-      const moduleFiles = module.items?.filter(item => item.type === 'File') || [];
-      if (moduleFiles.length === 0) return;
+  const categoryLabels = {
+    files: { name: 'Course Files' },
+    pages: { name: 'Course Pages' },
+    assignments: { name: 'Assignments' }
+  };
 
-      html += `<div class="material-module" data-category="modules" data-module-idx="${moduleIdx}">`;
+  // Handle modules separately with nested structure
+  if (scannedMaterials.modules && scannedMaterials.modules.length > 0) {
+    html += `<div class="file-category-section" data-category="modules">`;
+    html += `<div class="file-category-header">`;
+    html += `<input type="checkbox" class="module-checkbox" id="module-modules" data-category="modules">`;
+    html += `<span class="section-title">Course Modules</span>`;
+    html += `<span class="section-count">${scannedMaterials.modules.length}</span>`;
+    html += `</div>`;
+    html += `<div class="file-modules-container">`;
+
+    scannedMaterials.modules.forEach((module, moduleIdx) => {
+      const moduleFiles = module.items ? module.items.filter(item => item.type === 'File' && item.url) : [];
+      if (moduleFiles.length === 0) return; // Skip modules with no files
+
+      html += `<div class="module-item" data-module-idx="${moduleIdx}">`;
       html += `<div class="module-header">`;
-      html += `<input type="checkbox" class="module-checkbox" id="module-${moduleIdx}" data-module-idx="${moduleIdx}">`;
-      html += ` <span class="module-name">${module.name || `Module ${moduleIdx + 1}`}</span>`;
+      html += `<input type="checkbox" class="module-file-checkbox" id="module-files-${moduleIdx}" data-module-idx="${moduleIdx}">`;
+      html += `<svg class="module-chevron" width="12" height="12" viewBox="0 0 16 16" fill="none">`;
+      html += `<path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`;
+      html += `</svg>`;
+      html += `<span class="module-name">${module.name || `Module ${moduleIdx + 1}`}</span>`;
+      html += `<span class="module-count">${moduleFiles.length}</span>`;
       html += `</div>`;
-      html += `<div class="module-items">`;
+      html += `<div class="module-files collapsed">`;
 
       moduleFiles.forEach((file, fileIdx) => {
         const fileId = `modules-${moduleIdx}-${fileIdx}`;
         const checked = selectedFiles.has(fileId) || selectedFiles.size === 0 ? 'checked' : '';
         const fileName = file.title || file.name || 'Unnamed File';
+        const fileType = file['content-type'] || file.mimeType || 'unknown';
 
-        html += `<div class="file-item" style="padding-left: 24px;">`;
-        html += `<input type="checkbox" id="file-${fileId}" ${checked} data-category="modules" data-module-idx="${moduleIdx}" data-file-idx="${fileIdx}">`;
-        html += ` <label for="file-${fileId}">`;
+        html += `<div class="file-item ${file.status === 'download_failed' || file.status === 'processing_error' ? 'file-error' : ''}">`;
+        html += `<input type="checkbox" id="file-${fileId}" ${checked} data-category="modules" data-module-idx="${moduleIdx}" data-index="${fileIdx}">`;
+        html += `<label for="file-${fileId}">`;
         html += `<span class="file-name">${fileName}</span>`;
+        if (fileType !== 'unknown') {
+          html += `<span class="file-type">${getFileExtension(fileName) || fileType}</span>`;
+        }
+        if (file.status === 'download_failed' || file.status === 'processing_error') {
+          html += `<span class="file-status-error">Error</span>`;
+        }
         html += `</label>`;
         html += `</div>`;
       });
 
       html += `</div></div>`;
     });
+
+    html += `</div></div>`;
   }
 
-  // Handle standalone files, pages, assignments
-  const categoryLabels = {
-    files: 'Standalone Files',
-    pages: 'Pages',
-    assignments: 'Assignments'
-  };
+  // Build set of module file IDs to avoid duplication
+  const moduleFileIds = new Set();
+  if (scannedMaterials.modules) {
+    scannedMaterials.modules.forEach(module => {
+      if (module.items) {
+        module.items.forEach(item => {
+          if (item.type === 'File') {
+            // Track by multiple IDs for robustness
+            if (item.content_id) moduleFileIds.add(item.content_id);
+            if (item.id) moduleFileIds.add(item.id);
+            if (item.url) moduleFileIds.add(item.url);
+          }
+        });
+      }
+    });
+  }
 
-  for (const [category, label] of Object.entries(categoryLabels)) {
-    const items = scannedMaterials[category];
-    if (!items || items.length === 0) continue;
+  // Handle other categories (files, pages, assignments)
+  for (const [category, items] of Object.entries(scannedMaterials)) {
+    if (category === 'errors' || category === 'modules' || !items || items.length === 0) continue;
+
+    const label = categoryLabels[category] || { name: category };
+
+    // For files category, filter out items that are already in modules
+    let itemsToDisplay = items;
+    if (category === 'files') {
+      itemsToDisplay = items.filter(item => {
+        const isInModule = moduleFileIds.has(item.content_id) ||
+                          moduleFileIds.has(item.id) ||
+                          moduleFileIds.has(item.url);
+        return !isInModule; // Only include files NOT in modules
+      });
+
+      // Skip category if no standalone files remain
+      if (itemsToDisplay.length === 0) continue;
+    }
 
     html += `<div class="file-category-section" data-category="${category}">`;
     html += `<div class="file-category-header">`;
-    html += `<input type="checkbox" class="category-checkbox" id="category-${category}" data-category="${category}">`;
-    html += ` <strong class="category-label">${label} (${items.length})</strong>`;
+    html += `<input type="checkbox" class="module-checkbox" id="module-${category}" data-category="${category}">`;
+    html += `<span class="section-title">${label.name}</span>`;
+    html += `<span class="section-count">${itemsToDisplay.length}</span>`;
     html += `</div>`;
     html += `<div class="file-items">`;
 
-    items.forEach((item, index) => {
+    itemsToDisplay.forEach((item, index) => {
       const fileId = `${category}-${index}`;
       const checked = selectedFiles.has(fileId) || selectedFiles.size === 0 ? 'checked' : '';
 
-      // Get item name based on category
+      // Get the correct name property based on category
       let itemName = 'Unnamed';
       if (category === 'files') {
         itemName = item.display_name || item.filename || item.name || 'Unnamed File';
@@ -1742,14 +2283,21 @@ function populateDetailedView() {
         itemName = item.title || item.name || 'Unnamed Page';
       } else if (category === 'assignments') {
         itemName = item.name || 'Unnamed Assignment';
+      } else {
+        itemName = item.name || item.title || item.display_name || 'Unnamed Item';
       }
 
-      html += `<div class="file-item">`;
+      const fileType = item['content-type'] || item.mimeType || item.type || 'unknown';
+
+      html += `<div class="file-item ${item.status === 'download_failed' || item.status === 'processing_error' ? 'file-error' : ''}">`;
       html += `<input type="checkbox" id="file-${fileId}" ${checked} data-category="${category}" data-index="${index}">`;
-      html += ` <label for="file-${fileId}">`;
+      html += `<label for="file-${fileId}">`;
       html += `<span class="file-name">${itemName}</span>`;
+      if (fileType !== 'unknown') {
+        html += `<span class="file-type">${getFileExtension(itemName) || fileType}</span>`;
+      }
       if (item.status === 'download_failed' || item.status === 'processing_error') {
-        html += ` <span class="file-status-error">Error</span>`;
+        html += `<span class="file-status-error">Error</span>`;
       }
       html += `</label>`;
       html += `</div>`;
@@ -1772,66 +2320,80 @@ function populateDetailedView() {
 
   detailedView.innerHTML = html;
 
-  // Add master "Select All" checkbox listener
-  const masterCheckbox = document.getElementById('master-select-all');
-  if (masterCheckbox) {
-    masterCheckbox.addEventListener('change', (e) => {
+  // Add event listeners
+  const selectAllCheckbox = document.getElementById('select-all-checkbox');
+  if (selectAllCheckbox) {
+    selectAllCheckbox.addEventListener('change', (e) => {
       const isChecked = e.target.checked;
-      // Toggle all checkboxes (modules, categories, and individual files)
-      detailedView.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-        if (cb.id !== 'master-select-all') {
-          cb.checked = isChecked;
-          cb.indeterminate = false;
-        }
-      });
-
-      // Update selectedFiles set
       if (isChecked) {
-        // Add all files to selection
-        detailedView.querySelectorAll('.file-item input[type="checkbox"]').forEach(cb => {
-          const fileId = cb.id.replace('file-', '');
-          selectedFiles.add(fileId);
-        });
+        selectAllFiles();
       } else {
-        // Clear selection
-        selectedFiles.clear();
+        deselectAllFiles();
       }
     });
   }
 
-  // Add listeners to module checkboxes
-  detailedView.querySelectorAll('.module-checkbox').forEach(moduleCheckbox => {
-    moduleCheckbox.addEventListener('change', (e) => {
-      const isChecked = e.target.checked;
-      const moduleDiv = e.target.closest('.material-module');
-      const fileCheckboxes = moduleDiv.querySelectorAll('.module-items input[type="checkbox"]');
+  // Add listeners to module-level checkboxes (detailed view)
+  const moduleCheckboxes = detailedView.querySelectorAll('.module-checkbox');
+  console.log('[DEBUG] Found module checkboxes in detailed view:', moduleCheckboxes.length);
 
-      // Toggle all files in this module
-      fileCheckboxes.forEach(cb => {
-        cb.checked = isChecked;
-        const fileId = cb.id.replace('file-', '');
-        if (isChecked) {
-          selectedFiles.add(fileId);
-        } else {
-          selectedFiles.delete(fileId);
+  moduleCheckboxes.forEach((moduleCheckbox, index) => {
+    console.log('[DEBUG] Adding listener to module checkbox', index, moduleCheckbox.id);
+    moduleCheckbox.addEventListener('change', (e) => {
+      const category = e.target.dataset.category;
+      const isChecked = e.target.checked;
+      console.log('[DEBUG] Module checkbox clicked:', category, 'checked:', isChecked);
+
+      // Find all checkboxes in this category and toggle them
+      const categorySection = e.target.closest('.file-category-section');
+
+      // For modules category, also get module-file-checkbox and checkboxes inside module-files
+      const fileCheckboxes = categorySection.querySelectorAll('.file-items input[type="checkbox"], .module-file-checkbox, .module-files input[type="checkbox"]');
+      console.log('[DEBUG] Toggling', fileCheckboxes.length, 'checkboxes in category:', category);
+
+      fileCheckboxes.forEach(checkbox => {
+        checkbox.checked = isChecked;
+        checkbox.indeterminate = false;
+        const fileId = checkbox.id.replace('file-', '');
+        if (fileId) {
+          if (isChecked) {
+            selectedFiles.add(fileId);
+          } else {
+            selectedFiles.delete(fileId);
+          }
         }
       });
-
-      updateMasterCheckbox();
+      console.log('[DEBUG] Selected files after toggle:', selectedFiles.size);
     });
   });
 
-  // Add listeners to category checkboxes (for standalone files, pages, assignments)
-  detailedView.querySelectorAll('.category-checkbox').forEach(categoryCheckbox => {
-    categoryCheckbox.addEventListener('change', (e) => {
-      const isChecked = e.target.checked;
-      const categorySection = e.target.closest('.file-category-section');
-      const fileCheckboxes = categorySection.querySelectorAll('.file-items input[type="checkbox"]');
+  // Add listeners to module header clicks (expand/collapse)
+  detailedView.querySelectorAll('.module-header').forEach(header => {
+    header.addEventListener('click', (e) => {
+      // Don't toggle if clicking on checkbox
+      if (e.target.type === 'checkbox') return;
 
-      // Toggle all files in this category
-      fileCheckboxes.forEach(cb => {
-        cb.checked = isChecked;
-        const fileId = cb.id.replace('file-', '');
+      const moduleItem = header.closest('.module-item');
+      const moduleFiles = moduleItem.querySelector('.module-files');
+      const chevron = header.querySelector('.module-chevron');
+
+      moduleFiles.classList.toggle('collapsed');
+      chevron.classList.toggle('rotated');
+    });
+  });
+
+  // Add listeners to module file checkboxes (for individual modules)
+  detailedView.querySelectorAll('.module-file-checkbox').forEach(moduleCheckbox => {
+    moduleCheckbox.addEventListener('change', (e) => {
+      e.stopPropagation(); // Prevent triggering header click
+      const moduleIdx = e.target.dataset.moduleIdx;
+      const isChecked = e.target.checked;
+      const moduleItem = e.target.closest('.module-item');
+      const fileCheckboxes = moduleItem.querySelectorAll('.module-files input[type="checkbox"]');
+
+      fileCheckboxes.forEach(checkbox => {
+        checkbox.checked = isChecked;
+        const fileId = checkbox.id.replace('file-', '');
         if (isChecked) {
           selectedFiles.add(fileId);
         } else {
@@ -1839,13 +2401,33 @@ function populateDetailedView() {
         }
       });
 
-      updateMasterCheckbox();
+      // Update the category-level checkbox state (e.g., "Course Modules")
+      const categorySection = e.target.closest('.file-category-section');
+      if (categorySection) {
+        const categoryCheckbox = categorySection.querySelector('.module-checkbox');
+        const allModuleCheckboxes = categorySection.querySelectorAll('.module-file-checkbox');
+        const allChecked = Array.from(allModuleCheckboxes).every(cb => cb.checked);
+        const someChecked = Array.from(allModuleCheckboxes).some(cb => cb.checked);
+
+        if (categoryCheckbox) {
+          if (allChecked && allModuleCheckboxes.length > 0) {
+            categoryCheckbox.checked = true;
+            categoryCheckbox.indeterminate = false;
+          } else if (someChecked) {
+            categoryCheckbox.checked = false;
+            categoryCheckbox.indeterminate = true;
+          } else {
+            categoryCheckbox.checked = false;
+            categoryCheckbox.indeterminate = false;
+          }
+        }
+      }
     });
   });
 
   // Add listeners to individual file checkboxes
-  detailedView.querySelectorAll('.file-item input[type="checkbox"]').forEach(fileCheckbox => {
-    fileCheckbox.addEventListener('change', (e) => {
+  detailedView.querySelectorAll('.file-items input[type="checkbox"], .module-files input[type="checkbox"]').forEach(checkbox => {
+    checkbox.addEventListener('change', (e) => {
       const fileId = e.target.id.replace('file-', '');
       if (e.target.checked) {
         selectedFiles.add(fileId);
@@ -1853,89 +2435,106 @@ function populateDetailedView() {
         selectedFiles.delete(fileId);
       }
 
-      // Update parent checkbox (module or category)
-      const moduleDiv = e.target.closest('.material-module');
+      // Update the category-level checkbox state based on its children
       const categorySection = e.target.closest('.file-category-section');
+      if (categorySection) {
+        const moduleCheckbox = categorySection.querySelector('.module-checkbox');
+        const fileCheckboxes = categorySection.querySelectorAll('.file-items input[type="checkbox"], .module-file-checkbox, .module-files input[type="checkbox"]');
+        const allChecked = Array.from(fileCheckboxes).every(cb => cb.checked);
+        const someChecked = Array.from(fileCheckboxes).some(cb => cb.checked);
 
-      if (moduleDiv) {
-        // Update module checkbox
-        const moduleCheckbox = moduleDiv.querySelector('.module-checkbox');
-        const allFileCheckboxes = moduleDiv.querySelectorAll('.module-items input[type="checkbox"]');
-        updateParentCheckbox(moduleCheckbox, allFileCheckboxes);
-      } else if (categorySection) {
-        // Update category checkbox
-        const categoryCheckbox = categorySection.querySelector('.category-checkbox');
-        const allFileCheckboxes = categorySection.querySelectorAll('.file-items input[type="checkbox"]');
-        updateParentCheckbox(categoryCheckbox, allFileCheckboxes);
+        if (moduleCheckbox) {
+          if (allChecked && fileCheckboxes.length > 0) {
+            moduleCheckbox.checked = true;
+            moduleCheckbox.indeterminate = false;
+          } else if (someChecked) {
+            moduleCheckbox.checked = false;
+            moduleCheckbox.indeterminate = true;
+          } else {
+            moduleCheckbox.checked = false;
+            moduleCheckbox.indeterminate = false;
+          }
+        }
       }
 
-      updateMasterCheckbox();
+      // Update individual module checkbox state if inside a module
+      const moduleItem = e.target.closest('.module-item');
+      if (moduleItem) {
+        const moduleFileCheckbox = moduleItem.querySelector('.module-file-checkbox');
+        const moduleFileCheckboxes = moduleItem.querySelectorAll('.module-files input[type="checkbox"]');
+        const allChecked = Array.from(moduleFileCheckboxes).every(cb => cb.checked);
+        const someChecked = Array.from(moduleFileCheckboxes).some(cb => cb.checked);
+
+        if (moduleFileCheckbox) {
+          if (allChecked) {
+            moduleFileCheckbox.checked = true;
+            moduleFileCheckbox.indeterminate = false;
+          } else if (someChecked) {
+            moduleFileCheckbox.checked = false;
+            moduleFileCheckbox.indeterminate = true;
+          } else {
+            moduleFileCheckbox.checked = false;
+            moduleFileCheckbox.indeterminate = false;
+          }
+        }
+      }
     });
   });
 
-  // Initialize all parent checkbox states
+  // Initialize module checkbox states
   detailedView.querySelectorAll('.module-checkbox').forEach(moduleCheckbox => {
-    const moduleDiv = moduleCheckbox.closest('.material-module');
-    const fileCheckboxes = moduleDiv.querySelectorAll('.module-items input[type="checkbox"]');
-    updateParentCheckbox(moduleCheckbox, fileCheckboxes);
+    const categorySection = moduleCheckbox.closest('.file-category-section');
+    const fileCheckboxes = categorySection.querySelectorAll('.file-items input[type="checkbox"], .module-file-checkbox, .module-files input[type="checkbox"]');
+    const allChecked = Array.from(fileCheckboxes).every(cb => cb.checked);
+    const someChecked = Array.from(fileCheckboxes).some(cb => cb.checked);
+
+    if (allChecked && fileCheckboxes.length > 0) {
+      moduleCheckbox.checked = true;
+      moduleCheckbox.indeterminate = false;
+    } else if (someChecked) {
+      moduleCheckbox.checked = false;
+      moduleCheckbox.indeterminate = true;
+    } else {
+      moduleCheckbox.checked = false;
+      moduleCheckbox.indeterminate = false;
+    }
   });
 
-  detailedView.querySelectorAll('.category-checkbox').forEach(categoryCheckbox => {
-    const categorySection = categoryCheckbox.closest('.file-category-section');
-    const fileCheckboxes = categorySection.querySelectorAll('.file-items input[type="checkbox"]');
-    updateParentCheckbox(categoryCheckbox, fileCheckboxes);
+  // Initialize individual module file checkbox states (for module headers within modules section)
+  detailedView.querySelectorAll('.module-file-checkbox').forEach(moduleFileCheckbox => {
+    const moduleIdx = moduleFileCheckbox.dataset.moduleIdx;
+    const moduleItem = moduleFileCheckbox.closest('.module-item');
+    const fileCheckboxes = moduleItem.querySelectorAll('.module-files input[type="checkbox"]');
+    const allChecked = Array.from(fileCheckboxes).every(cb => cb.checked);
+    const someChecked = Array.from(fileCheckboxes).some(cb => cb.checked);
+
+    if (allChecked && fileCheckboxes.length > 0) {
+      moduleFileCheckbox.checked = true;
+      moduleFileCheckbox.indeterminate = false;
+    } else if (someChecked) {
+      moduleFileCheckbox.checked = false;
+      moduleFileCheckbox.indeterminate = true;
+    } else {
+      moduleFileCheckbox.checked = false;
+      moduleFileCheckbox.indeterminate = false;
+    }
   });
-
-  updateMasterCheckbox();
-}
-
-// Helper function to update parent checkbox state
-function updateParentCheckbox(parentCheckbox, childCheckboxes) {
-  if (!parentCheckbox || !childCheckboxes || childCheckboxes.length === 0) return;
-
-  const checkboxArray = Array.from(childCheckboxes);
-  const allChecked = checkboxArray.every(cb => cb.checked);
-  const someChecked = checkboxArray.some(cb => cb.checked);
-
-  if (allChecked) {
-    parentCheckbox.checked = true;
-    parentCheckbox.indeterminate = false;
-  } else if (someChecked) {
-    parentCheckbox.checked = false;
-    parentCheckbox.indeterminate = true;
-  } else {
-    parentCheckbox.checked = false;
-    parentCheckbox.indeterminate = false;
-  }
-}
-
-// Helper function to update master "Select All" checkbox state
-function updateMasterCheckbox() {
-  const masterCheckbox = document.getElementById('master-select-all');
-  if (!masterCheckbox) return;
-
-  const allFileCheckboxes = document.querySelectorAll('.file-item input[type="checkbox"]');
-  if (allFileCheckboxes.length === 0) return;
-
-  const checkboxArray = Array.from(allFileCheckboxes);
-  const allChecked = checkboxArray.every(cb => cb.checked);
-  const someChecked = checkboxArray.some(cb => cb.checked);
-
-  if (allChecked) {
-    masterCheckbox.checked = true;
-    masterCheckbox.indeterminate = false;
-  } else if (someChecked) {
-    masterCheckbox.checked = false;
-    masterCheckbox.indeterminate = true;
-  } else {
-    masterCheckbox.checked = false;
-    masterCheckbox.indeterminate = false;
-  }
 }
 
 function getFileIcon(mimeType) {
-  // No longer using emojis for file icons
-  return '';
+  if (!mimeType || typeof mimeType !== 'string') return '📄';
+
+  const mime = mimeType.toLowerCase();
+  if (mime.includes('pdf')) return '📕';
+  if (mime.includes('word') || mime.includes('document')) return '📘';
+  if (mime.includes('powerpoint') || mime.includes('presentation')) return '📊';
+  if (mime.includes('image')) return '🖼️';
+  if (mime.includes('video')) return '🎥';
+  if (mime.includes('audio')) return '🎵';
+  if (mime.includes('text')) return '📄';
+  if (mime === 'assignment') return '✏️';
+  if (mime === 'page') return '📝';
+  return '📄';
 }
 
 function getFileExtension(filename) {
@@ -1943,6 +2542,70 @@ function getFileExtension(filename) {
   const ext = filename.split('.').pop().toLowerCase();
   if (ext && ext.length <= 4 && ext !== filename.toLowerCase()) return `.${ext}`;
   return '';
+}
+
+function selectAllFiles() {
+  const checkboxes = document.querySelectorAll('#detailed-view input[type="checkbox"]');
+  checkboxes.forEach(cb => {
+    cb.checked = true;
+    cb.indeterminate = false;
+    const fileId = cb.id.replace('file-', '');
+    if (fileId) {
+      selectedFiles.add(fileId);
+    }
+  });
+
+  // Also check all category checkboxes in simple view
+  const categoryCheckboxes = document.querySelectorAll('.category-checkbox');
+  categoryCheckboxes.forEach(cb => {
+    cb.checked = true;
+  });
+
+  // Update module checkbox states based on their children
+  const moduleFileCheckboxes = document.querySelectorAll('.module-file-checkbox');
+  moduleFileCheckboxes.forEach(moduleCheckbox => {
+    const moduleIdx = moduleCheckbox.dataset.moduleIdx;
+    const fileCheckboxes = document.querySelectorAll(
+      `.file-item input[data-module-idx="${moduleIdx}"]`
+    );
+
+    if (fileCheckboxes.length > 0) {
+      const allChecked = Array.from(fileCheckboxes).every(cb => cb.checked);
+      const anyChecked = Array.from(fileCheckboxes).some(cb => cb.checked);
+
+      moduleCheckbox.checked = allChecked;
+      moduleCheckbox.indeterminate = !allChecked && anyChecked;
+    }
+  });
+
+  // Update category-level module checkboxes
+  const categoryModuleCheckboxes = document.querySelectorAll('.module-checkbox');
+  categoryModuleCheckboxes.forEach(cb => {
+    cb.checked = true;
+    cb.indeterminate = false;
+  });
+}
+
+function deselectAllFiles() {
+  const checkboxes = document.querySelectorAll('#detailed-view input[type="checkbox"]');
+  checkboxes.forEach(cb => {
+    cb.checked = false;
+    cb.indeterminate = false;
+  });
+  selectedFiles.clear();
+
+  // Also uncheck all category checkboxes in simple view
+  const categoryCheckboxes = document.querySelectorAll('.category-checkbox');
+  categoryCheckboxes.forEach(cb => {
+    cb.checked = false;
+  });
+
+  // Also uncheck all module-level checkboxes in detailed view
+  const moduleCheckboxes = document.querySelectorAll('.module-checkbox, .module-file-checkbox');
+  moduleCheckboxes.forEach(cb => {
+    cb.checked = false;
+    cb.indeterminate = false;
+  });
 }
 
 // Theme Management - removed (now handled at top of file with system preference detection)

@@ -1,4 +1,4 @@
-/**
+imap/**
  * Content Script
  * Detects Canvas course pages and extracts course information
  */

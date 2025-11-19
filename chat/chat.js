@@ -169,6 +169,33 @@ const elements = {
 // Initialize
 document.addEventListener('DOMContentLoaded', init);
 
+// ========== URL STATE MANAGEMENT ==========
+
+/**
+ * Update the browser URL with the current chat session ID
+ * This allows the page to be refreshed without losing the conversation
+ */
+function updateURLWithChatId(chatId) {
+  if (!chatId) return;
+
+  const urlParams = new URLSearchParams(window.location.search);
+  urlParams.set('chatId', chatId);
+
+  // Update URL without reloading the page
+  const newURL = `${window.location.pathname}?${urlParams.toString()}`;
+  window.history.replaceState({ chatId }, '', newURL);
+
+  console.log('🔗 Updated URL with chatId:', chatId);
+}
+
+/**
+ * Get the chat session ID from the URL
+ */
+function getChatIdFromURL() {
+  const urlParams = new URLSearchParams(window.location.search);
+  return urlParams.get('chatId');
+}
+
 /**
  * Setup polling for background loading progress from chrome.storage.local
  */
@@ -336,8 +363,11 @@ async function init() {
     return;
   }
 
-  // Generate session ID for this chat
-  currentSessionId = `session_${courseId}_${Date.now()}`;
+  // Check if there's a chat ID in the URL (for restoring after refresh)
+  const urlChatId = getChatIdFromURL();
+
+  // Generate session ID for this chat (will be replaced if loading from URL)
+  currentSessionId = urlChatId || `session_${courseId}_${Date.now()}`;
 
   // Check if we're in loading mode (background loading in progress)
   const isLoading = urlParams.get('loading') === 'true';
@@ -364,6 +394,20 @@ async function init() {
 
   // Load recent chats for this course
   await loadRecentChats();
+
+  // If there's a chat ID in the URL, try to restore that conversation
+  if (urlChatId) {
+    console.log('🔄 Restoring chat from URL:', urlChatId);
+    try {
+      await loadChatSession(urlChatId);
+      console.log('✅ Successfully restored chat session');
+    } catch (error) {
+      console.warn('⚠️ Failed to restore chat from URL, starting fresh:', error);
+      // If restoration fails, keep the new session (already set above)
+      // Clear invalid chatId from URL
+      updateURLWithChatId(currentSessionId);
+    }
+  }
 
   // Setup event listeners
   setupEventListeners();
@@ -1311,6 +1355,47 @@ async function handleFileUpload(event) {
 }
 
 /**
+ * Refresh course materials
+ * Reloads the page to pick up any updated materials from IndexedDB
+ */
+async function handleRefreshMaterials() {
+  console.log('🔄 Refreshing course materials...');
+
+  const refreshBtn = document.getElementById('refresh-materials-btn');
+
+  try {
+    // Show loading message
+    showLoadingBanner('Refreshing materials from database...', 'info');
+
+    // Disable button
+    if (refreshBtn) {
+      refreshBtn.disabled = true;
+      refreshBtn.style.opacity = '0.5';
+    }
+
+    // Reload materials from IndexedDB
+    await loadMaterials();
+
+    // Sync with backend to get latest hash-based IDs
+    await syncMaterialsWithBackend();
+
+    hideLoadingBanner();
+    showTemporaryMessage('Materials refreshed! To scan new files from Canvas, use the extension popup.');
+
+  } catch (error) {
+    console.error('❌ Error refreshing materials:', error);
+    showLoadingBanner(`Refresh failed: ${error.message}`, 'error');
+    setTimeout(() => hideLoadingBanner(), 3000);
+  } finally {
+    // Re-enable button
+    if (refreshBtn) {
+      refreshBtn.disabled = false;
+      refreshBtn.style.opacity = '1';
+    }
+  }
+}
+
+/**
  * Show a temporary success message
  */
 function showTemporaryMessage(message) {
@@ -1687,6 +1772,10 @@ function setupEventListeners() {
   elements.newChatBtn.addEventListener('click', () => {
     // Generate new session ID
     currentSessionId = `session_${courseId}_${Date.now()}`;
+
+    // Update URL with new session ID
+    updateURLWithChatId(currentSessionId);
+
     conversationHistory = [];
     elements.messagesContainer.innerHTML = '';
     elements.messagesContainer.appendChild(createWelcomeMessage());
@@ -1958,6 +2047,7 @@ function setupEventListeners() {
   // File upload handler
   const uploadBtn = document.getElementById('upload-files-btn');
   const fileInput = document.getElementById('file-upload-input');
+  const refreshBtn = document.getElementById('refresh-materials-btn');
 
   if (uploadBtn && fileInput) {
     uploadBtn.addEventListener('click', () => {
@@ -1965,6 +2055,10 @@ function setupEventListeners() {
     });
 
     fileInput.addEventListener('change', handleFileUpload);
+  }
+
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', handleRefreshMaterials);
   }
 
   // Drag and drop file upload on sidebar
@@ -2602,6 +2696,9 @@ async function sendMessage() {
       generateChatTitle(message);
     }
 
+    // Update URL to persist the current session (ensures refresh works)
+    updateURLWithChatId(currentSessionId);
+
     // Show usage info
     if (elements.tokenInfo) {
       elements.tokenInfo.textContent = `Mode: Python Backend`;
@@ -3177,6 +3274,9 @@ async function loadChatSession(sessionId) {
 
     // Update current session
     currentSessionId = sessionId;
+
+    // Update URL to reflect the loaded chat
+    updateURLWithChatId(sessionId);
 
     // Clear current chat and load history
     elements.messagesContainer.innerHTML = '';

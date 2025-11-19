@@ -53,6 +53,58 @@ html[data-theme="light"] body {
   color: var(--text-primary);
 }
 
+/* Light mode checkbox styling */
+:root[data-theme="light"] input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border);
+  border-radius: 3px;
+  background-color: #f1f5f9;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.2s ease;
+}
+
+:root[data-theme="light"] input[type="checkbox"]:hover {
+  background-color: #e2e8f0;
+  border-color: var(--blue-primary);
+}
+
+:root[data-theme="light"] input[type="checkbox"]:checked {
+  background-color: var(--blue-primary);
+  border-color: var(--blue-primary);
+}
+
+:root[data-theme="light"] input[type="checkbox"]:checked::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 4px;
+  height: 8px;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: translate(-50%, -60%) rotate(45deg);
+}
+
+:root[data-theme="light"] input[type="checkbox"]:indeterminate {
+  background-color: var(--blue-primary);
+  border-color: var(--blue-primary);
+}
+
+:root[data-theme="light"] input[type="checkbox"]:indeterminate::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 8px;
+  height: 2px;
+  background-color: white;
+  transform: translate(-50%, -50%);
+}
+
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
   font-size: 14px;
@@ -817,10 +869,284 @@ html {
   margin: 16px 0;
   max-height: 300px;
   overflow-y: auto;
+  overflow-x: hidden;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .detailed-file-list.hidden {
   display: none;
+}
+
+/* File List Header */
+.file-list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.file-list-header h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.file-list-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.select-all-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-secondary);
+  user-select: none;
+}
+
+.select-all-checkbox {
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--blue-primary);
+}
+
+/* File Category Section */
+.file-category-section {
+  margin-bottom: 16px;
+  overflow: hidden;
+  width: 100%;
+}
+
+.file-category-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.file-category-header .module-checkbox {
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--blue-primary);
+  flex-shrink: 0;
+}
+
+.file-category-header .section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex: 1;
+}
+
+.file-category-header .section-count {
+  font-size: 11px;
+  color: var(--text-light);
+  background: var(--surface-hover);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+/* File Items */
+.file-items {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 8px;
+}
+
+/* Module Items Container */
+.file-modules-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-left: 8px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.module-item {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface);
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.module-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  background: var(--surface-hover);
+  transition: background 0.2s;
+  user-select: none;
+}
+
+.module-header:hover {
+  background: var(--border);
+}
+
+.module-file-checkbox {
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--blue-primary);
+  flex-shrink: 0;
+}
+
+.module-chevron {
+  flex-shrink: 0;
+  color: var(--text-light);
+  transition: transform 0.2s;
+  transform: rotate(90deg);
+}
+
+.module-chevron.rotated {
+  transform: rotate(0deg);
+}
+
+.module-name {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.module-count {
+  font-size: 11px;
+  color: var(--text-light);
+  background: var(--background);
+  padding: 2px 8px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.module-files {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  max-height: 400px;
+  overflow-y: auto;
+  transition: max-height 0.3s ease;
+}
+
+.module-files.collapsed {
+  max-height: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.file-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  transition: background 0.2s;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.file-item:hover {
+  background: var(--surface-hover);
+}
+
+.file-item input[type="checkbox"] {
+  cursor: pointer;
+  width: 14px;
+  height: 14px;
+  accent-color: var(--blue-primary);
+  flex-shrink: 0;
+}
+
+.file-item label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-primary);
+  min-width: 0;
+  max-width: 100%;
+}
+
+.file-item .file-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.file-item .file-type {
+  font-size: 10px;
+  color: var(--text-light);
+  background: var(--surface-hover);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.file-item .file-status-error {
+  font-size: 10px;
+  color: var(--error);
+  background: rgba(239, 68, 68, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.file-item.file-error {
+  opacity: 0.6;
+}
+
+/* Errors Section */
+.errors-section {
+  margin-top: 16px;
+  padding: 12px;
+  background: rgba(239, 68, 68, 0.05);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: 8px;
+}
+
+.errors-section h4 {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--error);
+  margin: 0 0 8px 0;
+}
+
+.error-item {
+  font-size: 11px;
+  color: var(--text-secondary);
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(239, 68, 68, 0.1);
+}
+
+.error-item:last-child {
+  border-bottom: none;
 }
 
 /* Scrollbar Styling */

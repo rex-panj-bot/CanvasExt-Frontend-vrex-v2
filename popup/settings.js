@@ -154,7 +154,7 @@ async function saveApiKey() {
     // Save to storage
     await chrome.storage.local.set({ [STORAGE_KEYS.API_KEY]: apiKey });
 
-    showStatus('API key saved successfully! ✓', 'success');
+    showStatus('API key saved successfully!', 'success');
     setTimeout(() => {
       showApiKeyDisplay(apiKey);
     }, 1500);
@@ -309,7 +309,7 @@ async function loadSyllabusSettings() {
     // Set current syllabus if exists
     if (syllabusData.success && syllabusData.syllabus_id) {
       elements.syllabusSelect.value = syllabusData.syllabus_id;
-      const source = syllabusData.source === 'stored' ? '✅ Saved' : '🔍 Auto-detected';
+      const source = syllabusData.source === 'stored' ? 'Saved' : 'Auto-detected';
       elements.syllabusStatus.innerHTML = `<p style="color: #28a745; font-size: 14px;"><strong>Current Syllabus:</strong> ${syllabusData.syllabus_name} (${source})</p>`;
     } else {
       elements.syllabusStatus.innerHTML = '<p style="color: #999; font-size: 14px;">No syllabus set. Select one below.</p>';
@@ -336,19 +336,19 @@ async function loadSyllabusSettings() {
         const data = await response.json();
 
         if (data.success) {
-          elements.syllabusStatus.innerHTML = `<p style="color: #28a745; font-size: 14px;"><strong>✅ Syllabus saved:</strong> ${data.syllabus_name}</p>`;
+          elements.syllabusStatus.innerHTML = `<p style="color: #28a745; font-size: 14px;"><strong>Syllabus saved:</strong> ${data.syllabus_name}</p>`;
         } else {
-          elements.syllabusStatus.innerHTML = `<p style="color: #dc3545; font-size: 14px;">❌ Error: ${data.error}</p>`;
+          elements.syllabusStatus.innerHTML = `<p style="color: #dc3545; font-size: 14px;">Error: ${data.error}</p>`;
         }
       } catch (error) {
         console.error('Error saving syllabus:', error);
-        elements.syllabusStatus.innerHTML = '<p style="color: #dc3545; font-size: 14px;">❌ Failed to save syllabus. Please try again.</p>';
+        elements.syllabusStatus.innerHTML = '<p style="color: #dc3545; font-size: 14px;">Failed to save syllabus. Please try again.</p>';
       }
     };
 
   } catch (error) {
     console.error('Error loading syllabus settings:', error);
-    elements.syllabusStatus.innerHTML = '<p style="color: #dc3545; font-size: 14px;">❌ Failed to load syllabus settings.</p>';
+    elements.syllabusStatus.innerHTML = '<p style="color: #dc3545; font-size: 14px;">Failed to load syllabus settings.</p>';
   }
 }
 
