@@ -125,51 +125,27 @@ async function checkAndResumeUploads() {
  */
 async function openIndexedDB() {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open('CanvasMaterialsDB', 1);
+    const request = indexedDB.open('CanvasMaterialsDB', 2);
 
     request.onerror = () => reject(request.error);
-    request.onsuccess = () => {
-      const db = request.result;
-
-      // Check if uploadQueue store exists, if not we need to upgrade
-      if (!db.objectStoreNames.contains('uploadQueue')) {
-        db.close();
-        // Reopen with higher version to trigger upgrade
-        const upgradeRequest = indexedDB.open('CanvasMaterialsDB', db.version + 1);
-
-        upgradeRequest.onerror = () => reject(upgradeRequest.error);
-        upgradeRequest.onsuccess = () => resolve(upgradeRequest.result);
-
-        upgradeRequest.onupgradeneeded = (event) => {
-          const upgradeDb = event.target.result;
-
-          // Create materials store if it doesn't exist
-          if (!upgradeDb.objectStoreNames.contains('materials')) {
-            const objectStore = upgradeDb.createObjectStore('materials', { keyPath: 'courseId' });
-            objectStore.createIndex('courseName', 'courseName', { unique: false });
-            objectStore.createIndex('lastUpdated', 'lastUpdated', { unique: false });
-          }
-
-          // Create uploadQueue store
-          if (!upgradeDb.objectStoreNames.contains('uploadQueue')) {
-            const uploadStore = upgradeDb.createObjectStore('uploadQueue', { keyPath: 'courseId' });
-            uploadStore.createIndex('timestamp', 'timestamp', { unique: false });
-            console.log('✅ Created uploadQueue object store');
-          }
-        };
-      } else {
-        resolve(db);
-      }
-    };
+    request.onsuccess = () => resolve(request.result);
 
     request.onupgradeneeded = (event) => {
       const db = event.target.result;
+      const oldVersion = event.oldVersion;
 
       // Create materials store (v1)
       if (!db.objectStoreNames.contains('materials')) {
         const objectStore = db.createObjectStore('materials', { keyPath: 'courseId' });
         objectStore.createIndex('courseName', 'courseName', { unique: false });
         objectStore.createIndex('lastUpdated', 'lastUpdated', { unique: false });
+      }
+
+      // Create uploadQueue store (v2)
+      if (oldVersion < 2 && !db.objectStoreNames.contains('uploadQueue')) {
+        const uploadStore = db.createObjectStore('uploadQueue', { keyPath: 'courseId' });
+        uploadStore.createIndex('timestamp', 'timestamp', { unique: false });
+        console.log('✅ Created uploadQueue object store');
       }
     };
   });

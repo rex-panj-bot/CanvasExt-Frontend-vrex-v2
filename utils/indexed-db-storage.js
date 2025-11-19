@@ -6,7 +6,7 @@
 class MaterialsDB {
   constructor() {
     this.dbName = 'CanvasMaterialsDB';
-    this.version = 1;
+    this.version = 2;
     this.db = null;
   }
 
@@ -25,12 +25,19 @@ class MaterialsDB {
 
       request.onupgradeneeded = (event) => {
         const db = event.target.result;
+        const oldVersion = event.oldVersion;
 
-        // Create object store for course materials
+        // Create materials store (v1)
         if (!db.objectStoreNames.contains('materials')) {
           const objectStore = db.createObjectStore('materials', { keyPath: 'courseId' });
           objectStore.createIndex('courseName', 'courseName', { unique: false });
           objectStore.createIndex('lastUpdated', 'lastUpdated', { unique: false });
+        }
+
+        // Create uploadQueue store (v2)
+        if (oldVersion < 2 && !db.objectStoreNames.contains('uploadQueue')) {
+          const uploadStore = db.createObjectStore('uploadQueue', { keyPath: 'courseId' });
+          uploadStore.createIndex('timestamp', 'timestamp', { unique: false });
         }
       };
     });
