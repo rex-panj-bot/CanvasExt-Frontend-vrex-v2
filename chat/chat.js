@@ -1328,10 +1328,11 @@ async function handleFileUpload(event) {
       name: file.name
     }));
 
-    // Upload to backend
-    await backendClient.uploadPDFs(courseId, filesToUpload);
+    // Upload to backend and get hash data
+    const uploadResult = await backendClient.uploadPDFs(courseId, filesToUpload);
 
     console.log('✅ Files uploaded successfully');
+    console.log('📋 Upload result:', uploadResult);
     showLoadingBanner('Files uploaded! Adding to materials...', 'success');
 
     // Wait a bit for backend processing
@@ -1347,21 +1348,41 @@ async function handleFileUpload(event) {
         materialsData.materials.files = [];
       }
 
-      files.forEach(file => {
-        materialsData.materials.files.push({
-          name: file.name,
-          display_name: file.name,
-          stored_name: file.name,
-          type: 'file',
-          blob: file, // Store the file blob
-          uploaded_by_user: true, // Mark as user-uploaded
-          uploaded_at: new Date().toISOString()
+      // Use hash data from backend response
+      if (uploadResult && uploadResult.files) {
+        uploadResult.files.forEach((fileData, index) => {
+          materialsData.materials.files.push({
+            name: fileData.filename,
+            display_name: fileData.filename,
+            stored_name: fileData.hash ? `${fileData.hash}.pdf` : fileData.filename,
+            type: 'file',
+            blob: files[index], // Store the original file blob
+            hash: fileData.hash,  // ✅ Store hash from backend
+            doc_id: fileData.doc_id,  // ✅ Store doc_id from backend
+            id: fileData.doc_id,  // ✅ For compatibility
+            uploaded_by_user: true, // Mark as user-uploaded
+            uploaded_at: new Date().toISOString()
+          });
         });
-      });
+      } else {
+        // Fallback if no hash data (shouldn't happen with new backend)
+        console.warn('⚠️ No hash data in upload response, files may not be openable');
+        files.forEach(file => {
+          materialsData.materials.files.push({
+            name: file.name,
+            display_name: file.name,
+            stored_name: file.name,
+            type: 'file',
+            blob: file,
+            uploaded_by_user: true,
+            uploaded_at: new Date().toISOString()
+          });
+        });
+      }
 
       // Save updated materials back to IndexedDB
       await materialsDB.saveMaterials(courseId, courseName, materialsData.materials);
-      console.log('✅ [CHAT] Added uploaded files to IndexedDB');
+      console.log('✅ [CHAT] Added uploaded files to IndexedDB with hash metadata');
     }
 
     await materialsDB.close();
