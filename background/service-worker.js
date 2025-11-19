@@ -60,6 +60,8 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.runtime.onStartup.addListener(() => {
   console.log('🎨 Browser started, initializing icon');
   initializeIcon();
+  // Check for incomplete uploads and resume
+  checkAndResumeUploads();
 });
 
 // Store current course info
@@ -69,21 +71,81 @@ let currentCourseInfo = null;
 let uploadFilesQueue = null;
 
 /**
+ * Check for incomplete uploads and resume them (called on service worker startup)
+ */
+async function checkAndResumeUploads() {
+  try {
+    // Check chrome.storage.local for active upload task
+    const result = await chrome.storage.local.get(['uploadTask']);
+    const task = result.uploadTask;
+
+    if (!task || task.status !== 'uploading') {
+      console.log('✅ No incomplete uploads to resume');
+      return;
+    }
+
+    // Check if task is stale (older than 10 minutes)
+    const ageMinutes = (Date.now() - task.startTime) / 1000 / 60;
+    if (ageMinutes > 10) {
+      console.log(`⚠️ Upload task is stale (${ageMinutes.toFixed(1)} minutes old), cleaning up...`);
+      await chrome.storage.local.remove(['uploadTask']);
+      await deleteUploadQueueFromDB(task.courseId);
+      return;
+    }
+
+    // Load queue from IndexedDB
+    const queueData = await loadUploadQueueFromDB(task.courseId);
+    if (!queueData || !queueData.files) {
+      console.warn('⚠️ Upload task found but no queue in IndexedDB, marking as error');
+      await chrome.storage.local.set({
+        uploadTask: {
+          ...task,
+          status: 'error',
+          error: 'Upload queue lost during service worker restart'
+        }
+      });
+      return;
+    }
+
+    console.log(`🔄 Resuming upload for course ${task.courseId}: ${task.uploadedFiles}/${task.totalFiles} files uploaded, batch ${task.currentBatch}/${task.totalBatches}`);
+
+    // Restore queue to memory
+    uploadFilesQueue = queueData.files;
+
+    // Resume upload process
+    handleBackgroundUpload();
+
+  } catch (error) {
+    console.error('Error checking for incomplete uploads:', error);
+  }
+}
+
+/**
  * Open IndexedDB connection
  */
 async function openIndexedDB() {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open('CanvasMaterialsDB', 1);
+    const request = indexedDB.open('CanvasMaterialsDB', 2);  // Bump version to 2
 
     request.onerror = () => reject(request.error);
     request.onsuccess = () => resolve(request.result);
 
     request.onupgradeneeded = (event) => {
       const db = event.target.result;
+      const oldVersion = event.oldVersion;
+
+      // Create materials store (v1)
       if (!db.objectStoreNames.contains('materials')) {
         const objectStore = db.createObjectStore('materials', { keyPath: 'courseId' });
         objectStore.createIndex('courseName', 'courseName', { unique: false });
         objectStore.createIndex('lastUpdated', 'lastUpdated', { unique: false });
+      }
+
+      // Create uploadQueue store (v2) for persistent upload state
+      if (oldVersion < 2 && !db.objectStoreNames.contains('uploadQueue')) {
+        const uploadStore = db.createObjectStore('uploadQueue', { keyPath: 'courseId' });
+        uploadStore.createIndex('timestamp', 'timestamp', { unique: false });
+        console.log('✅ Created uploadQueue object store');
       }
     };
   });
@@ -122,6 +184,80 @@ async function saveMaterialsToDB(db, courseId, courseName, materials) {
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
   });
+}
+
+/**
+ * Save upload queue to IndexedDB (persistent across service worker restarts)
+ */
+async function saveUploadQueueToDB(courseId, files, metadata) {
+  try {
+    const db = await openIndexedDB();
+    const transaction = db.transaction(['uploadQueue'], 'readwrite');
+    const store = transaction.objectStore('uploadQueue');
+
+    const data = {
+      courseId,
+      files,  // Array of file objects with hash, url, name, etc.
+      metadata,  // canvasUrl, cookies, totalFiles, currentBatch, etc.
+      timestamp: Date.now()
+    };
+
+    await new Promise((resolve, reject) => {
+      const request = store.put(data);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+
+    console.log(`💾 Saved upload queue for course ${courseId} to IndexedDB (${files.length} files)`);
+    db.close();
+  } catch (error) {
+    console.error('Error saving upload queue to IndexedDB:', error);
+  }
+}
+
+/**
+ * Load upload queue from IndexedDB
+ */
+async function loadUploadQueueFromDB(courseId) {
+  try {
+    const db = await openIndexedDB();
+    const transaction = db.transaction(['uploadQueue'], 'readonly');
+    const store = transaction.objectStore('uploadQueue');
+
+    const data = await new Promise((resolve, reject) => {
+      const request = store.get(courseId);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+
+    db.close();
+    return data;
+  } catch (error) {
+    console.error('Error loading upload queue from IndexedDB:', error);
+    return null;
+  }
+}
+
+/**
+ * Delete upload queue from IndexedDB (cleanup after completion)
+ */
+async function deleteUploadQueueFromDB(courseId) {
+  try {
+    const db = await openIndexedDB();
+    const transaction = db.transaction(['uploadQueue'], 'readwrite');
+    const store = transaction.objectStore('uploadQueue');
+
+    await new Promise((resolve, reject) => {
+      const request = store.delete(courseId);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+
+    console.log(`🗑️ Deleted upload queue for course ${courseId} from IndexedDB`);
+    db.close();
+  } catch (error) {
+    console.error('Error deleting upload queue from IndexedDB:', error);
+  }
 }
 
 /**
@@ -476,6 +612,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // Store files in memory (not in chrome.storage to avoid quota issues)
     uploadFilesQueue = files;
 
+    // Persist queue to IndexedDB (survives service worker restart)
+    const metadata = {
+      canvasUrl,
+      cookies,
+      totalFiles: files.length,
+      currentBatch: 0,
+      totalBatches: Math.ceil(files.length / 50),  // Match BATCH_SIZE
+      startTime: Date.now()
+    };
+    saveUploadQueueToDB(courseId, files, metadata).catch(err => {
+      console.error('Failed to persist upload queue:', err);
+    });
+
     // Initialize upload task in storage (without files array to avoid quota issues)
     chrome.storage.local.set({
       uploadTask: {
@@ -486,7 +635,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         totalFiles: files.length,
         uploadedFiles: 0,
         currentBatch: 0,
-        totalBatches: Math.ceil(files.length / 8),
+        totalBatches: Math.ceil(files.length / 50),  // Match BATCH_SIZE
         startTime: Date.now()
       }
     }, () => {
@@ -494,7 +643,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         console.error('❌ Storage write failed:', chrome.runtime.lastError);
         sendResponse({ success: false, error: chrome.runtime.lastError.message });
       } else {
-        console.log(`📤 Starting background upload: ${files.length} files in ${Math.ceil(files.length / 8)} batches`);
+        console.log(`📤 Starting background upload: ${files.length} files in ${Math.ceil(files.length / 50)} batches`);
         // Start the upload process
         handleBackgroundUpload();
         sendResponse({ success: true });
@@ -1016,6 +1165,8 @@ async function handleBackgroundUpload() {
       });
       // Clear files from memory
       uploadFilesQueue = null;
+      // Clean up IndexedDB queue
+      await deleteUploadQueueFromDB(courseId);
       return;
     }
 
@@ -1122,6 +1273,8 @@ async function handleBackgroundUpload() {
         });
         // Clear files from memory
         uploadFilesQueue = null;
+        // Clean up IndexedDB queue
+        await deleteUploadQueueFromDB(courseId);
       }
 
     } catch (error) {
@@ -1145,6 +1298,8 @@ async function handleBackgroundUpload() {
       });
       // Clear files from memory
       uploadFilesQueue = null;
+      // Clean up IndexedDB queue
+      await deleteUploadQueueFromDB(courseId);
     }
 
   } catch (error) {
