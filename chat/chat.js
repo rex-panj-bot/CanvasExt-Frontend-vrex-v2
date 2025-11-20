@@ -1743,7 +1743,14 @@ async function updateSmartSelectionAvailability() {
     const tooltip = smartFileToggle.querySelector('.toggle-icon-tooltip');
     if (tooltip) {
       const percent = status.completion_percent || 0;
-      tooltip.textContent = `Summaries generating... ${percent.toFixed(0)}% complete`;
+      const failed = status.failed_count || 0;
+      const retrying = status.retry_queue_count || 0;
+
+      let statusText = `Summaries generating... ${percent.toFixed(0)}% complete`;
+      if (failed > 0) {
+        statusText += ` (${retrying} retrying)`;
+      }
+      tooltip.textContent = statusText;
     }
 
     // Start polling if not already polling
