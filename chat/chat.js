@@ -1732,6 +1732,7 @@ async function updateSmartSelectionAvailability() {
   if (!smartFileToggle) return;
 
   const status = await checkSummaryStatus(courseId);
+  console.log('📊 Summary status:', status);
 
   if (!status.success || !status.is_ready) {
     // Summaries not ready - disable the button
