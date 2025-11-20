@@ -1779,6 +1779,21 @@ body {
   border-color: var(--blue-hover);
 }
 
+.toggle-icon-btn:disabled,
+.toggle-icon-btn.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+.toggle-icon-btn:disabled:hover,
+.toggle-icon-btn.disabled:hover {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text-light);
+}
+
 /* Toggle Icon Tooltips */
 .toggle-icon-tooltip {
   position: fixed;
@@ -3504,50 +3519,28 @@ body {
 /* KaTeX Math Rendering Styles */
 /* Enhanced styling for better readability */
 
-/* Inline math ($...$) - slightly larger and emphasized */
+/* Inline math ($...$) - clean, no background */
 .katex {
   font-size: 1.15em;
   color: var(--text-primary);
   font-weight: 500;
-  padding: 2px 4px;
-  border-radius: 4px;
-  background: rgba(59, 130, 246, 0.08);
+  padding: 0 2px;
   white-space: nowrap;
 }
 
-/* Display math ($$...$$) - card-style with better spacing */
+/* Display math ($$...$$) - clean with generous spacing */
 .katex-display {
-  margin: 1.5em 0;
-  padding: 20px 24px;
-  background: var(--surface-hover);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  margin: 2em 0;
+  padding: 0;
   overflow-x: auto;
   overflow-y: hidden;
   font-size: 1.2em;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-/* Dark theme adjustments for KaTeX */
-:root:not([data-theme="light"]) .katex {
-  color: var(--text-primary);
-}
-
-:root:not([data-theme="light"]) .katex-display {
-  background: rgba(255, 255, 255, 0.03);
-  border-color: rgba(255, 255, 255, 0.1);
-}
-
-/* Light theme adjustments for KaTeX */
-:root[data-theme="light"] .katex {
-  color: var(--text-primary);
-  background: rgba(59, 130, 246, 0.06);
-}
-
-:root[data-theme="light"] .katex-display {
-  background: rgba(0, 0, 0, 0.02);
-  border-color: rgba(0, 0, 0, 0.08);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+/* Math display wrapper for better spacing */
+.math-display-wrapper {
+  margin: 2em 0;
+  display: block;
 }
 
 /* Scrollbar for wide equations */

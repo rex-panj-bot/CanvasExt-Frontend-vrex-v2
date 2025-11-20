@@ -416,6 +416,9 @@ async function init() {
   // HASH-BASED: Sync materials with backend to ensure hash-based IDs are present
   await syncMaterialsWithBackend();
 
+  // Check summary status and update smart selection availability
+  await updateSmartSelectionAvailability();
+
   // Load API key and initialize Claude
   await loadAPIKey();
 
@@ -1709,6 +1712,68 @@ function updatePlaceholder() {
   }
 }
 
+// ========== Smart Selection Availability Management ==========
+
+let summaryStatusPollInterval = null;
+
+async function checkSummaryStatus(courseId) {
+  try {
+    const response = await fetch(`${BACKEND_URL}/courses/${courseId}/summary-status`);
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error checking summary status:', error);
+    return { success: false, is_ready: false };
+  }
+}
+
+async function updateSmartSelectionAvailability() {
+  const smartFileToggle = document.getElementById('smart-file-icon-toggle');
+  if (!smartFileToggle) return;
+
+  const status = await checkSummaryStatus(courseId);
+
+  if (!status.success || !status.is_ready) {
+    // Summaries not ready - disable the button
+    smartFileToggle.disabled = true;
+    smartFileToggle.classList.add('disabled');
+    smartFileToggle.classList.remove('active'); // Force inactive
+
+    const tooltip = smartFileToggle.querySelector('.toggle-icon-tooltip');
+    if (tooltip) {
+      const percent = status.completion_percent || 0;
+      tooltip.textContent = `Summaries generating... ${percent.toFixed(0)}% complete`;
+    }
+
+    // Start polling if not already polling
+    if (!summaryStatusPollInterval && status.summaries_pending > 0) {
+      console.log(`📊 Starting summary status polling (${status.summaries_pending} pending)`);
+      summaryStatusPollInterval = setInterval(async () => {
+        await updateSmartSelectionAvailability();
+      }, 5000); // Poll every 5 seconds
+    }
+  } else {
+    // Summaries ready - enable the button
+    smartFileToggle.disabled = false;
+    smartFileToggle.classList.remove('disabled');
+
+    const tooltip = smartFileToggle.querySelector('.toggle-icon-tooltip');
+    if (tooltip) {
+      tooltip.textContent = 'Automatically uses only the most relevant files for your query.';
+    }
+
+    // Stop polling if it was running
+    if (summaryStatusPollInterval) {
+      console.log('✅ All summaries ready! Smart selection available.');
+      clearInterval(summaryStatusPollInterval);
+      summaryStatusPollInterval = null;
+
+      // Show toast notification
+      showToast('Smart selection is now available!', 'success');
+    }
+  }
+}
+
 function setupEventListeners() {
   // Send message
   elements.sendBtn.addEventListener('click', sendMessage);
@@ -2114,6 +2179,10 @@ function setupEventListeners() {
   // Smart File Selection toggle
   if (smartFileIconToggle) {
     smartFileIconToggle.addEventListener('click', () => {
+      // Don't toggle if disabled
+      if (smartFileIconToggle.disabled || smartFileIconToggle.classList.contains('disabled')) {
+        return;
+      }
       smartFileIconToggle.classList.toggle('active');
     });
 
@@ -2900,21 +2969,24 @@ function renderMath(content) {
   }
 
   try {
-    // First, protect code blocks from math processing
+    // Protect code blocks - since markdown is parsed first, we only need to protect HTML <pre> tags
+    // <pre> tags contain <code> tags, so we only need to protect <pre> to avoid nested placeholders
     const codeBlocks = [];
-    let protectedContent = content.replace(/```[\s\S]*?```/g, (match) => {
+    let protectedContent = content.replace(/<pre[\s\S]*?<\/pre>/gi, (match) => {
       codeBlocks.push(match);
       return `__CODE_BLOCK_${codeBlocks.length - 1}__`;
     });
 
-    // Render display math ($$...$$)
+    // Render display math ($$...$$) with added newlines for spacing
     protectedContent = protectedContent.replace(/\$\$([\s\S]+?)\$\$/g, (match, math) => {
       try {
-        return katex.renderToString(math.trim(), {
+        const rendered = katex.renderToString(math.trim(), {
           displayMode: true,
           throwOnError: false,
           output: 'html'
         });
+        // Wrap in div with newlines for better spacing
+        return `<div class="math-display-wrapper">${rendered}</div>`;
       } catch (e) {
         console.error('KaTeX display math error:', e);
         return match; // Return original if rendering fails
@@ -3132,18 +3204,15 @@ function addMessage(role, content) {
 
   // For assistant messages: render math, parse citations, then render markdown
   let processedContent = content;
-  if (role === 'assistant') {
-    // Step 1: Render math (LaTeX → HTML)
-    processedContent = renderMath(processedContent);
-    // Step 2: Parse citations
-    processedContent = parseCitations(processedContent);
-  }
-
-  // Step 3: Render markdown
+  // Step 1: Render markdown first (for assistant messages)
   let renderedContent = role === 'assistant' ? marked.parse(processedContent) : content;
 
-  // Step 4: Enhance academic formatting (for assistant messages only)
   if (role === 'assistant') {
+    // Step 2: Parse citations on HTML
+    renderedContent = parseCitations(renderedContent);
+    // Step 3: Render math on HTML (not markdown)
+    renderedContent = renderMath(renderedContent);
+    // Step 4: Enhance academic formatting
     renderedContent = enhanceAcademicFormatting(renderedContent);
   }
 
@@ -3213,12 +3282,14 @@ function updateTypingIndicator(id, content) {
   const messageDiv = document.getElementById(id);
   if (messageDiv) {
     const textDiv = messageDiv.querySelector('.message-text');
-    // Render math and parse citations in streaming content too
-    let processedContent = renderMath(content);
+    // Parse markdown first to convert to HTML
+    let processedContent = marked.parse(content);
+
+    // Then parse citations on the HTML
     processedContent = parseCitations(processedContent);
 
-    // Render markdown and enhance academic formatting
-    let renderedContent = marked.parse(processedContent);
+    // Render math last (on HTML, not markdown)
+    let renderedContent = renderMath(processedContent);
     renderedContent = enhanceAcademicFormatting(renderedContent);
 
     textDiv.innerHTML = renderedContent;
