@@ -1718,7 +1718,7 @@ let summaryStatusPollInterval = null;
 
 async function checkSummaryStatus(courseId) {
   try {
-    const response = await fetch(`${BACKEND_URL}/courses/${courseId}/summary-status`);
+    const response = await fetch(`https://web-production-9aaba7.up.railway.app/courses/${courseId}/summary-status`);
     const data = await response.json();
     return data;
   } catch (error) {
