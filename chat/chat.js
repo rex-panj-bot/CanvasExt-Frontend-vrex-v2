@@ -384,6 +384,14 @@ async function init() {
     return; // Stop initialization until API key is provided
   }
 
+  // Configure marked.js for better math formatting
+  // Enable breaks option to convert single line breaks to <br> tags
+  // This ensures equations are properly separated and not crammed together
+  marked.setOptions({
+    breaks: true,  // Convert \n to <br> tags for proper equation spacing
+    gfm: true      // GitHub Flavored Markdown
+  });
+
   // Initialize theme
   initTheme();
 
@@ -2967,6 +2975,72 @@ function parseCitations(content) {
 }
 
 /**
+ * Decode HTML entities back to their original characters
+ * This is needed because marked.js escapes apostrophes to &#39;
+ * which breaks derivative notation in math expressions like y'(t)
+ */
+function decodeHTMLEntities(text) {
+  const textarea = document.createElement('textarea');
+  textarea.innerHTML = text;
+  return textarea.value;
+}
+
+/**
+ * Wrap bare LaTeX expressions in $ delimiters
+ * Gemini sometimes outputs LaTeX without delimiters, causing it to render as plain text
+ * This function detects common LaTeX patterns and wraps them in $ for KaTeX rendering
+ */
+function wrapBareLatex(content) {
+  // Don't process if already has math delimiters everywhere
+  if (!content || typeof content !== 'string') return content;
+
+  // Pattern to match bare LaTeX expressions (backslash commands not already in $ delimiters)
+  // This matches sequences of LaTeX commands like \mathcal{L}^{-1}\left\frac{...}\right
+  // Common LaTeX commands: \mathcal, \frac, \sqrt, \left, \right, \text, \sin, \cos, etc.
+
+  // First, protect already-delimited math to avoid double-wrapping
+  const protectedMath = [];
+  let protected = content;
+
+  // Protect display math $$...$$
+  protected = protected.replace(/\$\$[\s\S]+?\$\$/g, (match) => {
+    protectedMath.push(match);
+    return `__PROTECTED_DISPLAY_${protectedMath.length - 1}__`;
+  });
+
+  // Protect inline math $...$
+  protected = protected.replace(/\$[^\$\n]+?\$/g, (match) => {
+    protectedMath.push(match);
+    return `__PROTECTED_INLINE_${protectedMath.length - 1}__`;
+  });
+
+  // Now find bare LaTeX expressions (backslash commands not in delimiters)
+  // Match sequences that start with \ and contain LaTeX commands
+  // This regex looks for \command{...} patterns or standalone commands
+  const latexPattern = /\\(?:mathcal|frac|sqrt|left|right|text|mathrm|mathbf|sin|cos|tan|log|ln|exp|lim|sum|prod|int|partial|nabla|infty|pm|times|cdot|ldots|dots|alpha|beta|gamma|delta|epsilon|theta|lambda|mu|pi|sigma|omega|Delta|Omega|quad|qquad|neq|leq|geq|approx|equiv|subset|subseteq|cup|cap|in|notin|forall|exists|rightarrow|Rightarrow|leftarrow|Leftarrow|leftrightarrow|Leftrightarrow)(?:\{[^}]*\}|\^[^{\s]|\^{[^}]*}|_[^{\s]|_{[^}]*}|\([^)]*\)|\[[^\]]*\]|[\w]|\s)*/g;
+
+  // Find and wrap bare LaTeX
+  protected = protected.replace(latexPattern, (match) => {
+    // Skip if this looks like it's already in a protected section
+    if (match.includes('__PROTECTED_')) return match;
+
+    // Wrap in inline math delimiters
+    return `$${match}$`;
+  });
+
+  // Restore protected math
+  protected = protected.replace(/__PROTECTED_DISPLAY_(\d+)__/g, (match, index) => {
+    return protectedMath[parseInt(index)];
+  });
+
+  protected = protected.replace(/__PROTECTED_INLINE_(\d+)__/g, (match, index) => {
+    return protectedMath[parseInt(index)];
+  });
+
+  return protected;
+}
+
+/**
  * Render LaTeX math expressions using KaTeX
  * Supports both inline math ($...$) and display math ($$...$$)
  */
@@ -3218,9 +3292,13 @@ function addMessage(role, content) {
   if (role === 'assistant') {
     // Step 2: Parse citations on HTML
     renderedContent = parseCitations(renderedContent);
-    // Step 3: Render math on HTML (not markdown)
+    // Step 3: Decode HTML entities (marked.js escapes apostrophes to &#39;)
+    renderedContent = decodeHTMLEntities(renderedContent);
+    // Step 4: Wrap bare LaTeX expressions in $ delimiters
+    renderedContent = wrapBareLatex(renderedContent);
+    // Step 5: Render math on HTML (not markdown)
     renderedContent = renderMath(renderedContent);
-    // Step 4: Enhance academic formatting
+    // Step 6: Enhance academic formatting
     renderedContent = enhanceAcademicFormatting(renderedContent);
   }
 
@@ -3295,6 +3373,12 @@ function updateTypingIndicator(id, content) {
 
     // Then parse citations on the HTML
     processedContent = parseCitations(processedContent);
+
+    // Decode HTML entities (marked.js escapes apostrophes to &#39;)
+    processedContent = decodeHTMLEntities(processedContent);
+
+    // Wrap bare LaTeX expressions in $ delimiters
+    processedContent = wrapBareLatex(processedContent);
 
     // Render math last (on HTML, not markdown)
     let renderedContent = renderMath(processedContent);
