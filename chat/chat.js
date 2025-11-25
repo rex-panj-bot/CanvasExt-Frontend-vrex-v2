@@ -1723,6 +1723,7 @@ function updatePlaceholder() {
 // ========== Smart Selection Availability Management ==========
 
 let summaryStatusPollInterval = null;
+let notifiedRemovedFiles = new Set(); // Track which removed files we've already notified about
 
 async function checkSummaryStatus(courseId) {
   try {
@@ -1742,6 +1743,47 @@ async function updateSmartSelectionAvailability() {
   const status = await checkSummaryStatus(courseId);
   console.log('📊 Summary status:', status);
 
+  // Handle removed files (validation failures)
+  if (status.removed_files && status.removed_files.length > 0) {
+    for (const removedFile of status.removed_files) {
+      const fileKey = `${removedFile.filename}:${removedFile.reason}`;
+      if (!notifiedRemovedFiles.has(fileKey)) {
+        // Show notification for this removed file
+        showToast(`Removed invalid file: ${removedFile.filename} - ${removedFile.reason}`, 'error');
+        notifiedRemovedFiles.add(fileKey);
+
+        // Also remove from IndexedDB and UI
+        try {
+          // Find and remove from processedMaterials
+          const fileId = removedFile.file_id;
+          let found = false;
+
+          for (const category of ['lectures', 'assignments', 'supplementary', 'files']) {
+            const idx = processedMaterials[category].findIndex(item => item.id === fileId);
+            if (idx !== -1) {
+              processedMaterials[category].splice(idx, 1);
+              found = true;
+              console.log(`Removed invalid file ${removedFile.filename} from ${category}`);
+              break;
+            }
+          }
+
+          if (found) {
+            // Update IndexedDB
+            const materialsDB = new MaterialsDB();
+            await materialsDB.saveMaterials(courseId, courseName, processedMaterials);
+            await materialsDB.close();
+
+            // Re-render materials list
+            displayMaterials();
+          }
+        } catch (err) {
+          console.error('Error removing file from IndexedDB:', err);
+        }
+      }
+    }
+  }
+
   if (!status.success || !status.is_ready) {
     // Summaries not ready - disable the button
     smartFileToggle.disabled = true;
@@ -1752,12 +1794,9 @@ async function updateSmartSelectionAvailability() {
     if (tooltip) {
       const percent = status.completion_percent || 0;
       const failed = status.failed_count || 0;
-      const retrying = status.retry_queue_count || 0;
 
       let statusText = `Summaries generating... ${percent.toFixed(0)}% complete`;
-      if (failed > 0) {
-        statusText += ` (${retrying} retrying)`;
-      }
+      // Retry count removed - users don't need to see internal retry logic
       tooltip.textContent = statusText;
     }
 
@@ -2643,8 +2682,11 @@ async function sendMessage() {
   const userInput = elements.messageInput.value.trim();
 
   if (!userInput) return;
-  if (!wsClient || !wsClient.isReady()) {
-    showError('Not connected to backend. Please check that the server is running.');
+
+  // Check if wsClient exists, but don't block on connection status
+  // sendQuery() will handle reconnection automatically if disconnected
+  if (!wsClient) {
+    showError('WebSocket client not initialized. Please refresh the page.');
     return;
   }
 
