@@ -1786,9 +1786,23 @@ async function updateSmartSelectionAvailability() {
 
   if (!status.success || !status.is_ready) {
     // Summaries not ready - disable the button
+    console.log('🔒 DISABLING Smart File Select - summaries not ready:', {
+      success: status.success,
+      is_ready: status.is_ready,
+      disabled_before: smartFileToggle.disabled,
+      has_disabled_class: smartFileToggle.classList.contains('disabled')
+    });
     smartFileToggle.disabled = true;
     smartFileToggle.classList.add('disabled');
     smartFileToggle.classList.remove('active'); // Force inactive
+    smartFileToggle.style.opacity = '0.3'; // Force visual opacity
+    smartFileToggle.style.pointerEvents = 'none'; // Force unclickable
+    console.log('🔒 AFTER disable:', {
+      disabled: smartFileToggle.disabled,
+      classList: smartFileToggle.className,
+      opacity: smartFileToggle.style.opacity,
+      pointerEvents: smartFileToggle.style.pointerEvents
+    });
 
     const tooltip = smartFileToggle.querySelector('.toggle-icon-tooltip');
     if (tooltip) {
@@ -1809,8 +1823,11 @@ async function updateSmartSelectionAvailability() {
     }
   } else {
     // Summaries ready - enable the button
+    console.log('🔓 ENABLING Smart File Select - summaries ready');
     smartFileToggle.disabled = false;
     smartFileToggle.classList.remove('disabled');
+    smartFileToggle.style.opacity = ''; // Clear forced opacity
+    smartFileToggle.style.pointerEvents = ''; // Clear forced pointer-events
 
     const tooltip = smartFileToggle.querySelector('.toggle-icon-tooltip');
     if (tooltip) {
@@ -2262,7 +2279,40 @@ function setupEventListeners() {
       fileInput.click();
     });
 
-    fileInput.addEventListener('change', handleFileUpload);
+    fileInput.addEventListener('change', (event) => {
+      const allFiles = Array.from(event.target.files);
+
+      // Filter out video files by MIME type
+      const allowedFiles = [];
+      const videoFiles = [];
+
+      allFiles.forEach(file => {
+        if (file.type.startsWith('video/')) {
+          videoFiles.push(file.name);
+        } else {
+          allowedFiles.push(file);
+        }
+      });
+
+      // Show message to user if videos were filtered
+      if (videoFiles.length > 0) {
+        showLoadingBanner(
+          `⚠️ ${videoFiles.length} video file(s) filtered out: ${videoFiles.join(', ')}. Video files are not supported.`,
+          'error'
+        );
+        setTimeout(() => hideLoadingBanner(), 6000);
+      }
+
+      // Only proceed if we have allowed files
+      if (allowedFiles.length > 0) {
+        const modifiedEvent = {
+          target: { files: allowedFiles, value: event.target.value }
+        };
+        handleFileUpload(modifiedEvent);
+      }
+
+      event.target.value = '';
+    });
   }
 
   // Drag and drop file upload on sidebar
