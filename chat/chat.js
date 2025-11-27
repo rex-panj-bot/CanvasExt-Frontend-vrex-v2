@@ -1793,24 +1793,11 @@ async function updateSmartSelectionAvailability() {
   // Disable Smart File Select if EITHER summaries aren't ready OR upload is in progress
   if (!status.success || !status.is_ready || isUploading) {
     // Summaries not ready OR files still uploading - disable the button
-    console.log('🔒 DISABLING Smart File Select:', {
-      success: status.success,
-      is_ready: status.is_ready,
-      isUploading: isUploading,
-      disabled_before: smartFileToggle.disabled,
-      has_disabled_class: smartFileToggle.classList.contains('disabled')
-    });
     smartFileToggle.disabled = true;
     smartFileToggle.classList.add('disabled');
     smartFileToggle.classList.remove('active'); // Force inactive
     smartFileToggle.style.opacity = '0.3'; // Force visual opacity
     smartFileToggle.style.pointerEvents = 'none'; // Force unclickable
-    console.log('🔒 AFTER disable:', {
-      disabled: smartFileToggle.disabled,
-      classList: smartFileToggle.className,
-      opacity: smartFileToggle.style.opacity,
-      pointerEvents: smartFileToggle.style.pointerEvents
-    });
 
     const tooltip = smartFileToggle.querySelector('.toggle-icon-tooltip');
     if (tooltip) {
@@ -1818,8 +1805,10 @@ async function updateSmartSelectionAvailability() {
       if (isUploading) {
         statusText = 'Uploading files...';
       } else {
+        const ready = status.summaries_ready || 0;
+        const total = status.total_files || 0;
         const percent = status.completion_percent || 0;
-        statusText = `Summaries generating... ${percent.toFixed(0)}% complete`;
+        statusText = `Generating summaries: ${ready}/${total} (${percent.toFixed(0)}%)`;
       }
       tooltip.textContent = statusText;
     }
@@ -1836,8 +1825,7 @@ async function updateSmartSelectionAvailability() {
       }, 5000); // Poll every 5 seconds
     }
   } else {
-    // Summaries ready - enable the button
-    console.log('🔓 ENABLING Smart File Select - summaries ready');
+    // Summaries ready AND upload complete - enable the button
     smartFileToggle.disabled = false;
     smartFileToggle.classList.remove('disabled');
     smartFileToggle.style.opacity = ''; // Clear forced opacity
@@ -1845,7 +1833,9 @@ async function updateSmartSelectionAvailability() {
 
     const tooltip = smartFileToggle.querySelector('.toggle-icon-tooltip');
     if (tooltip) {
-      tooltip.textContent = 'Automatically uses only the most relevant files for your query.';
+      const ready = status.summaries_ready || 0;
+      const total = status.total_files || 0;
+      tooltip.textContent = `Smart selection available (${ready}/${total} summaries ready)`;
     }
 
     // Stop polling if it was running
@@ -2295,6 +2285,7 @@ function setupEventListeners() {
 
     fileInput.addEventListener('change', (event) => {
       const allFiles = Array.from(event.target.files);
+      console.log(`📁 File input received ${allFiles.length} files`);
 
       // Filter out video files by MIME type
       const allowedFiles = [];
@@ -2302,6 +2293,7 @@ function setupEventListeners() {
 
       allFiles.forEach(file => {
         if (file.type.startsWith('video/')) {
+          console.log(`🎬 [FILTERED] Video file: ${file.name} (${file.type})`);
           videoFiles.push(file.name);
         } else {
           allowedFiles.push(file);
@@ -2310,12 +2302,15 @@ function setupEventListeners() {
 
       // Show message to user if videos were filtered
       if (videoFiles.length > 0) {
-        showLoadingBanner(
-          `⚠️ ${videoFiles.length} video file(s) filtered out: ${videoFiles.join(', ')}. Video files are not supported.`,
-          'error'
+        console.log(`⚠️ Filtered out ${videoFiles.length} video files:`, videoFiles);
+        showToast(
+          `⚠️ Filtered out ${videoFiles.length} video file(s): ${videoFiles.slice(0, 3).join(', ')}${videoFiles.length > 3 ? `, and ${videoFiles.length - 3} more` : ''}. Video files are not supported.`,
+          'error',
+          5000
         );
-        setTimeout(() => hideLoadingBanner(), 6000);
       }
+
+      console.log(`✅ Proceeding with ${allowedFiles.length} allowed files (filtered ${videoFiles.length} videos)`);
 
       // Only proceed if we have allowed files
       if (allowedFiles.length > 0) {
