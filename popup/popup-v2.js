@@ -1926,10 +1926,11 @@ async function createStudyBot() {
     // NEW APPROACH: Send files to background worker for batched upload
     // This allows chat to open immediately while files upload in background
     if (filesToUpload.length > 0) {
-      // FILTER OUT VIDEO FILES FIRST - They cause upload failures
+      // FILTER OUT VIDEO AND AUDIO FILES - They cause upload failures
       const videoExtensions = ['.mov', '.mp4', '.avi', '.webm', '.wmv', '.mpeg', '.mpg', '.flv', '.3gp'];
-      const nonVideoFiles = [];
-      const filteredVideoFiles = [];
+      const audioExtensions = ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac'];
+      const allowedFiles = [];
+      const filteredMediaFiles = [];
 
       filesToUpload.forEach(file => {
         const fileName = file.name || '';
@@ -1938,22 +1939,29 @@ async function createStudyBot() {
 
         if (videoExtensions.includes(fileExt) || mimeType.startsWith('video/')) {
           console.log(`🎬 [POPUP FILTERED VIDEO] ${fileName} (${fileExt || mimeType})`);
-          filteredVideoFiles.push(fileName);
+          filteredMediaFiles.push({name: fileName, type: 'video'});
+        } else if (audioExtensions.includes(fileExt) || mimeType.startsWith('audio/')) {
+          console.log(`🎵 [POPUP FILTERED AUDIO] ${fileName} (${fileExt || mimeType})`);
+          filteredMediaFiles.push({name: fileName, type: 'audio'});
         } else {
-          nonVideoFiles.push(file);
+          allowedFiles.push(file);
         }
       });
 
-      if (filteredVideoFiles.length > 0) {
-        console.log(`⚠️ [POPUP] FILTERED OUT ${filteredVideoFiles.length} VIDEO FILES:`, filteredVideoFiles);
+      if (filteredMediaFiles.length > 0) {
+        const videoCount = filteredMediaFiles.filter(f => f.type === 'video').length;
+        const audioCount = filteredMediaFiles.filter(f => f.type === 'audio').length;
+        const fileNames = filteredMediaFiles.map(f => f.name);
+
+        console.log(`⚠️ [POPUP] FILTERED OUT ${filteredMediaFiles.length} MEDIA FILES (${videoCount} video, ${audioCount} audio):`, fileNames);
         chrome.runtime.sendMessage({
           type: 'LOG_FROM_POPUP',
-          message: `⚠️ [POPUP VIDEO FILTER] Removed ${filteredVideoFiles.length} videos: ${filteredVideoFiles.slice(0, 3).join(', ')}${filteredVideoFiles.length > 3 ? ` and ${filteredVideoFiles.length - 3} more` : ''}`
+          message: `⚠️ [POPUP MEDIA FILTER] Removed ${videoCount} video + ${audioCount} audio files: ${fileNames.slice(0, 3).join(', ')}${fileNames.length > 3 ? ` and ${fileNames.length - 3} more` : ''}`
         });
       }
 
-      filesToUpload = nonVideoFiles;
-      console.log(`✅ [POPUP] Proceeding with ${filesToUpload.length} non-video files (filtered ${filteredVideoFiles.length} videos)`);
+      filesToUpload = allowedFiles;
+      console.log(`✅ [POPUP] Proceeding with ${filesToUpload.length} supported files (filtered ${filteredMediaFiles.length} media files)`);
 
       // DEDUPLICATE: Remove duplicate files before uploading
       // Same file can appear in both files list AND modules - deduplicate by URL or hash
