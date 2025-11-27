@@ -1803,7 +1803,7 @@ async function updateSmartSelectionAvailability() {
     smartFileToggle.classList.add('disabled');
     smartFileToggle.classList.remove('active'); // Force inactive
     smartFileToggle.style.opacity = '0.3'; // Force visual opacity
-    smartFileToggle.style.pointerEvents = 'none'; // Force unclickable
+    // Removed pointerEvents = 'none' to allow hover for tooltip
 
     const tooltip = smartFileToggle.querySelector('.toggle-icon-tooltip');
     if (tooltip) {
@@ -1817,8 +1817,6 @@ async function updateSmartSelectionAvailability() {
         statusText = `Generating summaries: ${ready}/${total} (${percent.toFixed(0)}%)`;
       }
       tooltip.textContent = statusText;
-      // FORCE SHOW TOOLTIP: Add 'show' class to bypass pointer-events: none
-      tooltip.classList.add('show');
     }
 
     // Start polling if not already polling (poll while uploading OR summaries pending)
@@ -1844,8 +1842,6 @@ async function updateSmartSelectionAvailability() {
       const ready = status.summaries_ready || 0;
       const total = status.total_files || 0;
       tooltip.textContent = `Smart selection available (${ready}/${total} summaries ready)`;
-      // REMOVE SHOW CLASS: Tooltip now works normally with :hover
-      tooltip.classList.remove('show');
     }
 
     // Stop polling if it was running
