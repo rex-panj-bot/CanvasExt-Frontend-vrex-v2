@@ -1926,6 +1926,35 @@ async function createStudyBot() {
     // NEW APPROACH: Send files to background worker for batched upload
     // This allows chat to open immediately while files upload in background
     if (filesToUpload.length > 0) {
+      // FILTER OUT VIDEO FILES FIRST - They cause upload failures
+      const videoExtensions = ['.mov', '.mp4', '.avi', '.webm', '.wmv', '.mpeg', '.mpg', '.flv', '.3gp'];
+      const nonVideoFiles = [];
+      const filteredVideoFiles = [];
+
+      filesToUpload.forEach(file => {
+        const fileName = file.name || '';
+        const fileExt = fileName.toLowerCase().substring(fileName.lastIndexOf('.'));
+        const mimeType = file['content-type'] || file.mimeType || '';
+
+        if (videoExtensions.includes(fileExt) || mimeType.startsWith('video/')) {
+          console.log(`🎬 [POPUP FILTERED VIDEO] ${fileName} (${fileExt || mimeType})`);
+          filteredVideoFiles.push(fileName);
+        } else {
+          nonVideoFiles.push(file);
+        }
+      });
+
+      if (filteredVideoFiles.length > 0) {
+        console.log(`⚠️ [POPUP] FILTERED OUT ${filteredVideoFiles.length} VIDEO FILES:`, filteredVideoFiles);
+        chrome.runtime.sendMessage({
+          type: 'LOG_FROM_POPUP',
+          message: `⚠️ [POPUP VIDEO FILTER] Removed ${filteredVideoFiles.length} videos: ${filteredVideoFiles.slice(0, 3).join(', ')}${filteredVideoFiles.length > 3 ? ` and ${filteredVideoFiles.length - 3} more` : ''}`
+        });
+      }
+
+      filesToUpload = nonVideoFiles;
+      console.log(`✅ [POPUP] Proceeding with ${filesToUpload.length} non-video files (filtered ${filteredVideoFiles.length} videos)`);
+
       // DEDUPLICATE: Remove duplicate files before uploading
       // Same file can appear in both files list AND modules - deduplicate by URL or hash
       const seenKeys = new Set();
