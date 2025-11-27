@@ -1817,6 +1817,8 @@ async function updateSmartSelectionAvailability() {
         statusText = `Generating summaries: ${ready}/${total} (${percent.toFixed(0)}%)`;
       }
       tooltip.textContent = statusText;
+      // FORCE SHOW TOOLTIP: Add 'show' class to bypass pointer-events: none
+      tooltip.classList.add('show');
     }
 
     // Start polling if not already polling (poll while uploading OR summaries pending)
@@ -1842,11 +1844,23 @@ async function updateSmartSelectionAvailability() {
       const ready = status.summaries_ready || 0;
       const total = status.total_files || 0;
       tooltip.textContent = `Smart selection available (${ready}/${total} summaries ready)`;
+      // REMOVE SHOW CLASS: Tooltip now works normally with :hover
+      tooltip.classList.remove('show');
     }
 
     // Stop polling if it was running
     if (summaryStatusPollInterval) {
-      console.log('✅ All summaries ready! Smart selection available.');
+      const ready = status.summaries_ready || 0;
+      const total = status.total_files || 0;
+      const successRate = total > 0 ? ((ready / total) * 100).toFixed(1) : 0;
+
+      console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+      console.log(`📝 SUMMARIZATION COMPLETE:`);
+      console.log(`   Summaries generated: ${ready}/${total}`);
+      console.log(`   Success rate: ${successRate}%`);
+      console.log(`   ✅ Smart File Select: AVAILABLE`);
+      console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+
       clearInterval(summaryStatusPollInterval);
       summaryStatusPollInterval = null;
 
@@ -2293,30 +2307,44 @@ function setupEventListeners() {
       const allFiles = Array.from(event.target.files);
       console.log(`📁 File input received ${allFiles.length} files`);
 
-      // Filter out video files by MIME type
+      // Filter out video AND audio files by MIME type and extension
       const allowedFiles = [];
       const videoFiles = [];
+      const audioFiles = [];
+
+      // Audio extensions to check (same as popup filter)
+      const audioExtensions = ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac'];
 
       allFiles.forEach(file => {
+        const fileExt = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
+
         if (file.type.startsWith('video/')) {
           console.log(`🎬 [FILTERED] Video file: ${file.name} (${file.type})`);
           videoFiles.push(file.name);
+        } else if (file.type.startsWith('audio/') || audioExtensions.includes(fileExt)) {
+          console.log(`🎵 [FILTERED] Audio file: ${file.name} (${file.type || fileExt})`);
+          audioFiles.push(file.name);
         } else {
           allowedFiles.push(file);
         }
       });
 
-      // Show message to user if videos were filtered
-      if (videoFiles.length > 0) {
-        console.log(`⚠️ Filtered out ${videoFiles.length} video files:`, videoFiles);
+      // Show message to user if media files were filtered
+      const totalFiltered = videoFiles.length + audioFiles.length;
+      if (totalFiltered > 0) {
+        const filteredTypes = [];
+        if (videoFiles.length > 0) filteredTypes.push(`${videoFiles.length} video`);
+        if (audioFiles.length > 0) filteredTypes.push(`${audioFiles.length} audio`);
+
+        console.log(`⚠️ Filtered out ${totalFiltered} media files: ${filteredTypes.join(', ')}`);
         showToast(
-          `⚠️ Filtered out ${videoFiles.length} video file(s): ${videoFiles.slice(0, 3).join(', ')}${videoFiles.length > 3 ? `, and ${videoFiles.length - 3} more` : ''}. Video files are not supported.`,
+          `⚠️ Filtered out ${totalFiltered} media file(s): ${filteredTypes.join(', ')}. Media files are not supported.`,
           'error',
           5000
         );
       }
 
-      console.log(`✅ Proceeding with ${allowedFiles.length} allowed files (filtered ${videoFiles.length} videos)`);
+      console.log(`✅ Proceeding with ${allowedFiles.length} allowed files (filtered ${totalFiltered} media files: ${videoFiles.length} video, ${audioFiles.length} audio)`);
 
       // Only proceed if we have allowed files
       if (allowedFiles.length > 0) {

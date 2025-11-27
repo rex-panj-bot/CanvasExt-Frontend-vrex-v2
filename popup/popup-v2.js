@@ -2032,14 +2032,24 @@ async function createStudyBot() {
         // Extract session cookies (Canvas uses various cookie names depending on institution)
         const cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
 
-        // Log what we're about to send
+        // LOG UPLOAD SUMMARY: Show complete file flow
         const hashCountBeforeSend = filesToUpload.filter(f => f.hash).length;
-        console.log(`📤 [POPUP] About to send ${filesToUpload.length} files to service worker: ${hashCountBeforeSend} with hash`);
+        const initialTotal = filesToProcess.length;
+        const afterFiltering = filesToUpload.length + filteredMediaFiles.length;
+        const duplicatesRemoved = afterFiltering - filesToUpload.length;
+
+        console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+        console.log(`📊 UPLOAD SUMMARY:`);
+        console.log(`   Files detected: ${initialTotal}`);
+        console.log(`   Filtered: ${filteredMediaFiles.length} (${filteredMediaFiles.filter(f => f.type === 'video').length} video, ${filteredMediaFiles.filter(f => f.type === 'audio').length} audio)`);
+        console.log(`   Duplicates removed: ${duplicatesRemoved}`);
+        console.log(`   ✅ UPLOADING: ${filesToUpload.length} files (${hashCountBeforeSend} with hash)`);
+        console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
 
         // Also log to service worker console for persistence
         chrome.runtime.sendMessage({
           type: 'LOG_FROM_POPUP',
-          message: `📤 [POPUP] Sending ${filesToUpload.length} files: ${hashCountBeforeSend} with hash`
+          message: `📤 [UPLOAD] ${initialTotal} detected → ${filesToUpload.length} uploading (filtered: ${filteredMediaFiles.length} media, duplicates: ${duplicatesRemoved})`
         });
 
         if (hashCountBeforeSend === 0 && filesToUpload.length > 0) {

@@ -1821,6 +1821,12 @@ body {
   opacity: 1;
 }
 
+/* FORCE SHOW TOOLTIP WHEN DISABLED - Override pointer-events: none */
+.toggle-icon-btn.disabled .toggle-icon-tooltip.show {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+
 .toggle-icon-tooltip::after {
   content: '';
   position: absolute;
