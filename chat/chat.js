@@ -1758,33 +1758,39 @@ async function updateSmartSelectionAvailability() {
         showToast(`Removed invalid file: ${removedFile.filename} - ${removedFile.reason}`, 'error');
         notifiedRemovedFiles.add(fileKey);
 
-        // Also remove from IndexedDB and UI
-        try {
-          // Find and remove from processedMaterials
-          const fileId = removedFile.file_id;
-          let found = false;
+        // Also remove from IndexedDB and UI (if materials are loaded)
+        if (typeof processedMaterials !== 'undefined' && processedMaterials) {
+          try {
+            // Find and remove from processedMaterials
+            const fileId = removedFile.file_id;
+            let found = false;
 
-          for (const category of ['lectures', 'assignments', 'supplementary', 'files']) {
-            const idx = processedMaterials[category].findIndex(item => item.id === fileId);
-            if (idx !== -1) {
-              processedMaterials[category].splice(idx, 1);
-              found = true;
-              console.log(`Removed invalid file ${removedFile.filename} from ${category}`);
-              break;
+            for (const category of ['lectures', 'assignments', 'supplementary', 'files']) {
+              if (processedMaterials[category]) {
+                const idx = processedMaterials[category].findIndex(item => item.id === fileId);
+                if (idx !== -1) {
+                  processedMaterials[category].splice(idx, 1);
+                  found = true;
+                  console.log(`Removed invalid file ${removedFile.filename} from ${category}`);
+                  break;
+                }
+              }
             }
-          }
 
-          if (found) {
-            // Update IndexedDB
-            const materialsDB = new MaterialsDB();
-            await materialsDB.saveMaterials(courseId, courseName, processedMaterials);
-            await materialsDB.close();
+            if (found) {
+              // Update IndexedDB
+              const materialsDB = new MaterialsDB();
+              await materialsDB.saveMaterials(courseId, courseName, processedMaterials);
+              await materialsDB.close();
 
-            // Re-render materials list
-            displayMaterials();
+              // Re-render materials list
+              if (typeof displayMaterials === 'function') {
+                displayMaterials();
+              }
+            }
+          } catch (err) {
+            console.error('Error removing file from IndexedDB:', err);
           }
-        } catch (err) {
-          console.error('Error removing file from IndexedDB:', err);
         }
       }
     }
