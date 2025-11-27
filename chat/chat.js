@@ -1740,8 +1740,14 @@ async function updateSmartSelectionAvailability() {
   const smartFileToggle = document.getElementById('smart-file-icon-toggle');
   if (!smartFileToggle) return;
 
+  // Check if background upload is still in progress
+  const uploadTask = await chrome.storage.local.get('uploadTask');
+  const isUploading = uploadTask.uploadTask &&
+                      uploadTask.uploadTask.courseId === courseId &&
+                      uploadTask.uploadTask.status === 'uploading';
+
   const status = await checkSummaryStatus(courseId);
-  console.log('📊 Summary status:', status);
+  console.log('📊 Summary status:', status, isUploading ? '(upload in progress)' : '');
 
   // Handle removed files (validation failures)
   if (status.removed_files && status.removed_files.length > 0) {
@@ -1784,11 +1790,13 @@ async function updateSmartSelectionAvailability() {
     }
   }
 
-  if (!status.success || !status.is_ready) {
-    // Summaries not ready - disable the button
-    console.log('🔒 DISABLING Smart File Select - summaries not ready:', {
+  // Disable Smart File Select if EITHER summaries aren't ready OR upload is in progress
+  if (!status.success || !status.is_ready || isUploading) {
+    // Summaries not ready OR files still uploading - disable the button
+    console.log('🔒 DISABLING Smart File Select:', {
       success: status.success,
       is_ready: status.is_ready,
+      isUploading: isUploading,
       disabled_before: smartFileToggle.disabled,
       has_disabled_class: smartFileToggle.classList.contains('disabled')
     });
@@ -1806,17 +1814,23 @@ async function updateSmartSelectionAvailability() {
 
     const tooltip = smartFileToggle.querySelector('.toggle-icon-tooltip');
     if (tooltip) {
-      const percent = status.completion_percent || 0;
-      const failed = status.failed_count || 0;
-
-      let statusText = `Summaries generating... ${percent.toFixed(0)}% complete`;
-      // Retry count removed - users don't need to see internal retry logic
+      let statusText;
+      if (isUploading) {
+        statusText = 'Uploading files...';
+      } else {
+        const percent = status.completion_percent || 0;
+        statusText = `Summaries generating... ${percent.toFixed(0)}% complete`;
+      }
       tooltip.textContent = statusText;
     }
 
-    // Start polling if not already polling
-    if (!summaryStatusPollInterval && status.summaries_pending > 0) {
-      console.log(`📊 Starting summary status polling (${status.summaries_pending} pending)`);
+    // Start polling if not already polling (poll while uploading OR summaries pending)
+    if (!summaryStatusPollInterval && (isUploading || status.summaries_pending > 0)) {
+      if (isUploading) {
+        console.log(`📊 Starting summary status polling (upload in progress)`);
+      } else {
+        console.log(`📊 Starting summary status polling (${status.summaries_pending} pending)`);
+      }
       summaryStatusPollInterval = setInterval(async () => {
         await updateSmartSelectionAvailability();
       }, 5000); // Poll every 5 seconds
