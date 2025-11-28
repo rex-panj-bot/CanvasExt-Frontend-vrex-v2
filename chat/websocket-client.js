@@ -119,6 +119,14 @@ class WebSocketClient {
     // Send ping regularly to prevent idle timeout
     this.pingInterval = setInterval(() => {
       if (this.ws && this.isConnected) {
+        // Double-check WebSocket state before sending ping
+        if (this.ws.readyState !== WebSocket.OPEN) {
+          console.warn('⚠️ WebSocket not OPEN during ping - closing to trigger reconnect');
+          this.isConnected = false;
+          this.ws.close();
+          return;
+        }
+
         console.log('📤 Sending ping...');
         try {
           this.ws.send(JSON.stringify({ type: 'ping' }));
@@ -127,6 +135,7 @@ class WebSocketClient {
         } catch (error) {
           console.error('❌ Error sending ping:', error);
           // If ping send fails, connection is truly dead
+          this.isConnected = false;
           this.ws.close();
         }
       }
