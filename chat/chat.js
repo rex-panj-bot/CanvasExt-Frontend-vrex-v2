@@ -2161,9 +2161,8 @@ async function updateSmartSelectionAvailability() {
 
     const tooltip = smartFileToggle.querySelector('.toggle-icon-tooltip');
     if (tooltip) {
-      const ready = status.summaries_ready || 0;
-      const total = status.total_files || 0;
-      tooltip.textContent = `Smart selection available (${ready}/${total} summaries ready)`;
+      // Restore original helpful tooltip text when ready
+      tooltip.textContent = 'Automatically uses only the most relevant files for your query.';
     }
 
     // Stop polling if it was running
