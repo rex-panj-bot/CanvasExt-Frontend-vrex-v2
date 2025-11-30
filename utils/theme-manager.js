@@ -16,8 +16,8 @@ class ThemeManager {
     // Apply theme immediately
     this.applyTheme(this.currentScheme);
 
-    // Send initial scheme to background for icon update
-    this.notifyBackground(this.currentScheme);
+    // Save SYSTEM theme for toolbar icon (separate from page preference)
+    this.saveSystemTheme(this.currentScheme);
 
     // Listen for system theme changes
     this.mediaQuery.addEventListener('change', (event) => {
@@ -25,10 +25,21 @@ class ThemeManager {
       console.log(`🎨 System theme changed: ${newScheme}`);
       this.currentScheme = newScheme;
       this.applyTheme(newScheme);
-      this.notifyBackground(newScheme);
+      // Save system theme for toolbar icon
+      this.saveSystemTheme(newScheme);
     });
 
     console.log(`🎨 Theme manager initialized: ${this.currentScheme} mode`);
+  }
+
+  /**
+   * Save system theme (for toolbar icon - only changes with actual system theme)
+   */
+  saveSystemTheme(scheme) {
+    if (typeof chrome !== 'undefined' && chrome.storage) {
+      chrome.storage.local.set({ 'system-theme': scheme });
+      console.log(`🎨 System theme saved: ${scheme}`);
+    }
   }
 
   /**
@@ -58,29 +69,20 @@ class ThemeManager {
    */
   updateFavicon(scheme) {
     const isDark = scheme === 'dark';
-    const iconPrefix = isDark ? 'dark' : 'light';
+    const iconFile = isDark ? 'darkmodelogo.png' : 'lightmodelogo.png';
 
     // Remove existing favicon links
     const existingLinks = document.querySelectorAll('link[rel*="icon"]');
     existingLinks.forEach(link => link.remove());
 
-    // Add new favicon links for all sizes
-    const sizes = [
-      { size: '16x16', file: `logo-${iconPrefix}-16.png` },
-      { size: '48x48', file: `logo-${iconPrefix}-48.png` },
-      { size: '128x128', file: `logo-${iconPrefix}-128.png` }
-    ];
+    // Add favicon link using the main logo file
+    const link = document.createElement('link');
+    link.rel = 'icon';
+    link.type = 'image/png';
+    link.href = chrome.runtime.getURL(`icons/${iconFile}`);
+    document.head.appendChild(link);
 
-    sizes.forEach(({ size, file }) => {
-      const link = document.createElement('link');
-      link.rel = 'icon';
-      link.type = 'image/png';
-      link.sizes = size;
-      link.href = chrome.runtime.getURL(`icons/${file}`);
-      document.head.appendChild(link);
-    });
-
-    console.log(`🎨 Tab icon updated to ${scheme} mode`);
+    console.log(`Tab icon updated to ${scheme} mode`);
   }
 
   /**

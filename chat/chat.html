@@ -18,6 +18,12 @@
       <div class="sidebar-header">
         <h3>Course Materials</h3>
         <div class="materials-controls">
+          <button id="refresh-materials-btn" class="materials-control-btn" title="Refresh from Canvas">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+              <path d="M13 4.5C12 3.5 10.5 2.5 8 2.5C4.5 2.5 2 5 2 8.5C2 12 4.5 14.5 8 14.5C11 14.5 13.5 12.5 14 9.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M13 1.5V4.5H10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
           <button id="upload-files-btn" class="materials-control-btn" title="Upload files">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
               <path d="M8 12V3M8 3L5 6M8 3L11 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -68,11 +74,10 @@
       <!-- Pinned Action Buttons -->
       <div class="sidebar-actions-pinned">
         <button id="new-chat-btn" class="btn btn-new-chat">
-          <svg class="icon-notepad" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect x="3" y="2" width="10" height="12" rx="1" stroke="currentColor" stroke-width="1.5"/>
-            <line x1="5" y1="5" x2="11" y2="5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-            <line x1="5" y1="8" x2="9" y2="8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-            <path d="M11 10L13 12L11 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <svg class="icon-notepad" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="3" y="3" width="12" height="16" rx="2" stroke="currentColor" stroke-width="2"/>
+            <path d="M7 8h5M7 12h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <path d="M14.5 13.5L21 7L19 5L12.5 11.5L12 15L15.5 14.5L14.5 13.5Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
           <span>New Chat</span>
         </button>
@@ -412,9 +417,15 @@
   </div>
 
   <!-- Scripts -->
+  <script src="../lib/jszip.min.js"></script>
+  <script src="../lib/pdf.min.js"></script>
+  <script src="../lib/mammoth.browser.min.js"></script>
   <script src="../utils/theme-manager.js"></script>
   <script src="../utils/storage.js"></script>
   <script src="../utils/indexed-db-storage.js"></script>
+  <script src="../utils/canvas-api.js"></script>
+  <script src="../utils/session-auth.js"></script>
+  <script src="../utils/file-processor.js"></script>
   <script src="websocket-client.js"></script>
   <script src="chat.js"></script>
 </body>

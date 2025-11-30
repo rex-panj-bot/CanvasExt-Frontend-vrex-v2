@@ -166,6 +166,29 @@ const elements = {
   closeSettings: document.getElementById('close-settings')
 };
 
+/**
+ * Update URL with current chat session without reloading page
+ * @param {string} sessionId - Session ID to add to URL (null for new/blank chat)
+ */
+function updateURL(sessionId) {
+  const url = new URL(window.location.href);
+
+  // Always preserve courseId
+  url.searchParams.set('courseId', courseId);
+
+  // Add or remove chatId based on whether we have a session
+  if (sessionId && sessionId.startsWith('session_')) {
+    url.searchParams.set('chatId', sessionId);
+  } else {
+    url.searchParams.delete('chatId');
+  }
+
+  // Update URL without reloading page
+  window.history.replaceState({}, '', url.toString());
+
+  console.log('📍 Updated URL:', url.toString());
+}
+
 // Initialize
 document.addEventListener('DOMContentLoaded', init);
 
@@ -404,8 +427,18 @@ async function init() {
     return;
   }
 
+  // Check if we have a chatId in URL (for restoring session after refresh)
+  const chatIdFromURL = urlParams.get('chatId');
+
   // Generate session ID for this chat
-  currentSessionId = `session_${courseId}_${Date.now()}`;
+  // If chatId exists in URL, use it to restore the session; otherwise create new
+  if (chatIdFromURL) {
+    currentSessionId = chatIdFromURL;
+    console.log('🔄 Restoring chat session from URL:', currentSessionId);
+  } else {
+    currentSessionId = `session_${courseId}_${Date.now()}`;
+    console.log('✨ Creating new chat session:', currentSessionId);
+  }
 
   // Check if we're in loading mode (background loading in progress)
   const isLoading = urlParams.get('loading') === 'true';
@@ -457,6 +490,15 @@ async function init() {
       showSettingsModal();
     }
   });
+
+  // Restore chat session if chatId is in URL (after all initialization is complete)
+  if (chatIdFromURL) {
+    console.log('🔄 Loading chat session from URL after initialization...');
+    await loadChatSession(chatIdFromURL);
+  } else {
+    // New chat - update URL to reflect blank state
+    updateURL(null);
+  }
 }
 
 async function loadMaterials() {
@@ -1416,6 +1458,286 @@ async function handleFileUpload(event) {
 }
 
 /**
+ * Refresh materials from Canvas - re-scan and re-upload everything
+ */
+async function refreshMaterialsFromCanvas() {
+  console.log('🔄 Refreshing materials from Canvas...');
+
+  const refreshBtn = document.getElementById('refresh-materials-btn');
+  if (refreshBtn) {
+    refreshBtn.disabled = true;
+    refreshBtn.style.opacity = '0.5';
+  }
+
+  try {
+    // Show immediate visual feedback
+    showLoadingBanner('Starting refresh from Canvas...', 'info');
+    console.log('🔄 [REFRESH] Starting refresh for course:', courseId);
+
+    // Get Canvas session info
+    const canvasSession = await getCanvasSession();
+    if (!canvasSession) {
+      throw new Error('Please log in to Canvas first');
+    }
+
+    // Initialize Canvas API with session auth
+    showLoadingBanner('Connecting to Canvas...', 'info');
+    const canvasAPI = new CanvasAPI(canvasSession.baseUrl, null, canvasSession.sessionAuth);
+
+    // Scan materials from Canvas
+    showLoadingBanner('Scanning Canvas course materials...', 'info');
+    console.log('📡 [REFRESH] Fetching materials for course:', courseId);
+
+    const scannedMaterials = await canvasAPI.getAllCourseMaterials(courseId, (progress) => {
+      showLoadingBanner(`Scanning: ${progress.message}`, 'info');
+      console.log(`[REFRESH] ${progress.message}`);
+    });
+
+    if (!scannedMaterials) {
+      throw new Error('Failed to scan materials from Canvas');
+    }
+
+    console.log('✅ Scanned materials:', scannedMaterials);
+
+    // Save to IndexedDB
+    showLoadingBanner('Saving materials to local storage...', 'info');
+    const materialsDB = new MaterialsDB();
+    await materialsDB.saveMaterials(courseId, courseName, scannedMaterials);
+    await materialsDB.close();
+
+    // Now upload to backend
+    showLoadingBanner('Preparing files for upload...', 'info');
+
+    // Collect files to upload
+    const filesToUpload = [];
+
+    console.log('📦 [REFRESH] Scanned materials:', scannedMaterials);
+
+    // Helper to add files from different sources
+    const addFile = (item) => {
+      if (item.blob || item.url) {
+        filesToUpload.push({
+          name: item.stored_name || item.display_name || item.name,
+          url: item.url,
+          blob: item.blob,
+          id: item.id || item.content_id || item.file_id
+        });
+      }
+    };
+
+    // Process all material categories (files, syllabus, etc.)
+    for (const [category, items] of Object.entries(scannedMaterials)) {
+      if (category === 'modules' || category === 'pages' || category === 'assignments') continue; // Handle separately
+      if (!Array.isArray(items)) continue;
+
+      console.log(`📂 [REFRESH] Processing ${items.length} items from category: ${category}`);
+      for (const item of items) {
+        addFile(item);
+      }
+    }
+
+    // Process module items
+    if (scannedMaterials.modules && Array.isArray(scannedMaterials.modules)) {
+      console.log(`📚 [REFRESH] Processing ${scannedMaterials.modules.length} modules`);
+      scannedMaterials.modules.forEach(module => {
+        if (!module.items || !Array.isArray(module.items)) return;
+        module.items.forEach(item => {
+          if (item.type === 'File') {
+            addFile(item);
+          }
+        });
+      });
+    }
+
+    // Process pages: convert HTML to text files
+    if (scannedMaterials.pages && Array.isArray(scannedMaterials.pages)) {
+      console.log(`📄 [REFRESH] Processing ${scannedMaterials.pages.length} pages`);
+      showLoadingBanner(`Converting ${scannedMaterials.pages.length} pages to text...`, 'info');
+
+      for (const page of scannedMaterials.pages) {
+        if (page.body) {
+          try {
+            // Convert HTML to plain text
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = page.body;
+            const textContent = tempDiv.textContent || tempDiv.innerText || '';
+
+            if (textContent.trim()) {
+              const textBlob = new Blob([textContent], { type: 'text/plain' });
+              const fileName = `${page.title || 'Untitled Page'}.txt`;
+
+              filesToUpload.push({
+                name: fileName,
+                blob: textBlob,
+                id: `page_${page.page_id || page.id}`
+              });
+              console.log(`✅ [REFRESH] Converted page: ${fileName}`);
+            }
+          } catch (error) {
+            console.warn(`⚠️ [REFRESH] Failed to convert page ${page.title}:`, error);
+          }
+        }
+      }
+    }
+
+    // Process assignments: convert descriptions to text files
+    if (scannedMaterials.assignments && Array.isArray(scannedMaterials.assignments)) {
+      console.log(`📝 [REFRESH] Processing ${scannedMaterials.assignments.length} assignments`);
+      showLoadingBanner(`Converting ${scannedMaterials.assignments.length} assignments to text...`, 'info');
+
+      for (const assignment of scannedMaterials.assignments) {
+        if (assignment.description) {
+          try {
+            // Convert HTML to plain text
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = assignment.description;
+            const textContent = tempDiv.textContent || tempDiv.innerText || '';
+
+            if (textContent.trim()) {
+              const assignmentText = `Assignment: ${assignment.name}\n\n${textContent}`;
+              const textBlob = new Blob([assignmentText], { type: 'text/plain' });
+              const fileName = `${assignment.name || 'Untitled Assignment'}.txt`;
+
+              filesToUpload.push({
+                name: fileName,
+                blob: textBlob,
+                id: `assignment_${assignment.id}`
+              });
+              console.log(`✅ [REFRESH] Converted assignment: ${fileName}`);
+            }
+          } catch (error) {
+            console.warn(`⚠️ [REFRESH] Failed to convert assignment ${assignment.name}:`, error);
+          }
+        }
+      }
+    }
+
+    console.log(`📊 [REFRESH] Total files to process: ${filesToUpload.length}`);
+
+    // Count files that need downloading
+    const filesToDownload = filesToUpload.filter(f => !f.blob && f.url);
+    const totalToProcess = filesToDownload.length;
+
+    // Helper to update progress bar
+    const updateProgress = (percent) => {
+      const progressFill = document.getElementById('loading-progress-fill');
+      if (progressFill) {
+        progressFill.style.width = `${percent}%`;
+      }
+    };
+
+    // Download files that don't have blobs yet
+    if (totalToProcess > 0) {
+      showLoadingBanner(`Downloading ${totalToProcess} files from Canvas...`, 'info');
+      updateProgress(0);
+
+      let downloadedCount = 0;
+      for (let i = 0; i < filesToUpload.length; i++) {
+        const file = filesToUpload[i];
+
+        if (!file.blob && file.url) {
+          try {
+            // Download using session cookies
+            const response = await fetch(file.url, {
+              credentials: 'include',
+              headers: { 'Accept': '*/*' }
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            file.blob = await response.blob();
+            console.log(`✅ Downloaded: ${file.name}`);
+          } catch (error) {
+            console.warn(`⚠️ Failed to download ${file.name}:`, error);
+            // Continue with other files
+          }
+
+          downloadedCount++;
+          // Update progress bar (downloads are 50% of total progress)
+          const downloadPercent = (downloadedCount / totalToProcess) * 50;
+          updateProgress(downloadPercent);
+        }
+      }
+    }
+
+    // Upload to backend
+    const validFiles = filesToUpload.filter(f => f.blob);
+    if (validFiles.length > 0) {
+      showLoadingBanner(`Uploading ${validFiles.length} files to server...`, 'info');
+      updateProgress(50); // Start upload phase at 50%
+
+      await backendClient.uploadPDFs(courseId, validFiles);
+      console.log(`✅ Uploaded ${validFiles.length} files to backend`);
+
+      updateProgress(100); // Complete
+    }
+
+    // Reload materials in UI
+    showLoadingBanner('Refreshing display...', 'info');
+    await loadMaterials();
+    await syncMaterialsWithBackend();
+
+    hideLoadingBanner();
+
+    // Show detailed success message
+    const fileCount = scannedMaterials.files?.length || 0;
+    const pageCount = scannedMaterials.pages?.length || 0;
+    const assignmentCount = scannedMaterials.assignments?.length || 0;
+    const totalUploaded = validFiles.length;
+
+    console.log(`✅ [REFRESH] Complete! Files: ${fileCount}, Pages: ${pageCount}, Assignments: ${assignmentCount}, Uploaded: ${totalUploaded}`);
+    showTemporaryMessage(`Refreshed ${totalUploaded} items: ${fileCount} files, ${pageCount} pages, ${assignmentCount} assignments`);
+
+  } catch (error) {
+    console.error('❌ Refresh error:', error);
+    showLoadingBanner(`Refresh failed: ${error.message}`, 'error');
+    setTimeout(() => hideLoadingBanner(), 3000);
+  } finally {
+    if (refreshBtn) {
+      refreshBtn.disabled = false;
+      refreshBtn.style.opacity = '1';
+    }
+  }
+}
+
+/**
+ * Get Canvas session info - uses session cookies for authentication
+ */
+async function getCanvasSession() {
+  return new Promise((resolve) => {
+    // Get Canvas URL from storage (stored as canvasInstanceUrl)
+    chrome.storage.local.get(['canvasInstanceUrl'], async (result) => {
+      if (!result.canvasInstanceUrl) {
+        console.warn('⚠️ [REFRESH] No Canvas URL found in storage');
+        resolve(null);
+        return;
+      }
+
+      const canvasUrl = result.canvasInstanceUrl;
+      console.log('📍 [REFRESH] Canvas URL:', canvasUrl);
+
+      // Verify session is valid using SessionAuth
+      try {
+        const sessionAuth = new SessionAuth(canvasUrl);
+        const isValid = await sessionAuth.testSession();
+
+        if (isValid) {
+          console.log('✅ [REFRESH] Canvas session is valid');
+          resolve({
+            baseUrl: canvasUrl,
+            sessionAuth: sessionAuth
+          });
+        } else {
+          console.warn('⚠️ [REFRESH] Canvas session is not valid');
+          resolve(null);
+        }
+      } catch (error) {
+        console.error('❌ [REFRESH] Error checking session:', error);
+        resolve(null);
+      }
+    });
+  });
+}
+
+/**
  * Show a temporary success message
  */
 function showTemporaryMessage(message) {
@@ -1962,6 +2284,8 @@ function setupEventListeners() {
     modeResponseCache = {};
     currentModeTopic = null;
     console.log('🗑️ Cleared mode response cache for new chat');
+    // Update URL to reflect new chat (no chatId parameter)
+    updateURL(null);
     // Refresh recent chats
     loadRecentChats();
   });
@@ -2292,6 +2616,7 @@ function setupEventListeners() {
 
   // File upload handler
   const uploadBtn = document.getElementById('upload-files-btn');
+  const refreshBtn = document.getElementById('refresh-materials-btn');
   const fileInput = document.getElementById('file-upload-input');
 
   if (uploadBtn && fileInput) {
@@ -2352,6 +2677,11 @@ function setupEventListeners() {
 
       event.target.value = '';
     });
+  }
+
+  // Refresh materials button handler
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', refreshMaterialsFromCanvas);
   }
 
   // Drag and drop file upload on sidebar
@@ -2936,9 +3266,14 @@ async function sendMessage() {
         assistantMessage += chunk;
         updateTypingIndicator(typingId, assistantMessage);
       },
-      // onComplete callback
+      // onComplete callback (called when streaming finishes and backend saves chat)
       () => {
         hideLoadingBanner();
+
+        // Update URL with session ID after streaming completes
+        // This ensures the chat can be restored after refresh
+        // The backend auto-saves the chat at this point
+        updateURL(currentSessionId);
       },
       // onError callback
       (error) => {
@@ -3666,8 +4001,18 @@ async function loadChatSession(sessionId) {
   try {
     const response = await backendClient.getChatSession(courseId, sessionId);
 
-    if (!response.success) {
-      showError('Failed to load chat session: ' + response.error);
+    // Check if session exists and was loaded successfully
+    if (!response || !response.success || !response.session) {
+      console.warn('⚠️ Chat session not found in backend (may not be saved yet):', sessionId);
+      console.log('ℹ️ Starting with blank chat. Session will be saved after first message.');
+
+      // Session doesn't exist yet (e.g., user refreshed before backend saved it)
+      // Start with a blank chat - the session will be saved when they send the next message
+      currentSessionId = sessionId;
+      conversationHistory = [];
+      elements.messagesContainer.innerHTML = '';
+      elements.messagesContainer.appendChild(createWelcomeMessage());
+      updateURL(sessionId);
       return;
     }
 
@@ -3675,6 +4020,9 @@ async function loadChatSession(sessionId) {
 
     // Update current session
     currentSessionId = sessionId;
+
+    // Update URL to reflect the loaded chat
+    updateURL(sessionId);
 
     // Clear current chat and load history
     elements.messagesContainer.innerHTML = '';
@@ -3690,11 +4038,21 @@ async function loadChatSession(sessionId) {
       addMessage(msg.role, msg.content);
     });
 
+    console.log('✅ Loaded chat session with', conversationHistory.length, 'messages');
+
     // Refresh recent chats to update active state
     await loadRecentChats();
   } catch (error) {
-    console.error('Error loading chat session:', error);
-    showError('Failed to load chat: ' + error.message);
+    console.error('❌ Error loading chat session:', error);
+    console.log('ℹ️ Starting with blank chat. Session will be saved after first message.');
+
+    // Don't show error to user - just start with blank chat
+    // The session might not be saved to backend yet, which is normal
+    currentSessionId = sessionId;
+    conversationHistory = [];
+    elements.messagesContainer.innerHTML = '';
+    elements.messagesContainer.appendChild(createWelcomeMessage());
+    updateURL(sessionId);
   }
 }
 

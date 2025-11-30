@@ -8,41 +8,45 @@ console.log('Canvas Material Extractor: Service worker loaded');
 /**
  * Update extension icon based on theme
  */
-function updateIconForTheme(scheme) {
+async function updateIconForTheme(scheme) {
   const isDark = scheme === 'dark';
-  const iconPrefix = isDark ? 'dark' : 'light';
+  const iconFile = isDark ? 'darkmodelogo-128.png' : 'lightmodelogo-128.png';
 
-  // Try using path with forward slash from root
-  const iconPaths = {
-    '16': `/icons/logo-${iconPrefix}-16.png`,
-    '48': `/icons/logo-${iconPrefix}-48.png`,
-    '128': `/icons/logo-${iconPrefix}-128.png`
-  };
+  console.log(`Setting toolbar icon to ${scheme} mode:`, iconFile);
 
-  console.log(`🎨 Attempting to set icon to ${scheme} mode with paths:`, iconPaths);
+  try {
+    // Fetch the icon and convert to imageData (works in service workers)
+    const iconUrl = chrome.runtime.getURL(`icons/${iconFile}`);
+    const response = await fetch(iconUrl);
+    const blob = await response.blob();
+    const imageBitmap = await createImageBitmap(blob);
 
-  chrome.action.setIcon({ path: iconPaths }).then(() => {
-    console.log(`✅ Icon updated to ${scheme} mode`);
-  }).catch((error) => {
-    console.error('Failed to update icon:', error);
-    console.error('Attempted icon prefix:', iconPrefix);
-    console.error('Attempted paths:', iconPaths);
-  });
+    // Create canvas to get imageData
+    const canvas = new OffscreenCanvas(128, 128);
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(imageBitmap, 0, 0, 128, 128);
+    const imageData = ctx.getImageData(0, 0, 128, 128);
+
+    await chrome.action.setIcon({ imageData: imageData });
+    console.log(`Toolbar icon updated to ${scheme} mode`);
+  } catch (error) {
+    console.error('Failed to update toolbar icon:', error);
+  }
 }
 
 /**
  * Initialize icon based on stored preference or system default
  */
 function initializeIcon() {
-  // Try to get stored preference
-  chrome.storage.local.get(['theme-preference'], (result) => {
-    const storedTheme = result['theme-preference'];
+  // Try to get stored SYSTEM theme (not user toggle preference)
+  chrome.storage.local.get(['system-theme'], (result) => {
+    const storedTheme = result['system-theme'];
     if (storedTheme) {
-      console.log(`🎨 Using stored theme: ${storedTheme}`);
+      console.log(`🎨 Using stored system theme: ${storedTheme}`);
       updateIconForTheme(storedTheme);
     } else {
-      // Default to light mode if no preference stored
-      console.log('🎨 No theme preference found, defaulting to light mode');
+      // Default to light mode if no system theme stored
+      console.log('🎨 No system theme found, defaulting to light mode');
       updateIconForTheme('light');
     }
   });
@@ -50,6 +54,16 @@ function initializeIcon() {
 
 // Initialize icon immediately when service worker loads
 initializeIcon();
+
+// Listen for storage changes - but only for SYSTEM theme changes (not manual toggles)
+// The 'system-theme' key is set only when the actual system theme changes
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === 'local' && changes['system-theme']) {
+    const newTheme = changes['system-theme'].newValue;
+    console.log(`🎨 System theme changed: ${newTheme}`);
+    updateIconForTheme(newTheme);
+  }
+});
 
 // Also initialize on install/startup events
 chrome.runtime.onInstalled.addListener(() => {
