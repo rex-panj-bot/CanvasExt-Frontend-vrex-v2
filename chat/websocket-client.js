@@ -225,10 +225,20 @@ class WebSocketClient {
   forceReconnect() {
     console.log('🔄 Force reconnecting...');
     this.reconnectAttempts = 0;  // Reset attempts counter
-    if (this.ws) {
-      this.ws.close();  // Close existing connection
+
+    // Clear any pending reconnection timeout
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
     }
-    // attemptReconnect will be triggered by onclose handler
+
+    // Close existing connection if open
+    if (this.ws && this.ws.readyState !== WebSocket.CLOSED && this.ws.readyState !== WebSocket.CLOSING) {
+      this.ws.close();  // onclose handler will trigger attemptReconnect
+    } else {
+      // Connection already closed, manually trigger reconnect
+      this.attemptReconnect();
+    }
   }
 
   /**
