@@ -1263,7 +1263,60 @@ async function continueLoadingInBackground(courseId, courseName, filesToDownload
       });
     }
 
-    // Update IndexedDB with complete materials
+    // FILTER OUT VIDEO/AUDIO FILES FROM MATERIALS BEFORE SAVING TO INDEXEDDB
+    // This ensures they don't show up in the chat materials panel
+    const videoExtensions = ['.mov', '.mp4', '.avi', '.webm', '.wmv', '.mpeg', '.mpg', '.flv', '.3gp'];
+    const audioExtensions = ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac'];
+    const filteredFromMaterials = [];
+
+    const filterMediaFromArray = (items) => {
+      if (!Array.isArray(items)) return items;
+      return items.filter(item => {
+        const fileName = (item.display_name || item.filename || item.name || item.title || '').toLowerCase();
+        const fileExt = fileName.substring(fileName.lastIndexOf('.'));
+        const mimeType = item['content-type'] || item.mimeType || '';
+
+        if (videoExtensions.includes(fileExt) || mimeType.startsWith('video/')) {
+          filteredFromMaterials.push(item.display_name || item.name || fileName);
+          return false;
+        }
+        if (audioExtensions.includes(fileExt) || mimeType.startsWith('audio/')) {
+          filteredFromMaterials.push(item.display_name || item.name || fileName);
+          return false;
+        }
+        return true;
+      });
+    };
+
+    // Filter each category
+    for (const key of Object.keys(materialsToProcess)) {
+      if (Array.isArray(materialsToProcess[key])) {
+        materialsToProcess[key] = filterMediaFromArray(materialsToProcess[key]);
+      }
+    }
+
+    // Filter module items
+    if (materialsToProcess.modules && Array.isArray(materialsToProcess.modules)) {
+      materialsToProcess.modules.forEach(module => {
+        if (module.items && Array.isArray(module.items)) {
+          module.items = filterMediaFromArray(module.items);
+        }
+      });
+    }
+
+    if (filteredFromMaterials.length > 0) {
+      console.log(`🎬🎵 [INDEXEDDB] Filtered ${filteredFromMaterials.length} media files from materials:`, filteredFromMaterials);
+      // Store filtered files info for chat to show notification
+      await chrome.storage.local.set({
+        filteredMediaFiles: {
+          courseId: courseId,
+          files: filteredFromMaterials,
+          timestamp: Date.now()
+        }
+      });
+    }
+
+    // Update IndexedDB with complete materials (now filtered)
     const materialsDB = new MaterialsDB();
     await materialsDB.saveMaterials(courseId, courseName, materialsToProcess);
     await materialsDB.close();
@@ -2095,6 +2148,48 @@ async function createStudyBot() {
         id: a.id,
         has_doc_id: !!a.doc_id
       })));
+    }
+
+    // FILTER OUT VIDEO/AUDIO FILES FROM MATERIALS BEFORE SAVING
+    const videoExts = ['.mov', '.mp4', '.avi', '.webm', '.wmv', '.mpeg', '.mpg', '.flv', '.3gp'];
+    const audioExts = ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac'];
+    const filteredMedia = [];
+
+    const filterMedia = (items) => {
+      if (!Array.isArray(items)) return items;
+      return items.filter(item => {
+        const name = (item.display_name || item.filename || item.name || item.title || '').toLowerCase();
+        const ext = name.substring(name.lastIndexOf('.'));
+        const mime = item['content-type'] || item.mimeType || '';
+        if (videoExts.includes(ext) || mime.startsWith('video/') || audioExts.includes(ext) || mime.startsWith('audio/')) {
+          filteredMedia.push(item.display_name || item.name || name);
+          return false;
+        }
+        return true;
+      });
+    };
+
+    for (const key of Object.keys(materialsToProcess)) {
+      if (Array.isArray(materialsToProcess[key])) {
+        materialsToProcess[key] = filterMedia(materialsToProcess[key]);
+      }
+    }
+    if (materialsToProcess.modules) {
+      materialsToProcess.modules.forEach(m => {
+        if (m.items) m.items = filterMedia(m.items);
+      });
+    }
+
+    if (filteredMedia.length > 0) {
+      console.log(`🎬🎵 Filtered ${filteredMedia.length} media files from materials`);
+      // Store filtered files info for chat to show notification
+      await chrome.storage.local.set({
+        filteredMediaFiles: {
+          courseId: currentCourse.id,
+          files: filteredMedia,
+          timestamp: Date.now()
+        }
+      });
     }
 
     const materialsDB = new MaterialsDB();

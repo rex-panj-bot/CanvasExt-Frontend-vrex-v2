@@ -499,6 +499,36 @@ async function init() {
     // New chat - update URL to reflect blank state
     updateURL(null);
   }
+
+  // Check for filtered media files notification from popup
+  checkFilteredMediaNotification();
+}
+
+/**
+ * Check if there are filtered media files to notify about
+ */
+async function checkFilteredMediaNotification() {
+  try {
+    const result = await chrome.storage.local.get('filteredMediaFiles');
+    const filtered = result.filteredMediaFiles;
+
+    if (filtered && filtered.courseId === courseId && filtered.files?.length > 0) {
+      // Only show if notification is recent (within last 30 seconds)
+      const age = Date.now() - filtered.timestamp;
+      if (age < 30000) {
+        showDropdownNotification(
+          `${filtered.files.length} file${filtered.files.length > 1 ? 's' : ''} not supported`,
+          filtered.files,
+          'Video and audio files cannot be processed',
+          6000
+        );
+      }
+      // Clear the notification after showing (or if too old)
+      await chrome.storage.local.remove('filteredMediaFiles');
+    }
+  } catch (error) {
+    console.error('Error checking filtered media notification:', error);
+  }
 }
 
 async function loadMaterials() {
