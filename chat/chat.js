@@ -2649,18 +2649,17 @@ function setupEventListeners() {
         }
       });
 
-      // Show message to user if media files were filtered
+      // Show dropdown notification if files were filtered
       const totalFiltered = videoFiles.length + audioFiles.length;
       if (totalFiltered > 0) {
-        const filteredTypes = [];
-        if (videoFiles.length > 0) filteredTypes.push(`${videoFiles.length} video`);
-        if (audioFiles.length > 0) filteredTypes.push(`${audioFiles.length} audio`);
+        const allFilteredFiles = [...videoFiles, ...audioFiles];
+        console.log(`⚠️ Filtered out ${totalFiltered} media files:`, allFilteredFiles);
 
-        console.log(`⚠️ Filtered out ${totalFiltered} media files: ${filteredTypes.join(', ')}`);
-        showToast(
-          `⚠️ Filtered out ${totalFiltered} media file(s): ${filteredTypes.join(', ')}. Media files are not supported.`,
-          'error',
-          5000
+        showDropdownNotification(
+          `${totalFiltered} file${totalFiltered > 1 ? 's' : ''} not supported`,
+          allFilteredFiles,
+          'Video and audio files cannot be processed',
+          6000
         );
       }
 
@@ -2718,16 +2717,48 @@ function setupEventListeners() {
    */
   async function handleFileDrop(e) {
     const dt = e.dataTransfer;
-    const files = Array.from(dt.files);
+    const allFiles = Array.from(dt.files);
 
-    if (files.length === 0) return;
+    if (allFiles.length === 0) return;
 
-    console.log(`📤 User dropped ${files.length} file(s):`, files.map(f => f.name));
+    console.log(`📤 User dropped ${allFiles.length} file(s):`, allFiles.map(f => f.name));
+
+    // Filter out video AND audio files (same as file input)
+    const allowedFiles = [];
+    const filteredFiles = [];
+    const audioExtensions = ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac'];
+
+    allFiles.forEach(file => {
+      const fileExt = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
+
+      if (file.type.startsWith('video/')) {
+        console.log(`🎬 [FILTERED] Video file: ${file.name}`);
+        filteredFiles.push(file.name);
+      } else if (file.type.startsWith('audio/') || audioExtensions.includes(fileExt)) {
+        console.log(`🎵 [FILTERED] Audio file: ${file.name}`);
+        filteredFiles.push(file.name);
+      } else {
+        allowedFiles.push(file);
+      }
+    });
+
+    // Show dropdown notification if files were filtered
+    if (filteredFiles.length > 0) {
+      showDropdownNotification(
+        `${filteredFiles.length} file${filteredFiles.length > 1 ? 's' : ''} not supported`,
+        filteredFiles,
+        'Video and audio files cannot be processed',
+        6000
+      );
+    }
+
+    // Only proceed if we have allowed files
+    if (allowedFiles.length === 0) return;
 
     // Create a synthetic event to pass to handleFileUpload
     const syntheticEvent = {
       target: {
-        files: files,
+        files: allowedFiles,
         value: ''
       }
     };
@@ -4679,6 +4710,58 @@ function showToast(message, duration = 5000) {
         toast.remove();
       }
     }, 300);
+  }, duration);
+}
+
+/**
+ * Show a dropdown notification from top-right (for filtered files)
+ * @param {string} title - Header text
+ * @param {string[]} items - List of filtered file names
+ * @param {string} footer - Footer text
+ * @param {number} duration - How long to show (ms)
+ */
+function showDropdownNotification(title, items, footer, duration = 5000) {
+  // Remove existing dropdown notification
+  const existing = document.querySelector('.dropdown-notification');
+  if (existing) existing.remove();
+
+  // Create notification element
+  const notification = document.createElement('div');
+  notification.className = 'dropdown-notification';
+
+  // Build items list HTML (max 5 items shown)
+  const displayItems = items.slice(0, 5);
+  const remainingCount = items.length - displayItems.length;
+  let itemsHtml = displayItems.map(item => `<li>${item}</li>`).join('');
+  if (remainingCount > 0) {
+    itemsHtml += `<li>...and ${remainingCount} more</li>`;
+  }
+
+  notification.innerHTML = `
+    <div class="dropdown-notification-header">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="10"></circle>
+        <line x1="12" y1="8" x2="12" y2="12"></line>
+        <line x1="12" y1="16" x2="12.01" y2="16"></line>
+      </svg>
+      <span>${title}</span>
+    </div>
+    <ul class="dropdown-notification-list">
+      ${itemsHtml}
+    </ul>
+    <div class="dropdown-notification-footer">${footer}</div>
+  `;
+
+  document.body.appendChild(notification);
+
+  // Show with animation
+  setTimeout(() => notification.classList.add('show'), 10);
+
+  // Hide after duration
+  setTimeout(() => {
+    notification.classList.remove('show');
+    notification.classList.add('hide');
+    setTimeout(() => notification.remove(), 300);
   }, duration);
 }
 
