@@ -2148,9 +2148,13 @@ async function updateSmartSelectionAvailability() {
     }
   }
 
-  // Disable Smart File Select if EITHER summaries aren't ready OR upload is in progress
-  if (!status.success || !status.is_ready || isUploading) {
-    // Summaries not ready OR files still uploading - disable the button
+  // Calculate completion percentage and check 50% threshold
+  const completionPercent = status.completion_percent || 0;
+  const hasMinimumSummaries = completionPercent >= 50;  // Enable at 50% instead of 100%
+
+  // Disable Smart File Select if summaries < 50% OR upload is in progress
+  if (!status.success || !hasMinimumSummaries || isUploading) {
+    // Summaries below 50% OR files still uploading - disable the button
     smartFileToggle.disabled = true;
     smartFileToggle.classList.add('disabled');
     smartFileToggle.classList.remove('active'); // Force inactive
