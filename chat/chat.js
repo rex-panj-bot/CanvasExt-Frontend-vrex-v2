@@ -5141,7 +5141,7 @@ function showApiKeyModal() {
       if (response.status === 200) {
         // Save the API key
         await chrome.storage.local.set({ gemini_api_key: apiKey });
-        showModalStatus('✅ API key saved successfully!', 'success');
+        showModalStatus('API key saved successfully!', 'success');
 
         // Close modal and reload page after short delay
         setTimeout(() => {
