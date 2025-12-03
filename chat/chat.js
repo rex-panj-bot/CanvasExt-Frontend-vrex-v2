@@ -3204,6 +3204,45 @@ function stopGeneration() {
 }
 
 /**
+ * Convert backend status messages to conversational format
+ */
+function makeStatusConversational(message) {
+  // Remove any remaining emojis
+  message = message.replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/gu, '').trim();
+
+  // Map common status patterns to conversational messages
+  const lowerMessage = message.toLowerCase();
+
+  if (lowerMessage.includes('selecting') && lowerMessage.includes('file')) {
+    // Extract number if present
+    const numMatch = message.match(/(\d+)\s*file/i);
+    if (numMatch) {
+      return `Selected ${numMatch[1]} relevant files`;
+    }
+    return 'Selecting relevant files...';
+  }
+
+  if (lowerMessage.includes('uploading') || lowerMessage.includes('loading file')) {
+    return 'Reading files...';
+  }
+
+  if (lowerMessage.includes('processing') || lowerMessage.includes('generating')) {
+    return 'Generating response...';
+  }
+
+  if (lowerMessage.includes('reading')) {
+    return 'Reading files...';
+  }
+
+  if (lowerMessage.includes('analyzing')) {
+    return 'Analyzing content...';
+  }
+
+  // Return cleaned message if no specific pattern matched
+  return message;
+}
+
+/**
  * Send a message to the AI assistant via Python backend
  */
 async function sendMessage() {
@@ -3344,6 +3383,11 @@ async function sendMessage() {
     console.log(`   Smart Selection: ${useSmartSelection ? 'enabled' : 'disabled'}`);
     console.log(`   API key: ${apiKey ? 'user-provided' : 'default'}`);
 
+    // Show initial status message for smart selection
+    if (useSmartSelection) {
+      showLoadingBanner('Looking for relevant files...');
+    }
+
     await wsClient.sendQuery(
       message,
       conversationHistory,
@@ -3355,13 +3399,18 @@ async function sendMessage() {
       useSmartSelection,  // Smart file selection toggle
       // onChunk callback for streaming text
       (chunk) => {
-        // Check if this is a loading message (starts with 📤)
-        if (chunk.startsWith('📤')) {
-          // Remove emoji and file size information from loading message
-          const cleanedMessage = chunk
+        // Check if this is a status/loading message (starts with emoji or status indicator)
+        if (chunk.startsWith('📤') || chunk.startsWith('[STATUS]')) {
+          // Convert backend status messages to conversational format
+          let cleanedMessage = chunk
             .replace(/📤\s*/, '')  // Remove emoji
+            .replace(/\[STATUS\]\s*/, '')  // Remove status prefix
             .replace(/\*\*/g, '')   // Remove bold markdown
-            .replace(/\s*\(~[\d.]+MB\)/g, '');  // Remove file size
+            .replace(/\s*\(~[\d.]+MB\)/g, '')  // Remove file size
+            .trim();
+
+          // Make messages more conversational
+          cleanedMessage = makeStatusConversational(cleanedMessage);
           showLoadingBanner(cleanedMessage);
           return; // Don't add to assistant message
         }
