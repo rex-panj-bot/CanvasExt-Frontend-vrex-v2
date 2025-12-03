@@ -377,12 +377,27 @@ class WebSocketClient {
   }
 
   /**
+   * Clear all pending queries from the queue
+   */
+  clearQueue() {
+    const queueLength = this.pendingQueries.length;
+    this.pendingQueries = [];
+    if (queueLength > 0) {
+      console.log(`🧹 Cleared ${queueLength} pending queries from queue`);
+    }
+    return queueLength;
+  }
+
+  /**
    * Close WebSocket connection
    */
   disconnect() {
     // Stop heartbeat and monitoring
     this.stopHeartbeat();
     this.stopConnectionMonitor();
+
+    // Clear any pending queries
+    this.clearQueue();
 
     if (this.ws) {
       this.ws.close();

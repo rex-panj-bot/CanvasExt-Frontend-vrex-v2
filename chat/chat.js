@@ -502,6 +502,24 @@ async function init() {
 
   // Check for filtered media files notification from popup
   checkFilteredMediaNotification();
+
+  // Check for unavailable/unpublished files notification from popup
+  checkUnavailableFilesNotification();
+
+  // Setup cleanup on tab close - clear pending queries and disconnect
+  window.addEventListener('beforeunload', handleTabClose);
+  window.addEventListener('unload', handleTabClose);
+}
+
+/**
+ * Handle tab close - cleanup WebSocket and pending queries
+ */
+function handleTabClose() {
+  console.log('🚪 Tab closing - cleaning up...');
+  if (wsClient) {
+    wsClient.clearQueue();
+    wsClient.disconnect();
+  }
 }
 
 /**
@@ -528,6 +546,33 @@ async function checkFilteredMediaNotification() {
     }
   } catch (error) {
     console.error('Error checking filtered media notification:', error);
+  }
+}
+
+/**
+ * Check if there are unavailable/unpublished files to notify about
+ */
+async function checkUnavailableFilesNotification() {
+  try {
+    const result = await chrome.storage.local.get('skippedUnavailableFiles');
+    const skipped = result.skippedUnavailableFiles;
+
+    if (skipped && skipped.courseId === courseId && skipped.files?.length > 0) {
+      // Only show if notification is recent (within last 60 seconds)
+      const age = Date.now() - skipped.timestamp;
+      if (age < 60000) {
+        showDropdownNotification(
+          `${skipped.files.length} file${skipped.files.length > 1 ? 's' : ''} unavailable`,
+          skipped.files,
+          skipped.reason || 'Files not published or accessible',
+          8000
+        );
+      }
+      // Clear the notification after showing (or if too old)
+      await chrome.storage.local.remove('skippedUnavailableFiles');
+    }
+  } catch (error) {
+    console.error('Error checking unavailable files notification:', error);
   }
 }
 

@@ -119,6 +119,22 @@ async function init() {
   }
 
   setupEventListeners();
+
+  // Setup cleanup on popup close
+  window.addEventListener('beforeunload', handlePopupClose);
+  window.addEventListener('unload', handlePopupClose);
+}
+
+/**
+ * Handle popup close - cleanup any pending operations
+ */
+function handlePopupClose() {
+  // Clear login polling if active
+  if (loginPollingInterval) {
+    clearInterval(loginPollingInterval);
+    loginPollingInterval = null;
+    console.log('🧹 Cleared login polling interval on popup close');
+  }
 }
 
 function setupEventListeners() {
@@ -282,16 +298,49 @@ function hideError(element) {
 
 // ========== SESSION AUTH ==========
 
+/**
+ * Extract Canvas domain from user input
+ * Handles various formats:
+ * - utexas.instructure.com
+ * - https://utexas.instructure.com
+ * - https://utexas.instructure.com/
+ * - https://utexas.instructure.com/courses/12345
+ * - http://utexas.instructure.com/login
+ * Returns just the domain: utexas.instructure.com
+ */
+function extractCanvasDomain(input) {
+  let url = input.trim();
+
+  // If no protocol, add one for URL parsing
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    url = 'https://' + url;
+  }
+
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname; // Returns just the domain
+  } catch (e) {
+    // If URL parsing fails, try manual extraction
+    return input.replace(/^https?:\/\//, '').split('/')[0].trim();
+  }
+}
+
 async function handleSessionLogin() {
-  const url = document.getElementById('session-canvas-url').value.trim();
+  const rawInput = document.getElementById('session-canvas-url').value.trim();
   const errorEl = document.getElementById('session-error');
 
   hideError(errorEl);
 
-  if (!url) {
+  if (!rawInput) {
     showError(errorEl, 'Please enter your Canvas URL');
     return;
   }
+
+  // Extract just the domain from whatever the user pasted
+  const canvasDomain = extractCanvasDomain(rawInput);
+
+  // Update the input field to show the cleaned domain
+  document.getElementById('session-canvas-url').value = canvasDomain;
 
   const btn = document.getElementById('session-login-btn');
 
@@ -299,8 +348,8 @@ async function handleSessionLogin() {
     btn.disabled = true;
     btn.textContent = 'Checking...';
 
-    // Save Canvas URL and set auth method
-    await StorageManager.saveCanvasUrl(url);
+    // Save Canvas URL (domain only) and set auth method
+    await StorageManager.saveCanvasUrl(canvasDomain);
     await StorageManager.saveAuthMethod('session');
 
     const savedUrl = await StorageManager.getCanvasUrl();
@@ -1688,10 +1737,15 @@ async function createStudyBot() {
     if (skippedFiles.length > 0) {
       console.warn(`⚠️ ${skippedFiles.length} files skipped (no Canvas download URL):`, skippedFiles);
 
-      // Notify user about unpublished/inaccessible files
-      const skippedNames = skippedFiles.slice(0, 10).join('\n• ');
-      const moreCount = skippedFiles.length > 10 ? `\n...and ${skippedFiles.length - 10} more` : '';
-      alert(`⚠️ ${skippedFiles.length} file(s) are not yet published or accessible and will be skipped:\n\n• ${skippedNames}${moreCount}\n\nThese files won't be available to the AI until they are published in Canvas.`);
+      // Store skipped files info for chat view to display notification
+      await chrome.storage.local.set({
+        skippedUnavailableFiles: {
+          courseId: currentCourse.id,
+          files: skippedFiles,
+          reason: 'Files not yet published or accessible in Canvas',
+          timestamp: Date.now()
+        }
+      });
 
       // Remove skipped files from materialsToProcess so they don't show in UI
       const skippedSet = new Set(skippedFiles);
