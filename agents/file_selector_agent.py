@@ -117,97 +117,29 @@ class FileSelectorAgent:
         status_callback: Optional[Callable[[str, str, Optional[int]], None]] = None
     ) -> List[Dict]:
         """
-        Scenario 1: Global Discovery (user has NOT manually selected files)
+        Scenario 1: Global Discovery - SINGLE AI CALL for speed
 
-        AI-Driven Flow:
-        1. AI analyzes query intent (topic, type, scope)
-        2. AI identifies anchor files based on summaries (not filenames)
-        3. Extract keywords from AI-selected anchors
-        4. Score all files using anchor keywords
-        5. Return top matches
-
-        Args:
-            user_query: User's question
-            file_summaries: All available file summaries
-            syllabus_summary: Syllabus text for context
-            max_files: Max files to return
-            status_callback: Optional callback for status updates
-
-        Returns:
-            List of selected file dicts
+        Uses one fast AI call to directly select relevant files from summaries.
         """
         try:
-            print(f"\n   📍 GLOBAL DISCOVERY FLOW (AI-Driven)")
+            print(f"\n   📍 GLOBAL DISCOVERY (Single-Call Fast Selection)")
 
-            # Step 1: AI analyzes query intent
+            # Single AI call to select files directly
             if status_callback:
                 status_callback(SelectionStage.ANALYZING_QUERY, "Analyzing your question...", None)
-                await asyncio.sleep(0)  # Yield to event loop for real-time streaming
+                await asyncio.sleep(0)
 
-            query_intent = await self._analyze_query_intent(user_query, syllabus_summary)
-            print(f"      Main Topic: {query_intent.get('main_topic', 'N/A')}")
-            print(f"      Query Type: {query_intent.get('query_type', 'N/A')}")
-            print(f"      Scope: {query_intent.get('scope', 'N/A')}")
-            print(f"      Context Hints: {query_intent.get('context_hints', [])[:5]}")
-
-            # Step 2: Scan summaries and identify anchors
-            if status_callback:
-                status_callback(SelectionStage.SCANNING_SUMMARIES, f"Scanning {len(file_summaries)} file summaries...", len(file_summaries))
-                await asyncio.sleep(0)  # Yield to event loop
-
-            if status_callback:
-                status_callback(SelectionStage.IDENTIFYING_ANCHORS, "Identifying priority files...", None)
-                await asyncio.sleep(0)  # Yield to event loop
-
-            anchors = await self._identify_anchors_ai(
-                query_intent,
-                file_summaries,
-                syllabus_summary,
-                max_anchors=5
+            selected = await self._fast_select_files(
+                user_query, file_summaries, syllabus_summary, max_files, status_callback
             )
-            print(f"      AI selected {len(anchors)} anchor files")
-            for anchor in anchors[:3]:
-                reasoning = anchor.get('_anchor_reasoning', 'N/A')
-                print(f"         🎯 {anchor['filename']}")
-                print(f"            → {reasoning}")
-
-            # Fallback: If AI selection fails, use legacy heuristics
-            if not anchors:
-                print(f"      ⚠️  AI anchor selection failed, using fallback heuristics")
-                anchors = self._identify_anchor_files(file_summaries)
-                print(f"      Found {len(anchors)} anchor files via fallback")
-
-            # Step 3: Extract keywords from anchors
-            if status_callback:
-                status_callback(SelectionStage.EXTRACTING_CONTEXT, f"Analyzing {len(anchors)} priority files...", len(anchors))
-                await asyncio.sleep(0)  # Yield to event loop
-
-            anchor_keywords = await self._extract_anchor_keywords(anchors, user_query)
-            print(f"      Extracted {len(anchor_keywords)} keywords from anchors")
-            print(f"         Keywords: {anchor_keywords[:10]}")
-
-            # Step 4: Score all files using anchor keywords + query intent
-            if status_callback:
-                status_callback(SelectionStage.SCORING_FILES, "Scoring file relevance...", None)
-                await asyncio.sleep(0)  # Yield to event loop
-
-            scored_files = await self._score_files_with_anchors(
-                file_summaries,
-                user_query,
-                anchor_keywords,
-                query_intent.get('context_hints', [])
-            )
-
-            # Step 5: Return top matches
-            selected = scored_files[:max_files]
 
             if status_callback:
                 status_callback(SelectionStage.COMPLETE, f"Selected {len(selected)} files", len(selected))
-                await asyncio.sleep(0)  # Yield to event loop
+                await asyncio.sleep(0)
 
-            print(f"   ✅ Selected {len(selected)} files from AI-driven global discovery")
-            for file in selected[:5]:
-                print(f"      📄 {file.get('filename')} (score: {file.get('_score', 0):.2f})")
+            print(f"   ✅ Selected {len(selected)} files")
+            for f in selected[:5]:
+                print(f"      📄 {f.get('filename')}")
 
             return selected
 
@@ -216,6 +148,93 @@ class FileSelectorAgent:
             import traceback
             traceback.print_exc()
             return []
+
+    async def _fast_select_files(
+        self,
+        user_query: str,
+        file_summaries: List[Dict],
+        syllabus_summary: Optional[str],
+        max_files: int,
+        status_callback: Optional[Callable[[str, str, Optional[int]], None]] = None
+    ) -> List[Dict]:
+        """
+        Single AI call to select relevant files - FAST version
+        """
+        if status_callback:
+            status_callback(SelectionStage.SCANNING_SUMMARIES, f"Scanning {len(file_summaries)} files...", len(file_summaries))
+            await asyncio.sleep(0)
+
+        # Build compact file list for prompt
+        file_list = []
+        file_lookup = {}
+        for i, f in enumerate(file_summaries):
+            doc_id = f.get('doc_id', f'file_{i}')
+            filename = f.get('filename', 'unknown')
+            summary = f.get('summary', '')[:200]  # Truncate for speed
+            topics = f.get('topics', [])
+            if isinstance(topics, str):
+                try:
+                    topics = json.loads(topics)
+                except:
+                    topics = []
+            topics_str = ', '.join(topics[:5]) if topics else ''
+
+            file_list.append(f"[{i}] {filename}\n    Summary: {summary}\n    Topics: {topics_str}")
+            file_lookup[i] = f
+
+        files_text = "\n\n".join(file_list[:50])  # Limit to 50 files for speed
+
+        if status_callback:
+            status_callback(SelectionStage.IDENTIFYING_ANCHORS, "Identifying relevant files...", None)
+            await asyncio.sleep(0)
+
+        prompt = f"""You are a file selector for a study assistant. Select the most relevant files for this question.
+
+QUESTION: {user_query}
+
+{f"COURSE CONTEXT: {syllabus_summary[:500]}" if syllabus_summary else ""}
+
+FILES:
+{files_text}
+
+Select up to {max_files} files most relevant to answering the question.
+Return ONLY a JSON array of file indices, e.g.: [0, 3, 7, 12]
+Prioritize files that directly address the topic. Include study guides/reviews if relevant.
+Return ONLY the JSON array, nothing else."""
+
+        try:
+            response = await self.client.aio.models.generate_content(
+                model=self.model_id,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.1,
+                    max_output_tokens=200,
+                )
+            )
+
+            if status_callback:
+                status_callback(SelectionStage.SCORING_FILES, "Processing selection...", None)
+                await asyncio.sleep(0)
+
+            # Parse response
+            text = response.text.strip()
+            # Extract JSON array
+            match = re.search(r'\[[\d,\s]+\]', text)
+            if match:
+                indices = json.loads(match.group())
+                selected = []
+                for idx in indices[:max_files]:
+                    if idx in file_lookup:
+                        selected.append(file_lookup[idx])
+                return selected
+
+            # Fallback: return first N files
+            print(f"      ⚠️ Could not parse AI response, using fallback")
+            return file_summaries[:max_files]
+
+        except Exception as e:
+            logger.error(f"AI selection failed: {e}")
+            return file_summaries[:max_files]
 
     async def scoped_refinement(
         self,
@@ -228,123 +247,41 @@ class FileSelectorAgent:
         status_callback: Optional[Callable[[str, str, Optional[int]], None]] = None
     ) -> List[Dict]:
         """
-        Scenario 2: Scoped Refinement (user HAS manually selected files)
+        Scenario 2: Scoped Refinement - SIMPLIFIED for speed
 
-        AI-Driven Flow:
-        1. AI analyzes query intent
-        2. Filter to user's selection
-        3. AI identifies anchors WITHIN selection based on content
-        4. Extract keywords from AI-selected anchors
-        5. Score and prune the selection
-        6. Return pruned subset
-
-        Args:
-            user_query: User's question
-            file_summaries: All file summaries
-            syllabus_summary: Syllabus text (ground truth)
-            syllabus_doc_id: Syllabus doc ID
-            selected_docs: List of doc_ids user selected
-            max_files: Max files to return
-            status_callback: Optional callback for status updates
-
-        Returns:
-            Pruned list of selected file dicts (subset of user's selection)
+        Just filters to user's selection and uses fast AI selection within that scope.
         """
         try:
-            print(f"\n   🔬 SCOPED REFINEMENT FLOW (AI-Driven)")
+            print(f"\n   🔬 SCOPED REFINEMENT (Fast Selection)")
             print(f"      User selected {len(selected_docs)} files")
 
-            # Step 1: AI analyzes query intent
             if status_callback:
                 status_callback(SelectionStage.ANALYZING_QUERY, "Analyzing your question...", None)
-                await asyncio.sleep(0)  # Yield to event loop
+                await asyncio.sleep(0)
 
-            query_intent = await self._analyze_query_intent(user_query, syllabus_summary)
-            print(f"      Main Topic: {query_intent.get('main_topic', 'N/A')}")
-            print(f"      Query Type: {query_intent.get('query_type', 'N/A')}")
-            print(f"      Context Hints: {query_intent.get('context_hints', [])[:5]}")
-
-            # Step 2: Filter to only user's selection
-            if status_callback:
-                status_callback(SelectionStage.SCANNING_SUMMARIES, f"Scanning {len(selected_docs)} selected files...", len(selected_docs))
-                await asyncio.sleep(0)  # Yield to event loop
-
+            # Filter to user's selection
             selected_set = set(selected_docs)
             scoped_summaries = [f for f in file_summaries if f.get('doc_id') in selected_set]
-            print(f"      Scoped to {len(scoped_summaries)} files from user selection")
+            print(f"      Scoped to {len(scoped_summaries)} files")
 
-            # CRITICAL: Ensure syllabus is available even if not in selection
-            if syllabus_doc_id and syllabus_doc_id not in selected_set:
-                print(f"      ⚠️  Syllabus not in selection, retrieving for ground truth...")
-                syllabus_file = next((f for f in file_summaries if f.get('doc_id') == syllabus_doc_id), None)
-                if syllabus_file:
-                    print(f"      ✅ Retrieved syllabus: {syllabus_file.get('filename')}")
+            if not scoped_summaries:
+                print(f"      ⚠️ No matching summaries found")
+                return []
 
-            # Step 3: AI identifies anchors WITHIN user's selection
-            if status_callback:
-                status_callback(SelectionStage.IDENTIFYING_ANCHORS, "Identifying priority files in selection...", None)
-                await asyncio.sleep(0)  # Yield to event loop
-
-            anchors = await self._identify_anchors_ai(
-                query_intent,
-                scoped_summaries,
-                syllabus_summary,
-                max_anchors=3
-            )
-            print(f"      AI selected {len(anchors)} anchor files in selection")
-            for anchor in anchors[:3]:
-                reasoning = anchor.get('_anchor_reasoning', 'N/A')
-                print(f"         🎯 {anchor['filename']}")
-                print(f"            → {reasoning}")
-
-            # Fallback: If AI selection fails, use legacy heuristics
-            if not anchors:
-                print(f"      ⚠️  AI anchor selection failed, using fallback heuristics")
-                anchors = self._identify_anchor_files(scoped_summaries)
-                print(f"      Found {len(anchors)} anchor files via fallback")
-
-            # Step 4: Extract keywords from anchors (or fallback to query intent)
-            if status_callback:
-                status_callback(SelectionStage.EXTRACTING_CONTEXT, "Extracting relevant concepts...", None)
-                await asyncio.sleep(0)  # Yield to event loop
-
-            if anchors:
-                anchor_keywords = await self._extract_anchor_keywords(anchors, user_query)
-                print(f"      Extracted {len(anchor_keywords)} keywords from scoped anchors")
-            else:
-                print(f"      ⚠️  No anchors in selection, using query context hints as fallback")
-                anchor_keywords = query_intent.get('context_hints', [])
-                print(f"      Fallback keywords: {anchor_keywords[:5]}")
-
-            # Step 5: Score ONLY the user's selection
-            if status_callback:
-                status_callback(SelectionStage.SCORING_FILES, "Scoring file relevance...", None)
-                await asyncio.sleep(0)  # Yield to event loop
-
-            scored_files = await self._score_files_with_anchors(
-                scoped_summaries,
-                user_query,
-                anchor_keywords,
-                query_intent.get('context_hints', [])
+            # Use same fast selection on the scoped set
+            selected = await self._fast_select_files(
+                user_query, scoped_summaries, syllabus_summary, max_files, status_callback
             )
 
-            # Step 6: Prune - return only relevant files (may be < user's selection)
-            RELEVANCE_THRESHOLD = 0.3
-            pruned = [f for f in scored_files if f.get('_score', 0) >= RELEVANCE_THRESHOLD]
-            pruned = pruned[:max_files]
-
             if status_callback:
-                status_callback(SelectionStage.COMPLETE, f"Selected {len(pruned)} of {len(selected_docs)} files", len(pruned))
-                await asyncio.sleep(0)  # Yield to event loop
+                status_callback(SelectionStage.COMPLETE, f"Selected {len(selected)} files", len(selected))
+                await asyncio.sleep(0)
 
-            print(f"   ✅ Pruned selection: {len(selected_docs)} → {len(pruned)} files")
-            if len(pruned) < len(selected_docs):
-                print(f"      Removed {len(selected_docs) - len(pruned)} irrelevant files")
+            print(f"   ✅ Selected {len(selected)} of {len(selected_docs)} files")
+            for f in selected[:5]:
+                print(f"      📄 {f.get('filename')}")
 
-            for file in pruned[:5]:
-                print(f"      📄 {file.get('filename')} (score: {file.get('_score', 0):.2f})")
-
-            return pruned
+            return selected
 
         except Exception as e:
             logger.error(f"Error in scoped refinement: {e}")
