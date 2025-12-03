@@ -412,6 +412,17 @@ class WebSocketClient {
   isReady() {
     return this.isConnected && this.ws && this.ws.readyState === WebSocket.OPEN;
   }
+
+  /**
+   * Get Canvas user ID from storage
+   */
+  async getCanvasUserId() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(['canvasUserId'], (result) => {
+        resolve(result.canvasUserId || null);
+      });
+    });
+  }
 }
 
 /**
