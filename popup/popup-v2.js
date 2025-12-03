@@ -105,11 +105,9 @@ async function init() {
         // Session is valid, go to main screen
         await loadMainScreen();
       } else {
-        // Session invalid, show session setup screen with continue button
+        // Session invalid, show session setup screen
         showScreen('sessionSetup');
         document.getElementById('session-canvas-url').value = url.replace('https://', '').replace('http://', '');
-        document.getElementById('session-login-btn').classList.add('hidden');
-        document.getElementById('session-continue-btn').classList.remove('hidden');
       }
     } catch (error) {
       console.error('Session check failed:', error);
@@ -126,7 +124,6 @@ async function init() {
 function setupEventListeners() {
   // Session auth
   document.getElementById('session-login-btn').addEventListener('click', handleSessionLogin);
-  document.getElementById('session-continue-btn').addEventListener('click', handleSessionContinue);
 
   // Main screen
   document.getElementById('course-select').addEventListener('change', handleCourseChange);
@@ -296,85 +293,89 @@ async function handleSessionLogin() {
     return;
   }
 
+  const btn = document.getElementById('session-login-btn');
+
   try {
-    const btn = document.getElementById('session-login-btn');
     btn.disabled = true;
-    btn.textContent = 'Saving...';
+    btn.textContent = 'Checking...';
 
     // Save Canvas URL and set auth method
     await StorageManager.saveCanvasUrl(url);
     await StorageManager.saveAuthMethod('session');
 
     const savedUrl = await StorageManager.getCanvasUrl();
+    const sessionAuth = new SessionAuth(savedUrl);
 
-    // Open Canvas login page
-    const loginUrl = `${savedUrl}/login`;
-    chrome.tabs.create({ url: loginUrl });
+    // First check if already logged in
+    const isAlreadyLoggedIn = await sessionAuth.testSession();
 
-    // Show continue button
-    btn.classList.add('hidden');
-    document.getElementById('session-continue-btn').classList.remove('hidden');
-  } catch (error) {
-    showError(errorEl, error.message);
-    document.getElementById('session-login-btn').disabled = false;
-    document.getElementById('session-login-btn').textContent = 'Log in to Canvas';
-  }
-}
+    if (isAlreadyLoggedIn) {
+      // Already logged in - go straight to main screen
+      console.log('Already logged in! Loading main screen...');
+      currentAuthMethod = 'session';
+      canvasAPI = new CanvasAPI(savedUrl, null, 'session');
+      await loadMainScreen();
+    } else {
+      // Not logged in - open Canvas login page and poll silently
+      const loginUrl = `${savedUrl}/login`;
+      chrome.tabs.create({ url: loginUrl });
 
-async function handleSessionContinue() {
-  const errorEl = document.getElementById('session-error');
-  const btn = document.getElementById('session-continue-btn');
-
-  try {
-    btn.disabled = true;
-    btn.textContent = 'Checking login status...';
-
-    // First check if URL has been entered
-    const urlInput = document.getElementById('session-canvas-url');
-    let url = await StorageManager.getCanvasUrl();
-
-    // If no URL saved yet, try to save from input field
-    if (!url && urlInput && urlInput.value.trim()) {
-      await StorageManager.saveCanvasUrl(urlInput.value.trim());
-      await StorageManager.saveAuthMethod('session');
-      url = await StorageManager.getCanvasUrl();
-    }
-
-    if (!url) {
-      showError(errorEl, 'Please enter your Canvas URL first');
+      // Reset button and start polling in background
       btn.disabled = false;
-      btn.textContent = 'I\'m Logged In - Continue';
-      return;
+      btn.textContent = 'Log in to Canvas';
+
+      // Start polling for login status
+      startLoginPolling(savedUrl);
     }
-
-    const sessionAuth = new SessionAuth(url);
-
-    // Test if logged in
-    console.log('Testing Canvas session...');
-    const isValid = await sessionAuth.testSession();
-
-    if (!isValid) {
-      showError(errorEl, 'Not logged in to Canvas. Please log in and try again.');
-      btn.disabled = false;
-      btn.textContent = 'I\'m Logged In - Continue';
-      return;
-    }
-
-    console.log('Session valid! Loading main screen...');
-
-    // Initialize API with session auth
-    currentAuthMethod = 'session';
-    canvasAPI = new CanvasAPI(url, null, 'session');
-
-    await loadMainScreen();
   } catch (error) {
-    console.error('Session continue error:', error);
     showError(errorEl, error.message);
     btn.disabled = false;
-    btn.textContent = 'I\'m Logged In - Continue';
+    btn.textContent = 'Log in to Canvas';
   }
 }
 
+// Poll for login status after user opens Canvas login page
+let loginPollingInterval = null;
+
+function startLoginPolling(url) {
+  // Clear any existing polling
+  if (loginPollingInterval) {
+    clearInterval(loginPollingInterval);
+  }
+
+  const sessionAuth = new SessionAuth(url);
+  let attempts = 0;
+  const maxAttempts = 60; // 2 minutes max (every 2 seconds)
+
+  loginPollingInterval = setInterval(async () => {
+    attempts++;
+
+    try {
+      const isValid = await sessionAuth.testSession();
+
+      if (isValid) {
+        // Login successful - stop polling and proceed
+        clearInterval(loginPollingInterval);
+        loginPollingInterval = null;
+
+        console.log('Login detected! Loading main screen...');
+
+        // Initialize API with session auth
+        currentAuthMethod = 'session';
+        canvasAPI = new CanvasAPI(url, null, 'session');
+
+        await loadMainScreen();
+      } else if (attempts >= maxAttempts) {
+        // Timeout - stop polling silently (user can click button again)
+        clearInterval(loginPollingInterval);
+        loginPollingInterval = null;
+        console.log('Login polling timed out');
+      }
+    } catch (error) {
+      console.log('Login check failed, will retry...', error.message);
+    }
+  }, 2000); // Check every 2 seconds
+}
 
 // ========== MAIN SCREEN ==========
 
@@ -1415,7 +1416,12 @@ async function createStudyBot() {
     }
 
     // Get list of files already uploaded
-    const statusResponse = await fetch(`https://web-production-9aaba7.up.railway.app/collections/${currentCourse.id}/status`);
+    const canvasUserId = await StorageManager.getCanvasUserId();
+    const statusHeaders = {};
+    if (canvasUserId) {
+      statusHeaders['X-Canvas-User-Id'] = canvasUserId;
+    }
+    const statusResponse = await fetch(`https://web-production-9aaba7.up.railway.app/collections/${currentCourse.id}/status`, { headers: statusHeaders });
     const status = await statusResponse.json();
     const uploadedFileIds = new Set(status.files || []);
 

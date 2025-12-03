@@ -484,7 +484,15 @@ async function fetchAndMergeBackendMaterials(courseId) {
     console.log('🔄 Fetching materials catalog from backend...');
 
     const backendUrl = 'https://web-production-9aaba7.up.railway.app';
-    const response = await fetch(`${backendUrl}/collections/${courseId}/materials`);
+
+    // Get Canvas user ID for the header
+    const storageData = await chrome.storage.local.get(['canvasUserId']);
+    const headers = {};
+    if (storageData.canvasUserId) {
+      headers['X-Canvas-User-Id'] = storageData.canvasUserId;
+    }
+
+    const response = await fetch(`${backendUrl}/collections/${courseId}/materials`, { headers });
     const data = await response.json();
 
     if (!data.success || !data.materials) {

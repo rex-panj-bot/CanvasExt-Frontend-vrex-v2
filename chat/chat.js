@@ -4127,9 +4127,21 @@ async function generateChatTitle(firstMessage) {
   try {
     console.log('✨ Generating chat title...');
 
+    // Get canvas user ID for the header
+    const canvasUserId = await new Promise((resolve) => {
+      chrome.storage.local.get(['canvasUserId'], (result) => {
+        resolve(result.canvasUserId || null);
+      });
+    });
+
+    const headers = { 'Content-Type': 'application/json' };
+    if (canvasUserId) {
+      headers['X-Canvas-User-Id'] = canvasUserId;
+    }
+
     const response = await fetch(`https://web-production-9aaba7.up.railway.app/chats/${courseId}/${currentSessionId}/generate-title`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ first_message: firstMessage })
     });
 

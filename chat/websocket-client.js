@@ -277,6 +277,9 @@ class WebSocketClient {
       });
     }
 
+    // Get canvas user ID before creating the promise
+    const canvasUserId = await this.getCanvasUserId();
+
     // Connection is good - send query normally
     return new Promise((resolve, reject) => {
       let closeHandler = null;
@@ -310,7 +313,8 @@ class WebSocketClient {
         session_id: sessionId || null,  // For chat history saving
         api_key: apiKey || null,  // User's Gemini API key
         enable_web_search: enableWebSearch || false,  // Web search toggle
-        use_smart_selection: useSmartSelection || false  // Smart file selection toggle
+        use_smart_selection: useSmartSelection || false,  // Smart file selection toggle
+        canvas_user_id: canvasUserId || null  // Canvas user ID for user-specific tracking
       };
 
       // Handle incoming messages
@@ -475,7 +479,12 @@ class BackendClient {
    */
   async getCollectionStatus(courseId) {
     try {
-      const response = await fetch(`${this.backendUrl}/collections/${courseId}/status`);
+      const canvasUserId = await this.getCanvasUserId();
+      const headers = {};
+      if (canvasUserId) {
+        headers['X-Canvas-User-Id'] = canvasUserId;
+      }
+      const response = await fetch(`${this.backendUrl}/collections/${courseId}/status`, { headers });
       const result = await response.json();
       return result;
     } catch (error) {
@@ -499,11 +508,27 @@ class BackendClient {
   }
 
   /**
+   * Get Canvas user ID from storage
+   */
+  async getCanvasUserId() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(['canvasUserId'], (result) => {
+        resolve(result.canvasUserId || null);
+      });
+    });
+  }
+
+  /**
    * Get recent chat sessions for a course
    */
   async getRecentChats(courseId, limit = 20) {
     try {
-      const response = await fetch(`${this.backendUrl}/chats/${courseId}?limit=${limit}`);
+      const canvasUserId = await this.getCanvasUserId();
+      const headers = {};
+      if (canvasUserId) {
+        headers['X-Canvas-User-Id'] = canvasUserId;
+      }
+      const response = await fetch(`${this.backendUrl}/chats/${courseId}?limit=${limit}`, { headers });
       const result = await response.json();
       return result;
     } catch (error) {
@@ -517,7 +542,12 @@ class BackendClient {
    */
   async getChatSession(courseId, sessionId) {
     try {
-      const response = await fetch(`${this.backendUrl}/chats/${courseId}/${sessionId}`);
+      const canvasUserId = await this.getCanvasUserId();
+      const headers = {};
+      if (canvasUserId) {
+        headers['X-Canvas-User-Id'] = canvasUserId;
+      }
+      const response = await fetch(`${this.backendUrl}/chats/${courseId}/${sessionId}`, { headers });
       const result = await response.json();
       return result;
     } catch (error) {
@@ -531,8 +561,14 @@ class BackendClient {
    */
   async deleteChatSession(courseId, sessionId) {
     try {
+      const canvasUserId = await this.getCanvasUserId();
+      const headers = {};
+      if (canvasUserId) {
+        headers['X-Canvas-User-Id'] = canvasUserId;
+      }
       const response = await fetch(`${this.backendUrl}/chats/${courseId}/${sessionId}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers
       });
       const result = await response.json();
       return result;
@@ -547,11 +583,16 @@ class BackendClient {
    */
   async updateChatTitle(courseId, sessionId, title) {
     try {
+      const canvasUserId = await this.getCanvasUserId();
+      const headers = {
+        'Content-Type': 'application/json'
+      };
+      if (canvasUserId) {
+        headers['X-Canvas-User-Id'] = canvasUserId;
+      }
       const response = await fetch(`${this.backendUrl}/chats/${courseId}/${sessionId}/title`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers,
         body: JSON.stringify({ title })
       });
       const result = await response.json();

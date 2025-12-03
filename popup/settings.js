@@ -284,12 +284,19 @@ async function loadSyllabusSettings() {
     // Get backend URL
     const backendUrl = 'https://web-production-9aaba7.up.railway.app';
 
+    // Get Canvas user ID for the header
+    const storageData = await chrome.storage.local.get(['canvasUserId']);
+    const headers = {};
+    if (storageData.canvasUserId) {
+      headers['X-Canvas-User-Id'] = storageData.canvasUserId;
+    }
+
     // Fetch current syllabus
-    const syllabusResponse = await fetch(`${backendUrl}/courses/${courseId}/syllabus`);
+    const syllabusResponse = await fetch(`${backendUrl}/courses/${courseId}/syllabus`, { headers });
     const syllabusData = await syllabusResponse.json();
 
     // Get all materials for the course
-    const materialsResponse = await fetch(`${backendUrl}/collections/${courseId}/materials`);
+    const materialsResponse = await fetch(`${backendUrl}/collections/${courseId}/materials`, { headers });
     const materialsData = await materialsResponse.json();
 
     if (!materialsData.success || !materialsData.materials || materialsData.materials.length === 0) {
