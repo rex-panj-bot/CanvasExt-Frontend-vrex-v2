@@ -3489,8 +3489,13 @@ async function sendMessage() {
  * Format: [Source: DocumentName, Page X]
  */
 function parseCitations(content) {
-  // Regex to match: [Source: DocumentName, Page X] or [Source: DocumentName, Pages X-Y] or [Source: DocumentName, Page X, Y, Z]
-  const citationRegex = /\[Source:\s*([^,]+),\s*Pages?\s*([0-9,\s\-]+)\]/gi;
+  // Regex to match various citation formats:
+  // - [Source: DocumentName, Page X]
+  // - [Source: DocumentName, Pages X-Y]
+  // - [Source: DocumentName, p. X]
+  // - [Source: DocumentName - Page X]
+  // - (Source: DocumentName, Page X)
+  const citationRegex = /[\[\(]Source:\s*([^,\]\)]+)[,\-\s]+(?:Pages?|p\.?)\s*([0-9,\s\-]+)[\]\)]/gi;
 
   return content.replace(citationRegex, (match, docName, pageInfo) => {
     // Clean up document name (trim whitespace)
