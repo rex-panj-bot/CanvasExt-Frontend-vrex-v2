@@ -3645,7 +3645,17 @@ function renderMath(content) {
     });
 
     // Render inline math ($...$)
+    // Skip currency amounts like $100 - only render if content looks like actual math
     protectedContent = protectedContent.replace(/\$([^\$\n]+?)\$/g, (match, math) => {
+      // Skip if it looks like currency (just a number, possibly with commas/decimals)
+      if (/^\d[\d,\.]*$/.test(math.trim())) {
+        return match; // Keep as-is, it's currency
+      }
+      // Skip if it contains multiple English words (likely not math)
+      // Real math rarely has 3+ consecutive lowercase words
+      if (/[a-z]+\s+[a-z]+\s+[a-z]+/i.test(math)) {
+        return match; // Keep as-is, it's probably not math
+      }
       try {
         return katex.renderToString(math.trim(), {
           displayMode: false,
