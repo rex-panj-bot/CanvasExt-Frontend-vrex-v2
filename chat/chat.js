@@ -2629,7 +2629,6 @@ function setupEventListeners() {
   const uploadBtn = document.getElementById('upload-files-btn');
   const refreshBtn = document.getElementById('refresh-materials-btn');
   const fileInput = document.getElementById('file-upload-input');
-  const refreshBtn = document.getElementById('refresh-materials-btn');
 
   if (uploadBtn && fileInput) {
     uploadBtn.addEventListener('click', () => {
