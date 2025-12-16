@@ -772,7 +772,7 @@ function displayMaterials() {
         </div>
         <div class="module-items collapsed">
           ${moduleFilesWithIndices.map(({ file, originalItemIdx }) => `
-            <div class="material-item" data-module-idx="${moduleIdx}" data-item-idx="${originalItemIdx}" data-selected="false">
+            <div class="material-item" data-module-idx="${moduleIdx}" data-item-idx="${originalItemIdx}" data-doc-id="${file.doc_id || ''}" data-selected="false">
               <label class="material-label" title="${file.title || file.name}">
                 ${file.title || file.name}
               </label>
@@ -825,7 +825,7 @@ function displayMaterials() {
       const filesDiv = document.createElement('div');
       filesDiv.className = 'section-items';
       filesDiv.innerHTML = standaloneFilesWithIndices.map(({ file, originalIndex }) => `
-        <div class="material-item" data-category="files" data-index="${originalIndex}" data-selected="false">
+        <div class="material-item" data-category="files" data-index="${originalIndex}" data-doc-id="${file.doc_id || ''}" data-selected="false">
           <label class="material-label" title="${file.display_name || file.name}">
             ${file.display_name || file.name}
           </label>
@@ -864,7 +864,7 @@ function displayMaterials() {
     const pagesDiv = document.createElement('div');
     pagesDiv.className = 'section-items';
     pagesDiv.innerHTML = processedMaterials.pages.map((page, pageIdx) => `
-      <div class="material-item" data-category="pages" data-index="${pageIdx}" data-selected="false">
+      <div class="material-item" data-category="pages" data-index="${pageIdx}" data-doc-id="${page.doc_id || ''}" data-selected="false">
         <label class="material-label" title="${page.title}">
           ${page.title}
         </label>
@@ -902,7 +902,7 @@ function displayMaterials() {
     const assignmentsDiv = document.createElement('div');
     assignmentsDiv.className = 'section-items';
     assignmentsDiv.innerHTML = processedMaterials.assignments.map((assignment, assignmentIdx) => `
-      <div class="material-item" data-category="assignments" data-index="${assignmentIdx}" data-selected="false">
+      <div class="material-item" data-category="assignments" data-index="${assignmentIdx}" data-doc-id="${assignment.doc_id || ''}" data-selected="false">
         <label class="material-label" title="${assignment.name}">
           ${assignment.name}
         </label>
@@ -1895,6 +1895,66 @@ function getSelectedDocIds() {
 }
 
 /**
+ * Select files in the sidebar by their doc_ids
+ * Used by Smart File Select to show which files were chosen
+ * @param {string[]} docIds - Array of doc_ids to select
+ */
+function selectFilesInSidebar(docIds) {
+  if (!docIds || docIds.length === 0) return;
+
+  const docIdSet = new Set(docIds);
+  let selectedCount = 0;
+
+  // First, deselect all items
+  document.querySelectorAll('.material-item').forEach(item => {
+    item.setAttribute('data-selected', 'false');
+  });
+
+  // Then select only the items that match the doc_ids
+  document.querySelectorAll('.material-item[data-doc-id]').forEach(item => {
+    const itemDocId = item.getAttribute('data-doc-id');
+    if (itemDocId && docIdSet.has(itemDocId)) {
+      item.setAttribute('data-selected', 'true');
+      selectedCount++;
+
+      // If this is a module item, expand the parent module
+      const moduleItems = item.closest('.module-items');
+      if (moduleItems && moduleItems.classList.contains('collapsed')) {
+        moduleItems.classList.remove('collapsed');
+        // Also rotate the chevron
+        const moduleHeader = moduleItems.previousElementSibling;
+        if (moduleHeader) {
+          const chevron = moduleHeader.querySelector('.module-chevron');
+          if (chevron) {
+            chevron.style.transform = 'rotate(90deg)';
+          }
+        }
+      }
+    }
+  });
+
+  console.log(`📂 Smart Select: Selected ${selectedCount}/${docIds.length} files in sidebar`);
+
+  // Update the select all checkbox state
+  const selectAllCheckbox = document.getElementById('select-all-materials-checkbox');
+  if (selectAllCheckbox) {
+    const allItems = document.querySelectorAll('.material-item');
+    const selectedItems = Array.from(allItems).filter(item => item.getAttribute('data-selected') === 'true');
+
+    if (selectedItems.length === allItems.length && allItems.length > 0) {
+      selectAllCheckbox.checked = true;
+      selectAllCheckbox.indeterminate = false;
+    } else if (selectedItems.length > 0) {
+      selectAllCheckbox.checked = false;
+      selectAllCheckbox.indeterminate = true;
+    } else {
+      selectAllCheckbox.checked = false;
+      selectAllCheckbox.indeterminate = false;
+    }
+  }
+}
+
+/**
  * Get syllabus ID if available
  */
 function getSyllabusId() {
@@ -1943,7 +2003,11 @@ async function uploadMaterialsToBackend() {
             if (item.blob && item.title) {
               filesToUpload.push({
                 blob: item.blob,
-                name: item.title
+                name: item.title,
+                // Include Canvas timestamps for temporal disambiguation in smart file selection
+                canvas_created_at: item.canvas_created_at || null,
+                canvas_updated_at: item.canvas_updated_at || null,
+                canvas_modified_at: item.canvas_modified_at || null
               });
             }
           }
@@ -1957,7 +2021,11 @@ async function uploadMaterialsToBackend() {
         if (file.blob && (file.name || file.display_name)) {
           filesToUpload.push({
             blob: file.blob,
-            name: file.name || file.display_name
+            name: file.name || file.display_name,
+            // Include Canvas timestamps for temporal disambiguation in smart file selection
+            canvas_created_at: file.canvas_created_at || null,
+            canvas_updated_at: file.canvas_updated_at || null,
+            canvas_modified_at: file.canvas_modified_at || null
           });
         }
       }
@@ -3240,6 +3308,16 @@ async function sendMessage() {
             }
             return;
           }
+        }
+
+        // Check if this is a file selection event from smart select
+        // Format: __FILE_SELECTION__:doc_id1,doc_id2,doc_id3
+        if (chunk.startsWith('__FILE_SELECTION__:')) {
+          const docIds = chunk.replace('__FILE_SELECTION__:', '').trim().split(',');
+          console.log('📂 Smart Select files:', docIds.length, 'files');
+          // Select these files in the sidebar
+          selectFilesInSidebar(docIds);
+          return; // Don't add to assistant message
         }
 
         // Filter out status/loading messages (emoji prefix patterns)
