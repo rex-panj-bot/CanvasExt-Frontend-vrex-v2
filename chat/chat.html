@@ -20,9 +20,10 @@
       <div class="sidebar-header">
         <h3>Course Materials</h3>
         <div class="materials-controls">
-          <button id="refresh-materials-btn" class="materials-control-btn" title="Refresh course materials">
+          <button id="refresh-materials-btn" class="materials-control-btn" title="Refresh from Canvas">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-              <path d="M13.65 2.35C12.2 0.9 10.21 0 8 0C3.58 0 0.01 3.58 0.01 8C0.01 12.42 3.58 16 8 16C11.73 16 14.84 13.45 15.73 10H13.65C12.83 12.33 10.61 14 8 14C4.69 14 2 11.31 2 8C2 4.69 4.69 2 8 2C9.66 2 11.14 2.69 12.22 3.78L9 7H16V0L13.65 2.35Z" fill="currentColor"/>
+              <path d="M13 4.5C12 3.5 10.5 2.5 8 2.5C4.5 2.5 2 5 2 8.5C2 12 4.5 14.5 8 14.5C11 14.5 13.5 12.5 14 9.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M13 1.5V4.5H10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
           </button>
           <button id="upload-files-btn" class="materials-control-btn" title="Upload files">
@@ -75,11 +76,10 @@
       <!-- Pinned Action Buttons -->
       <div class="sidebar-actions-pinned">
         <button id="new-chat-btn" class="btn btn-new-chat">
-          <svg class="icon-notepad" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect x="3" y="2" width="10" height="12" rx="1" stroke="currentColor" stroke-width="1.5"/>
-            <line x1="5" y1="5" x2="11" y2="5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-            <line x1="5" y1="8" x2="9" y2="8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-            <path d="M11 10L13 12L11 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <svg class="icon-notepad" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="3" y="3" width="12" height="16" rx="2" stroke="currentColor" stroke-width="2"/>
+            <path d="M7 8h5M7 12h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <path d="M14.5 13.5L21 7L19 5L12.5 11.5L12 15L15.5 14.5L14.5 13.5Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
           <span>New Chat</span>
         </button>
@@ -378,7 +378,7 @@
   <!-- API Key Setup Modal (shown on first use) -->
   <div id="apiKeyModal" class="api-key-modal hidden">
     <div class="api-key-modal-content">
-      <h2>🔑 Google Gemini API Key Required</h2>
+      <h2>Google Gemini API Key Required</h2>
       <p>To use the AI Study Assistant, you need a <strong>free Google Gemini API key</strong>.</p>
 
       <div class="api-key-steps">
@@ -419,9 +419,15 @@
   </div>
 
   <!-- Scripts -->
+  <script src="../lib/jszip.min.js"></script>
+  <script src="../lib/pdf.min.js"></script>
+  <script src="../lib/mammoth.browser.min.js"></script>
   <script src="../utils/theme-manager.js"></script>
   <script src="../utils/storage.js"></script>
   <script src="../utils/indexed-db-storage.js"></script>
+  <script src="../utils/canvas-api.js"></script>
+  <script src="../utils/session-auth.js"></script>
+  <script src="../utils/file-processor.js"></script>
   <script src="websocket-client.js"></script>
   <script src="chat.js"></script>
 </body>

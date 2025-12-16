@@ -166,6 +166,29 @@ const elements = {
   closeSettings: document.getElementById('close-settings')
 };
 
+/**
+ * Update URL with current chat session without reloading page
+ * @param {string} sessionId - Session ID to add to URL (null for new/blank chat)
+ */
+function updateURL(sessionId) {
+  const url = new URL(window.location.href);
+
+  // Always preserve courseId
+  url.searchParams.set('courseId', courseId);
+
+  // Add or remove chatId based on whether we have a session
+  if (sessionId && sessionId.startsWith('session_')) {
+    url.searchParams.set('chatId', sessionId);
+  } else {
+    url.searchParams.delete('chatId');
+  }
+
+  // Update URL without reloading page
+  window.history.replaceState({}, '', url.toString());
+
+  console.log('📍 Updated URL:', url.toString());
+}
+
 // Initialize
 document.addEventListener('DOMContentLoaded', init);
 
@@ -351,6 +374,14 @@ async function init() {
     return; // Stop initialization until API key is provided
   }
 
+  // Configure marked.js for better math formatting
+  // Enable breaks option to convert single line breaks to <br> tags
+  // This ensures equations are properly separated and not crammed together
+  marked.setOptions({
+    breaks: true,  // Convert \n to <br> tags for proper equation spacing
+    gfm: true      // GitHub Flavored Markdown
+  });
+
   // Initialize theme
   initTheme();
 
@@ -368,6 +399,7 @@ async function init() {
 
   // Generate session ID for this chat (will be replaced if loading from URL)
   currentSessionId = urlChatId || `session_${courseId}_${Date.now()}`;
+  console.log(urlChatId ? '🔄 Restoring chat session from URL:' : '✨ Creating new chat session:', currentSessionId);
 
   // Check if we're in loading mode (background loading in progress)
   const isLoading = urlParams.get('loading') === 'true';
@@ -385,6 +417,9 @@ async function init() {
 
   // HASH-BASED: Sync materials with backend to ensure hash-based IDs are present
   await syncMaterialsWithBackend();
+
+  // Check summary status and update smart selection availability
+  await updateSmartSelectionAvailability();
 
   // Load API key and initialize Claude
   await loadAPIKey();
@@ -430,6 +465,90 @@ async function init() {
       showSettingsModal();
     }
   });
+
+  // Restore chat session if chatId is in URL (after all initialization is complete)
+  if (chatIdFromURL) {
+    console.log('🔄 Loading chat session from URL after initialization...');
+    await loadChatSession(chatIdFromURL);
+  } else {
+    // New chat - update URL to reflect blank state
+    updateURL(null);
+  }
+
+  // Check for filtered media files notification from popup
+  checkFilteredMediaNotification();
+
+  // Check for unavailable/unpublished files notification from popup
+  checkUnavailableFilesNotification();
+
+  // Setup cleanup on tab close - clear pending queries and disconnect
+  window.addEventListener('beforeunload', handleTabClose);
+  window.addEventListener('unload', handleTabClose);
+}
+
+/**
+ * Handle tab close - cleanup WebSocket and pending queries
+ */
+function handleTabClose() {
+  console.log('🚪 Tab closing - cleaning up...');
+  if (wsClient) {
+    wsClient.clearQueue();
+    wsClient.disconnect();
+  }
+}
+
+/**
+ * Check if there are filtered media files to notify about
+ */
+async function checkFilteredMediaNotification() {
+  try {
+    const result = await chrome.storage.local.get('filteredMediaFiles');
+    const filtered = result.filteredMediaFiles;
+
+    if (filtered && filtered.courseId === courseId && filtered.files?.length > 0) {
+      // Only show if notification is recent (within last 30 seconds)
+      const age = Date.now() - filtered.timestamp;
+      if (age < 30000) {
+        showDropdownNotification(
+          `${filtered.files.length} file${filtered.files.length > 1 ? 's' : ''} not supported`,
+          filtered.files,
+          'Video and audio files cannot be processed',
+          6000
+        );
+      }
+      // Clear the notification after showing (or if too old)
+      await chrome.storage.local.remove('filteredMediaFiles');
+    }
+  } catch (error) {
+    console.error('Error checking filtered media notification:', error);
+  }
+}
+
+/**
+ * Check if there are unavailable/unpublished files to notify about
+ */
+async function checkUnavailableFilesNotification() {
+  try {
+    const result = await chrome.storage.local.get('skippedUnavailableFiles');
+    const skipped = result.skippedUnavailableFiles;
+
+    if (skipped && skipped.courseId === courseId && skipped.files?.length > 0) {
+      // Only show if notification is recent (within last 60 seconds)
+      const age = Date.now() - skipped.timestamp;
+      if (age < 60000) {
+        showDropdownNotification(
+          `${skipped.files.length} file${skipped.files.length > 1 ? 's' : ''} unavailable`,
+          skipped.files,
+          skipped.reason || 'Files not published or accessible',
+          8000
+        );
+      }
+      // Clear the notification after showing (or if too old)
+      await chrome.storage.local.remove('skippedUnavailableFiles');
+    }
+  } catch (error) {
+    console.error('Error checking unavailable files notification:', error);
+  }
 }
 
 async function loadMaterials() {
@@ -1355,44 +1474,283 @@ async function handleFileUpload(event) {
 }
 
 /**
- * Refresh course materials
- * Reloads the page to pick up any updated materials from IndexedDB
+ * Refresh materials from Canvas - re-scan and re-upload everything
  */
-async function handleRefreshMaterials() {
-  console.log('🔄 Refreshing course materials...');
+async function refreshMaterialsFromCanvas() {
+  console.log('🔄 Refreshing materials from Canvas...');
 
   const refreshBtn = document.getElementById('refresh-materials-btn');
+  if (refreshBtn) {
+    refreshBtn.disabled = true;
+    refreshBtn.style.opacity = '0.5';
+  }
 
   try {
-    // Show loading message
-    showLoadingBanner('Refreshing materials from database...', 'info');
+    // Show immediate visual feedback
+    showLoadingBanner('Starting refresh from Canvas...', 'info');
+    console.log('🔄 [REFRESH] Starting refresh for course:', courseId);
 
-    // Disable button
-    if (refreshBtn) {
-      refreshBtn.disabled = true;
-      refreshBtn.style.opacity = '0.5';
+    // Get Canvas session info
+    const canvasSession = await getCanvasSession();
+    if (!canvasSession) {
+      throw new Error('Please log in to Canvas first');
     }
 
-    // Reload materials from IndexedDB
-    await loadMaterials();
+    // Initialize Canvas API with session auth
+    showLoadingBanner('Connecting to Canvas...', 'info');
+    const canvasAPI = new CanvasAPI(canvasSession.baseUrl, null, canvasSession.sessionAuth);
 
-    // Sync with backend to get latest hash-based IDs
+    // Scan materials from Canvas
+    showLoadingBanner('Scanning Canvas course materials...', 'info');
+    console.log('📡 [REFRESH] Fetching materials for course:', courseId);
+
+    const scannedMaterials = await canvasAPI.getAllCourseMaterials(courseId, (progress) => {
+      showLoadingBanner(`Scanning: ${progress.message}`, 'info');
+      console.log(`[REFRESH] ${progress.message}`);
+    });
+
+    if (!scannedMaterials) {
+      throw new Error('Failed to scan materials from Canvas');
+    }
+
+    console.log('✅ Scanned materials:', scannedMaterials);
+
+    // Save to IndexedDB
+    showLoadingBanner('Saving materials to local storage...', 'info');
+    const materialsDB = new MaterialsDB();
+    await materialsDB.saveMaterials(courseId, courseName, scannedMaterials);
+    await materialsDB.close();
+
+    // Now upload to backend
+    showLoadingBanner('Preparing files for upload...', 'info');
+
+    // Collect files to upload
+    const filesToUpload = [];
+
+    console.log('📦 [REFRESH] Scanned materials:', scannedMaterials);
+
+    // Helper to add files from different sources
+    const addFile = (item) => {
+      if (item.blob || item.url) {
+        filesToUpload.push({
+          name: item.stored_name || item.display_name || item.name,
+          url: item.url,
+          blob: item.blob,
+          id: item.id || item.content_id || item.file_id
+        });
+      }
+    };
+
+    // Process all material categories (files, syllabus, etc.)
+    for (const [category, items] of Object.entries(scannedMaterials)) {
+      if (category === 'modules' || category === 'pages' || category === 'assignments') continue; // Handle separately
+      if (!Array.isArray(items)) continue;
+
+      console.log(`📂 [REFRESH] Processing ${items.length} items from category: ${category}`);
+      for (const item of items) {
+        addFile(item);
+      }
+    }
+
+    // Process module items
+    if (scannedMaterials.modules && Array.isArray(scannedMaterials.modules)) {
+      console.log(`📚 [REFRESH] Processing ${scannedMaterials.modules.length} modules`);
+      scannedMaterials.modules.forEach(module => {
+        if (!module.items || !Array.isArray(module.items)) return;
+        module.items.forEach(item => {
+          if (item.type === 'File') {
+            addFile(item);
+          }
+        });
+      });
+    }
+
+    // Process pages: convert HTML to text files
+    if (scannedMaterials.pages && Array.isArray(scannedMaterials.pages)) {
+      console.log(`📄 [REFRESH] Processing ${scannedMaterials.pages.length} pages`);
+      showLoadingBanner(`Converting ${scannedMaterials.pages.length} pages to text...`, 'info');
+
+      for (const page of scannedMaterials.pages) {
+        if (page.body) {
+          try {
+            // Convert HTML to plain text
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = page.body;
+            const textContent = tempDiv.textContent || tempDiv.innerText || '';
+
+            if (textContent.trim()) {
+              const textBlob = new Blob([textContent], { type: 'text/plain' });
+              const fileName = `${page.title || 'Untitled Page'}.txt`;
+
+              filesToUpload.push({
+                name: fileName,
+                blob: textBlob,
+                id: `page_${page.page_id || page.id}`
+              });
+              console.log(`✅ [REFRESH] Converted page: ${fileName}`);
+            }
+          } catch (error) {
+            console.warn(`⚠️ [REFRESH] Failed to convert page ${page.title}:`, error);
+          }
+        }
+      }
+    }
+
+    // Process assignments: convert descriptions to text files
+    if (scannedMaterials.assignments && Array.isArray(scannedMaterials.assignments)) {
+      console.log(`📝 [REFRESH] Processing ${scannedMaterials.assignments.length} assignments`);
+      showLoadingBanner(`Converting ${scannedMaterials.assignments.length} assignments to text...`, 'info');
+
+      for (const assignment of scannedMaterials.assignments) {
+        if (assignment.description) {
+          try {
+            // Convert HTML to plain text
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = assignment.description;
+            const textContent = tempDiv.textContent || tempDiv.innerText || '';
+
+            if (textContent.trim()) {
+              const assignmentText = `Assignment: ${assignment.name}\n\n${textContent}`;
+              const textBlob = new Blob([assignmentText], { type: 'text/plain' });
+              const fileName = `${assignment.name || 'Untitled Assignment'}.txt`;
+
+              filesToUpload.push({
+                name: fileName,
+                blob: textBlob,
+                id: `assignment_${assignment.id}`
+              });
+              console.log(`✅ [REFRESH] Converted assignment: ${fileName}`);
+            }
+          } catch (error) {
+            console.warn(`⚠️ [REFRESH] Failed to convert assignment ${assignment.name}:`, error);
+          }
+        }
+      }
+    }
+
+    console.log(`📊 [REFRESH] Total files to process: ${filesToUpload.length}`);
+
+    // Count files that need downloading
+    const filesToDownload = filesToUpload.filter(f => !f.blob && f.url);
+    const totalToProcess = filesToDownload.length;
+
+    // Helper to update progress bar
+    const updateProgress = (percent) => {
+      const progressFill = document.getElementById('loading-progress-fill');
+      if (progressFill) {
+        progressFill.style.width = `${percent}%`;
+      }
+    };
+
+    // Download files that don't have blobs yet
+    if (totalToProcess > 0) {
+      showLoadingBanner(`Downloading ${totalToProcess} files from Canvas...`, 'info');
+      updateProgress(0);
+
+      let downloadedCount = 0;
+      for (let i = 0; i < filesToUpload.length; i++) {
+        const file = filesToUpload[i];
+
+        if (!file.blob && file.url) {
+          try {
+            // Download using session cookies
+            const response = await fetch(file.url, {
+              credentials: 'include',
+              headers: { 'Accept': '*/*' }
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            file.blob = await response.blob();
+            console.log(`✅ Downloaded: ${file.name}`);
+          } catch (error) {
+            console.warn(`⚠️ Failed to download ${file.name}:`, error);
+            // Continue with other files
+          }
+
+          downloadedCount++;
+          // Update progress bar (downloads are 50% of total progress)
+          const downloadPercent = (downloadedCount / totalToProcess) * 50;
+          updateProgress(downloadPercent);
+        }
+      }
+    }
+
+    // Upload to backend
+    const validFiles = filesToUpload.filter(f => f.blob);
+    if (validFiles.length > 0) {
+      showLoadingBanner(`Uploading ${validFiles.length} files to server...`, 'info');
+      updateProgress(50); // Start upload phase at 50%
+
+      await backendClient.uploadPDFs(courseId, validFiles);
+      console.log(`✅ Uploaded ${validFiles.length} files to backend`);
+
+      updateProgress(100); // Complete
+    }
+
+    // Reload materials in UI
+    showLoadingBanner('Refreshing display...', 'info');
+    await loadMaterials();
     await syncMaterialsWithBackend();
 
     hideLoadingBanner();
-    showTemporaryMessage('Materials refreshed! To scan new files from Canvas, use the extension popup.');
+
+    // Show detailed success message
+    const fileCount = scannedMaterials.files?.length || 0;
+    const pageCount = scannedMaterials.pages?.length || 0;
+    const assignmentCount = scannedMaterials.assignments?.length || 0;
+    const totalUploaded = validFiles.length;
+
+    console.log(`✅ [REFRESH] Complete! Files: ${fileCount}, Pages: ${pageCount}, Assignments: ${assignmentCount}, Uploaded: ${totalUploaded}`);
+    showTemporaryMessage(`Refreshed ${totalUploaded} items: ${fileCount} files, ${pageCount} pages, ${assignmentCount} assignments`);
 
   } catch (error) {
-    console.error('❌ Error refreshing materials:', error);
+    console.error('❌ Refresh error:', error);
     showLoadingBanner(`Refresh failed: ${error.message}`, 'error');
     setTimeout(() => hideLoadingBanner(), 3000);
   } finally {
-    // Re-enable button
     if (refreshBtn) {
       refreshBtn.disabled = false;
       refreshBtn.style.opacity = '1';
     }
   }
+}
+
+/**
+ * Get Canvas session info - uses session cookies for authentication
+ */
+async function getCanvasSession() {
+  return new Promise((resolve) => {
+    // Get Canvas URL from storage (stored as canvasInstanceUrl)
+    chrome.storage.local.get(['canvasInstanceUrl'], async (result) => {
+      if (!result.canvasInstanceUrl) {
+        console.warn('⚠️ [REFRESH] No Canvas URL found in storage');
+        resolve(null);
+        return;
+      }
+
+      const canvasUrl = result.canvasInstanceUrl;
+      console.log('📍 [REFRESH] Canvas URL:', canvasUrl);
+
+      // Verify session is valid using SessionAuth
+      try {
+        const sessionAuth = new SessionAuth(canvasUrl);
+        const isValid = await sessionAuth.testSession();
+
+        if (isValid) {
+          console.log('✅ [REFRESH] Canvas session is valid');
+          resolve({
+            baseUrl: canvasUrl,
+            sessionAuth: sessionAuth
+          });
+        } else {
+          console.warn('⚠️ [REFRESH] Canvas session is not valid');
+          resolve(null);
+        }
+      } catch (error) {
+        console.error('❌ [REFRESH] Error checking session:', error);
+        resolve(null);
+      }
+    });
+  });
 }
 
 /**
@@ -1685,6 +2043,155 @@ function updatePlaceholder() {
   }
 }
 
+// ========== Smart Selection Availability Management ==========
+
+let summaryStatusPollInterval = null;
+let notifiedRemovedFiles = new Set(); // Track which removed files we've already notified about
+
+async function checkSummaryStatus(courseId) {
+  try {
+    const response = await fetch(`https://web-production-9aaba7.up.railway.app/courses/${courseId}/summary-status`);
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error checking summary status:', error);
+    return { success: false, is_ready: false };
+  }
+}
+
+async function updateSmartSelectionAvailability() {
+  const smartFileToggle = document.getElementById('smart-file-icon-toggle');
+  if (!smartFileToggle) return;
+
+  // Check if background upload is still in progress
+  const uploadTask = await chrome.storage.local.get('uploadTask');
+  const isUploading = uploadTask.uploadTask &&
+                      uploadTask.uploadTask.courseId === courseId &&
+                      uploadTask.uploadTask.status === 'uploading';
+
+  const status = await checkSummaryStatus(courseId);
+  console.log('📊 Summary status:', status, isUploading ? '(upload in progress)' : '');
+
+  // Handle removed files (validation failures)
+  if (status.removed_files && status.removed_files.length > 0) {
+    for (const removedFile of status.removed_files) {
+      const fileKey = `${removedFile.filename}:${removedFile.reason}`;
+      if (!notifiedRemovedFiles.has(fileKey)) {
+        // Show notification for this removed file
+        showToast(`Removed invalid file: ${removedFile.filename} - ${removedFile.reason}`, 'error');
+        notifiedRemovedFiles.add(fileKey);
+
+        // Also remove from IndexedDB and UI (if materials are loaded)
+        if (typeof processedMaterials !== 'undefined' && processedMaterials) {
+          try {
+            // Find and remove from processedMaterials
+            const fileId = removedFile.file_id;
+            let found = false;
+
+            for (const category of ['lectures', 'assignments', 'supplementary', 'files']) {
+              if (processedMaterials[category]) {
+                const idx = processedMaterials[category].findIndex(item => item.id === fileId);
+                if (idx !== -1) {
+                  processedMaterials[category].splice(idx, 1);
+                  found = true;
+                  console.log(`Removed invalid file ${removedFile.filename} from ${category}`);
+                  break;
+                }
+              }
+            }
+
+            if (found) {
+              // Update IndexedDB
+              const materialsDB = new MaterialsDB();
+              await materialsDB.saveMaterials(courseId, courseName, processedMaterials);
+              await materialsDB.close();
+
+              // Re-render materials list
+              if (typeof displayMaterials === 'function') {
+                displayMaterials();
+              }
+            }
+          } catch (err) {
+            console.error('Error removing file from IndexedDB:', err);
+          }
+        }
+      }
+    }
+  }
+
+  // Calculate completion percentage and check 50% threshold
+  const completionPercent = status.completion_percent || 0;
+  const hasMinimumSummaries = completionPercent >= 50;  // Enable at 50% instead of 100%
+
+  // Disable Smart File Select if summaries < 50% OR upload is in progress
+  if (!status.success || !hasMinimumSummaries || isUploading) {
+    // Summaries below 50% OR files still uploading - disable the button
+    smartFileToggle.disabled = true;
+    smartFileToggle.classList.add('disabled');
+    smartFileToggle.classList.remove('active'); // Force inactive
+    smartFileToggle.style.opacity = '0.3'; // Force visual opacity
+    // Removed pointerEvents = 'none' to allow hover for tooltip
+
+    const tooltip = smartFileToggle.querySelector('.toggle-icon-tooltip');
+    if (tooltip) {
+      let statusText;
+      if (isUploading) {
+        statusText = 'Uploading files...';
+      } else {
+        const ready = status.summaries_ready || 0;
+        const total = status.total_files || 0;
+        const percent = status.completion_percent || 0;
+        statusText = `Generating summaries: ${ready}/${total} (${percent.toFixed(0)}%)`;
+      }
+      tooltip.textContent = statusText;
+    }
+
+    // Start polling if not already polling (poll while uploading OR summaries pending)
+    if (!summaryStatusPollInterval && (isUploading || status.summaries_pending > 0)) {
+      if (isUploading) {
+        console.log(`📊 Starting summary status polling (upload in progress)`);
+      } else {
+        console.log(`📊 Starting summary status polling (${status.summaries_pending} pending)`);
+      }
+      summaryStatusPollInterval = setInterval(async () => {
+        await updateSmartSelectionAvailability();
+      }, 5000); // Poll every 5 seconds
+    }
+  } else {
+    // Summaries ready AND upload complete - enable the button
+    smartFileToggle.disabled = false;
+    smartFileToggle.classList.remove('disabled');
+    smartFileToggle.style.opacity = ''; // Clear forced opacity
+    smartFileToggle.style.pointerEvents = ''; // Clear forced pointer-events
+
+    const tooltip = smartFileToggle.querySelector('.toggle-icon-tooltip');
+    if (tooltip) {
+      // Restore original helpful tooltip text when ready
+      tooltip.textContent = 'Automatically uses only the most relevant files for your query.';
+    }
+
+    // Stop polling if it was running
+    if (summaryStatusPollInterval) {
+      const ready = status.summaries_ready || 0;
+      const total = status.total_files || 0;
+      const successRate = total > 0 ? ((ready / total) * 100).toFixed(1) : 0;
+
+      console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+      console.log(`📝 SUMMARIZATION COMPLETE:`);
+      console.log(`   Summaries generated: ${ready}/${total}`);
+      console.log(`   Success rate: ${successRate}%`);
+      console.log(`   ✅ Smart File Select: AVAILABLE`);
+      console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+
+      clearInterval(summaryStatusPollInterval);
+      summaryStatusPollInterval = null;
+
+      // Show toast notification
+      showToast('Smart selection is now available!', 'success');
+    }
+  }
+}
+
 function setupEventListeners() {
   // Send message
   elements.sendBtn.addEventListener('click', sendMessage);
@@ -1785,6 +2292,8 @@ function setupEventListeners() {
     modeResponseCache = {};
     currentModeTopic = null;
     console.log('🗑️ Cleared mode response cache for new chat');
+    // Update URL to reflect new chat (no chatId parameter)
+    updateURL(null);
     // Refresh recent chats
     loadRecentChats();
   });
@@ -2029,6 +2538,10 @@ function setupEventListeners() {
   // Smart File Selection toggle
   if (smartFileIconToggle) {
     smartFileIconToggle.addEventListener('click', () => {
+      // Don't toggle if disabled
+      if (smartFileIconToggle.disabled || smartFileIconToggle.classList.contains('disabled')) {
+        return;
+      }
       smartFileIconToggle.classList.toggle('active');
     });
 
@@ -2046,6 +2559,7 @@ function setupEventListeners() {
 
   // File upload handler
   const uploadBtn = document.getElementById('upload-files-btn');
+  const refreshBtn = document.getElementById('refresh-materials-btn');
   const fileInput = document.getElementById('file-upload-input');
   const refreshBtn = document.getElementById('refresh-materials-btn');
 
@@ -2054,7 +2568,63 @@ function setupEventListeners() {
       fileInput.click();
     });
 
-    fileInput.addEventListener('change', handleFileUpload);
+    fileInput.addEventListener('change', (event) => {
+      const allFiles = Array.from(event.target.files);
+      console.log(`📁 File input received ${allFiles.length} files`);
+
+      // Filter out video AND audio files by MIME type and extension
+      const allowedFiles = [];
+      const videoFiles = [];
+      const audioFiles = [];
+
+      // Audio extensions to check (same as popup filter)
+      const audioExtensions = ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac'];
+
+      allFiles.forEach(file => {
+        const fileExt = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
+
+        if (file.type.startsWith('video/')) {
+          console.log(`🎬 [FILTERED] Video file: ${file.name} (${file.type})`);
+          videoFiles.push(file.name);
+        } else if (file.type.startsWith('audio/') || audioExtensions.includes(fileExt)) {
+          console.log(`🎵 [FILTERED] Audio file: ${file.name} (${file.type || fileExt})`);
+          audioFiles.push(file.name);
+        } else {
+          allowedFiles.push(file);
+        }
+      });
+
+      // Show dropdown notification if files were filtered
+      const totalFiltered = videoFiles.length + audioFiles.length;
+      if (totalFiltered > 0) {
+        const allFilteredFiles = [...videoFiles, ...audioFiles];
+        console.log(`⚠️ Filtered out ${totalFiltered} media files:`, allFilteredFiles);
+
+        showDropdownNotification(
+          `${totalFiltered} file${totalFiltered > 1 ? 's' : ''} not supported`,
+          allFilteredFiles,
+          'Video and audio files cannot be processed',
+          6000
+        );
+      }
+
+      console.log(`✅ Proceeding with ${allowedFiles.length} allowed files (filtered ${totalFiltered} media files: ${videoFiles.length} video, ${audioFiles.length} audio)`);
+
+      // Only proceed if we have allowed files
+      if (allowedFiles.length > 0) {
+        const modifiedEvent = {
+          target: { files: allowedFiles, value: event.target.value }
+        };
+        handleFileUpload(modifiedEvent);
+      }
+
+      event.target.value = '';
+    });
+  }
+
+  // Refresh materials button handler
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', refreshMaterialsFromCanvas);
   }
 
   if (refreshBtn) {
@@ -2096,16 +2666,48 @@ function setupEventListeners() {
    */
   async function handleFileDrop(e) {
     const dt = e.dataTransfer;
-    const files = Array.from(dt.files);
+    const allFiles = Array.from(dt.files);
 
-    if (files.length === 0) return;
+    if (allFiles.length === 0) return;
 
-    console.log(`📤 User dropped ${files.length} file(s):`, files.map(f => f.name));
+    console.log(`📤 User dropped ${allFiles.length} file(s):`, allFiles.map(f => f.name));
+
+    // Filter out video AND audio files (same as file input)
+    const allowedFiles = [];
+    const filteredFiles = [];
+    const audioExtensions = ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac'];
+
+    allFiles.forEach(file => {
+      const fileExt = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
+
+      if (file.type.startsWith('video/')) {
+        console.log(`🎬 [FILTERED] Video file: ${file.name}`);
+        filteredFiles.push(file.name);
+      } else if (file.type.startsWith('audio/') || audioExtensions.includes(fileExt)) {
+        console.log(`🎵 [FILTERED] Audio file: ${file.name}`);
+        filteredFiles.push(file.name);
+      } else {
+        allowedFiles.push(file);
+      }
+    });
+
+    // Show dropdown notification if files were filtered
+    if (filteredFiles.length > 0) {
+      showDropdownNotification(
+        `${filteredFiles.length} file${filteredFiles.length > 1 ? 's' : ''} not supported`,
+        filteredFiles,
+        'Video and audio files cannot be processed',
+        6000
+      );
+    }
+
+    // Only proceed if we have allowed files
+    if (allowedFiles.length === 0) return;
 
     // Create a synthetic event to pass to handleFileUpload
     const syntheticEvent = {
       target: {
-        files: files,
+        files: allowedFiles,
         value: ''
       }
     };
@@ -2472,14 +3074,56 @@ function stopGeneration() {
 }
 
 /**
+ * Convert backend status messages to conversational format
+ */
+function makeStatusConversational(message) {
+  // Remove any remaining emojis
+  message = message.replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/gu, '').trim();
+
+  // Map common status patterns to conversational messages
+  const lowerMessage = message.toLowerCase();
+
+  if (lowerMessage.includes('selecting') && lowerMessage.includes('file')) {
+    // Extract number if present
+    const numMatch = message.match(/(\d+)\s*file/i);
+    if (numMatch) {
+      return `Selected ${numMatch[1]} relevant files`;
+    }
+    return 'Selecting relevant files...';
+  }
+
+  if (lowerMessage.includes('uploading') || lowerMessage.includes('loading file')) {
+    return 'Reading files...';
+  }
+
+  if (lowerMessage.includes('processing') || lowerMessage.includes('generating')) {
+    return 'Generating response...';
+  }
+
+  if (lowerMessage.includes('reading')) {
+    return 'Reading files...';
+  }
+
+  if (lowerMessage.includes('analyzing')) {
+    return 'Analyzing content...';
+  }
+
+  // Return cleaned message if no specific pattern matched
+  return message;
+}
+
+/**
  * Send a message to the AI assistant via Python backend
  */
 async function sendMessage() {
   const userInput = elements.messageInput.value.trim();
 
   if (!userInput) return;
-  if (!wsClient || !wsClient.isReady()) {
-    showError('Not connected to backend. Please check that the server is running.');
+
+  // Check if wsClient exists, but don't block on connection status
+  // sendQuery() will handle reconnection automatically if disconnected
+  if (!wsClient) {
+    showError('WebSocket client not initialized. Please refresh the page.');
     return;
   }
 
@@ -2609,6 +3253,11 @@ async function sendMessage() {
     console.log(`   Smart Selection: ${useSmartSelection ? 'enabled' : 'disabled'}`);
     console.log(`   API key: ${apiKey ? 'user-provided' : 'default'}`);
 
+    // Show initial status message for smart selection
+    if (useSmartSelection) {
+      showLoadingBanner('Looking for relevant files...');
+    }
+
     await wsClient.sendQuery(
       message,
       conversationHistory,
@@ -2620,13 +3269,18 @@ async function sendMessage() {
       useSmartSelection,  // Smart file selection toggle
       // onChunk callback for streaming text
       (chunk) => {
-        // Check if this is a loading message (starts with 📤)
-        if (chunk.startsWith('📤')) {
-          // Remove emoji and file size information from loading message
-          const cleanedMessage = chunk
+        // Check if this is a status/loading message (starts with emoji or status indicator)
+        if (chunk.startsWith('📤') || chunk.startsWith('[STATUS]')) {
+          // Convert backend status messages to conversational format
+          let cleanedMessage = chunk
             .replace(/📤\s*/, '')  // Remove emoji
+            .replace(/\[STATUS\]\s*/, '')  // Remove status prefix
             .replace(/\*\*/g, '')   // Remove bold markdown
-            .replace(/\s*\(~[\d.]+MB\)/g, '');  // Remove file size
+            .replace(/\s*\(~[\d.]+MB\)/g, '')  // Remove file size
+            .trim();
+
+          // Make messages more conversational
+          cleanedMessage = makeStatusConversational(cleanedMessage);
           showLoadingBanner(cleanedMessage);
           return; // Don't add to assistant message
         }
@@ -2640,9 +3294,14 @@ async function sendMessage() {
         assistantMessage += chunk;
         updateTypingIndicator(typingId, assistantMessage);
       },
-      // onComplete callback
+      // onComplete callback (called when streaming finishes and backend saves chat)
       () => {
         hideLoadingBanner();
+
+        // Update URL with session ID after streaming completes
+        // This ensures the chat can be restored after refresh
+        // The backend auto-saves the chat at this point
+        updateURL(currentSessionId);
       },
       // onError callback
       (error) => {
@@ -2813,6 +3472,72 @@ function parseCitations(content) {
 }
 
 /**
+ * Decode HTML entities back to their original characters
+ * This is needed because marked.js escapes apostrophes to &#39;
+ * which breaks derivative notation in math expressions like y'(t)
+ */
+function decodeHTMLEntities(text) {
+  const textarea = document.createElement('textarea');
+  textarea.innerHTML = text;
+  return textarea.value;
+}
+
+/**
+ * Wrap bare LaTeX expressions in $ delimiters
+ * Gemini sometimes outputs LaTeX without delimiters, causing it to render as plain text
+ * This function detects common LaTeX patterns and wraps them in $ for KaTeX rendering
+ */
+function wrapBareLatex(content) {
+  // Don't process if already has math delimiters everywhere
+  if (!content || typeof content !== 'string') return content;
+
+  // Pattern to match bare LaTeX expressions (backslash commands not already in $ delimiters)
+  // This matches sequences of LaTeX commands like \mathcal{L}^{-1}\left\frac{...}\right
+  // Common LaTeX commands: \mathcal, \frac, \sqrt, \left, \right, \text, \sin, \cos, etc.
+
+  // First, protect already-delimited math to avoid double-wrapping
+  const protectedMath = [];
+  let protected = content;
+
+  // Protect display math $$...$$
+  protected = protected.replace(/\$\$[\s\S]+?\$\$/g, (match) => {
+    protectedMath.push(match);
+    return `__PROTECTED_DISPLAY_${protectedMath.length - 1}__`;
+  });
+
+  // Protect inline math $...$
+  protected = protected.replace(/\$[^\$\n]+?\$/g, (match) => {
+    protectedMath.push(match);
+    return `__PROTECTED_INLINE_${protectedMath.length - 1}__`;
+  });
+
+  // Now find bare LaTeX expressions (backslash commands not in delimiters)
+  // Match sequences that start with \ and contain LaTeX commands
+  // This regex looks for \command{...} patterns or standalone commands
+  const latexPattern = /\\(?:mathcal|frac|sqrt|left|right|text|mathrm|mathbf|sin|cos|tan|log|ln|exp|lim|sum|prod|int|partial|nabla|infty|pm|times|cdot|ldots|dots|alpha|beta|gamma|delta|epsilon|theta|lambda|mu|pi|sigma|omega|Delta|Omega|quad|qquad|neq|leq|geq|approx|equiv|subset|subseteq|cup|cap|in|notin|forall|exists|rightarrow|Rightarrow|leftarrow|Leftarrow|leftrightarrow|Leftrightarrow)(?:\{[^}]*\}|\^[^{\s]|\^{[^}]*}|_[^{\s]|_{[^}]*}|\([^)]*\)|\[[^\]]*\]|[\w]|\s)*/g;
+
+  // Find and wrap bare LaTeX
+  protected = protected.replace(latexPattern, (match) => {
+    // Skip if this looks like it's already in a protected section
+    if (match.includes('__PROTECTED_')) return match;
+
+    // Wrap in inline math delimiters
+    return `$${match}$`;
+  });
+
+  // Restore protected math
+  protected = protected.replace(/__PROTECTED_DISPLAY_(\d+)__/g, (match, index) => {
+    return protectedMath[parseInt(index)];
+  });
+
+  protected = protected.replace(/__PROTECTED_INLINE_(\d+)__/g, (match, index) => {
+    return protectedMath[parseInt(index)];
+  });
+
+  return protected;
+}
+
+/**
  * Render LaTeX math expressions using KaTeX
  * Supports both inline math ($...$) and display math ($$...$$)
  */
@@ -2823,21 +3548,24 @@ function renderMath(content) {
   }
 
   try {
-    // First, protect code blocks from math processing
+    // Protect code blocks - since markdown is parsed first, we only need to protect HTML <pre> tags
+    // <pre> tags contain <code> tags, so we only need to protect <pre> to avoid nested placeholders
     const codeBlocks = [];
-    let protectedContent = content.replace(/```[\s\S]*?```/g, (match) => {
+    let protectedContent = content.replace(/<pre[\s\S]*?<\/pre>/gi, (match) => {
       codeBlocks.push(match);
       return `__CODE_BLOCK_${codeBlocks.length - 1}__`;
     });
 
-    // Render display math ($$...$$)
+    // Render display math ($$...$$) with added newlines for spacing
     protectedContent = protectedContent.replace(/\$\$([\s\S]+?)\$\$/g, (match, math) => {
       try {
-        return katex.renderToString(math.trim(), {
+        const rendered = katex.renderToString(math.trim(), {
           displayMode: true,
           throwOnError: false,
           output: 'html'
         });
+        // Wrap in div with newlines for better spacing
+        return `<div class="math-display-wrapper">${rendered}</div>`;
       } catch (e) {
         console.error('KaTeX display math error:', e);
         return match; // Return original if rendering fails
@@ -3025,18 +3753,19 @@ function addMessage(role, content) {
 
   // For assistant messages: render math, parse citations, then render markdown
   let processedContent = content;
-  if (role === 'assistant') {
-    // Step 1: Render math (LaTeX → HTML)
-    processedContent = renderMath(processedContent);
-    // Step 2: Parse citations
-    processedContent = parseCitations(processedContent);
-  }
-
-  // Step 3: Render markdown
+  // Step 1: Render markdown first (for assistant messages)
   let renderedContent = role === 'assistant' ? marked.parse(processedContent) : content;
 
-  // Step 4: Enhance academic formatting (for assistant messages only)
   if (role === 'assistant') {
+    // Step 2: Parse citations on HTML
+    renderedContent = parseCitations(renderedContent);
+    // Step 3: Decode HTML entities (marked.js escapes apostrophes to &#39;)
+    renderedContent = decodeHTMLEntities(renderedContent);
+    // Step 4: Wrap bare LaTeX expressions in $ delimiters
+    renderedContent = wrapBareLatex(renderedContent);
+    // Step 5: Render math on HTML (not markdown)
+    renderedContent = renderMath(renderedContent);
+    // Step 6: Enhance academic formatting
     renderedContent = enhanceAcademicFormatting(renderedContent);
   }
 
@@ -3106,12 +3835,20 @@ function updateTypingIndicator(id, content) {
   const messageDiv = document.getElementById(id);
   if (messageDiv) {
     const textDiv = messageDiv.querySelector('.message-text');
-    // Render math and parse citations in streaming content too
-    let processedContent = renderMath(content);
+    // Parse markdown first to convert to HTML
+    let processedContent = marked.parse(content);
+
+    // Then parse citations on the HTML
     processedContent = parseCitations(processedContent);
 
-    // Render markdown and enhance academic formatting
-    let renderedContent = marked.parse(processedContent);
+    // Decode HTML entities (marked.js escapes apostrophes to &#39;)
+    processedContent = decodeHTMLEntities(processedContent);
+
+    // Wrap bare LaTeX expressions in $ delimiters
+    processedContent = wrapBareLatex(processedContent);
+
+    // Render math last (on HTML, not markdown)
+    let renderedContent = renderMath(processedContent);
     renderedContent = enhanceAcademicFormatting(renderedContent);
 
     textDiv.innerHTML = renderedContent;
@@ -3265,8 +4002,18 @@ async function loadChatSession(sessionId) {
   try {
     const response = await backendClient.getChatSession(courseId, sessionId);
 
-    if (!response.success) {
-      showError('Failed to load chat session: ' + response.error);
+    // Check if session exists and was loaded successfully
+    if (!response || !response.success || !response.session) {
+      console.warn('⚠️ Chat session not found in backend (may not be saved yet):', sessionId);
+      console.log('ℹ️ Starting with blank chat. Session will be saved after first message.');
+
+      // Session doesn't exist yet (e.g., user refreshed before backend saved it)
+      // Start with a blank chat - the session will be saved when they send the next message
+      currentSessionId = sessionId;
+      conversationHistory = [];
+      elements.messagesContainer.innerHTML = '';
+      elements.messagesContainer.appendChild(createWelcomeMessage());
+      updateURL(sessionId);
       return;
     }
 
@@ -3292,11 +4039,21 @@ async function loadChatSession(sessionId) {
       addMessage(msg.role, msg.content);
     });
 
+    console.log('✅ Loaded chat session with', conversationHistory.length, 'messages');
+
     // Refresh recent chats to update active state
     await loadRecentChats();
   } catch (error) {
-    console.error('Error loading chat session:', error);
-    showError('Failed to load chat: ' + error.message);
+    console.error('❌ Error loading chat session:', error);
+    console.log('ℹ️ Starting with blank chat. Session will be saved after first message.');
+
+    // Don't show error to user - just start with blank chat
+    // The session might not be saved to backend yet, which is normal
+    currentSessionId = sessionId;
+    conversationHistory = [];
+    elements.messagesContainer.innerHTML = '';
+    elements.messagesContainer.appendChild(createWelcomeMessage());
+    updateURL(sessionId);
   }
 }
 
@@ -3307,9 +4064,21 @@ async function generateChatTitle(firstMessage) {
   try {
     console.log('✨ Generating chat title...');
 
+    // Get canvas user ID for the header
+    const canvasUserId = await new Promise((resolve) => {
+      chrome.storage.local.get(['canvasUserId'], (result) => {
+        resolve(result.canvasUserId || null);
+      });
+    });
+
+    const headers = { 'Content-Type': 'application/json' };
+    if (canvasUserId) {
+      headers['X-Canvas-User-Id'] = canvasUserId;
+    }
+
     const response = await fetch(`https://web-production-9aaba7.up.railway.app/chats/${courseId}/${currentSessionId}/generate-title`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ first_message: firstMessage })
     });
 
@@ -3927,6 +4696,58 @@ function showToast(message, duration = 5000) {
   }, duration);
 }
 
+/**
+ * Show a dropdown notification from top-right (for filtered files)
+ * @param {string} title - Header text
+ * @param {string[]} items - List of filtered file names
+ * @param {string} footer - Footer text
+ * @param {number} duration - How long to show (ms)
+ */
+function showDropdownNotification(title, items, footer, duration = 5000) {
+  // Remove existing dropdown notification
+  const existing = document.querySelector('.dropdown-notification');
+  if (existing) existing.remove();
+
+  // Create notification element
+  const notification = document.createElement('div');
+  notification.className = 'dropdown-notification';
+
+  // Build items list HTML (max 5 items shown)
+  const displayItems = items.slice(0, 5);
+  const remainingCount = items.length - displayItems.length;
+  let itemsHtml = displayItems.map(item => `<li>${item}</li>`).join('');
+  if (remainingCount > 0) {
+    itemsHtml += `<li>...and ${remainingCount} more</li>`;
+  }
+
+  notification.innerHTML = `
+    <div class="dropdown-notification-header">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"></circle>
+        <line x1="12" y1="8" x2="12" y2="13"></line>
+        <circle cx="12" cy="17" r="1" fill="currentColor"></circle>
+      </svg>
+      <span>${title}</span>
+    </div>
+    <ul class="dropdown-notification-list">
+      ${itemsHtml}
+    </ul>
+    <div class="dropdown-notification-footer">${footer}</div>
+  `;
+
+  document.body.appendChild(notification);
+
+  // Show with animation
+  setTimeout(() => notification.classList.add('show'), 10);
+
+  // Hide after duration
+  setTimeout(() => {
+    notification.classList.remove('show');
+    notification.classList.add('hide');
+    setTimeout(() => notification.remove(), 300);
+  }, duration);
+}
+
 // ========== AGENTIC UI FUNCTIONS ==========
 
 /**
@@ -4164,7 +4985,7 @@ function showApiKeyModal() {
       if (response.status === 200) {
         // Save the API key
         await chrome.storage.local.set({ gemini_api_key: apiKey });
-        showModalStatus('✅ API key saved successfully!', 'success');
+        showModalStatus('API key saved successfully!', 'success');
 
         // Close modal and reload page after short delay
         setTimeout(() => {

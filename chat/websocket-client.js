@@ -119,6 +119,14 @@ class WebSocketClient {
     // Send ping regularly to prevent idle timeout
     this.pingInterval = setInterval(() => {
       if (this.ws && this.isConnected) {
+        // Double-check WebSocket state before sending ping
+        if (this.ws.readyState !== WebSocket.OPEN) {
+          console.warn('⚠️ WebSocket not OPEN during ping - closing to trigger reconnect');
+          this.isConnected = false;
+          this.ws.close();
+          return;
+        }
+
         console.log('📤 Sending ping...');
         try {
           this.ws.send(JSON.stringify({ type: 'ping' }));
@@ -127,6 +135,7 @@ class WebSocketClient {
         } catch (error) {
           console.error('❌ Error sending ping:', error);
           // If ping send fails, connection is truly dead
+          this.isConnected = false;
           this.ws.close();
         }
       }
@@ -216,10 +225,20 @@ class WebSocketClient {
   forceReconnect() {
     console.log('🔄 Force reconnecting...');
     this.reconnectAttempts = 0;  // Reset attempts counter
-    if (this.ws) {
-      this.ws.close();  // Close existing connection
+
+    // Clear any pending reconnection timeout
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
     }
-    // attemptReconnect will be triggered by onclose handler
+
+    // Close existing connection if open
+    if (this.ws && this.ws.readyState !== WebSocket.CLOSED && this.ws.readyState !== WebSocket.CLOSING) {
+      this.ws.close();  // onclose handler will trigger attemptReconnect
+    } else {
+      // Connection already closed, manually trigger reconnect
+      this.attemptReconnect();
+    }
   }
 
   /**
@@ -258,6 +277,9 @@ class WebSocketClient {
       });
     }
 
+    // Get canvas user ID before creating the promise
+    const canvasUserId = await this.getCanvasUserId();
+
     // Connection is good - send query normally
     return new Promise((resolve, reject) => {
       let closeHandler = null;
@@ -291,7 +313,8 @@ class WebSocketClient {
         session_id: sessionId || null,  // For chat history saving
         api_key: apiKey || null,  // User's Gemini API key
         enable_web_search: enableWebSearch || false,  // Web search toggle
-        use_smart_selection: useSmartSelection || false  // Smart file selection toggle
+        use_smart_selection: useSmartSelection || false,  // Smart file selection toggle
+        canvas_user_id: canvasUserId || null  // Canvas user ID for user-specific tracking
       };
 
       // Handle incoming messages
@@ -354,12 +377,27 @@ class WebSocketClient {
   }
 
   /**
+   * Clear all pending queries from the queue
+   */
+  clearQueue() {
+    const queueLength = this.pendingQueries.length;
+    this.pendingQueries = [];
+    if (queueLength > 0) {
+      console.log(`🧹 Cleared ${queueLength} pending queries from queue`);
+    }
+    return queueLength;
+  }
+
+  /**
    * Close WebSocket connection
    */
   disconnect() {
     // Stop heartbeat and monitoring
     this.stopHeartbeat();
     this.stopConnectionMonitor();
+
+    // Clear any pending queries
+    this.clearQueue();
 
     if (this.ws) {
       this.ws.close();
@@ -373,6 +411,17 @@ class WebSocketClient {
    */
   isReady() {
     return this.isConnected && this.ws && this.ws.readyState === WebSocket.OPEN;
+  }
+
+  /**
+   * Get Canvas user ID from storage
+   */
+  async getCanvasUserId() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(['canvasUserId'], (result) => {
+        resolve(result.canvasUserId || null);
+      });
+    });
   }
 }
 
@@ -456,7 +505,12 @@ class BackendClient {
    */
   async getCollectionStatus(courseId) {
     try {
-      const response = await fetch(`${this.backendUrl}/collections/${courseId}/status`);
+      const canvasUserId = await this.getCanvasUserId();
+      const headers = {};
+      if (canvasUserId) {
+        headers['X-Canvas-User-Id'] = canvasUserId;
+      }
+      const response = await fetch(`${this.backendUrl}/collections/${courseId}/status`, { headers });
       const result = await response.json();
       return result;
     } catch (error) {
@@ -480,11 +534,27 @@ class BackendClient {
   }
 
   /**
+   * Get Canvas user ID from storage
+   */
+  async getCanvasUserId() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(['canvasUserId'], (result) => {
+        resolve(result.canvasUserId || null);
+      });
+    });
+  }
+
+  /**
    * Get recent chat sessions for a course
    */
   async getRecentChats(courseId, limit = 20) {
     try {
-      const response = await fetch(`${this.backendUrl}/chats/${courseId}?limit=${limit}`);
+      const canvasUserId = await this.getCanvasUserId();
+      const headers = {};
+      if (canvasUserId) {
+        headers['X-Canvas-User-Id'] = canvasUserId;
+      }
+      const response = await fetch(`${this.backendUrl}/chats/${courseId}?limit=${limit}`, { headers });
       const result = await response.json();
       return result;
     } catch (error) {
@@ -498,7 +568,12 @@ class BackendClient {
    */
   async getChatSession(courseId, sessionId) {
     try {
-      const response = await fetch(`${this.backendUrl}/chats/${courseId}/${sessionId}`);
+      const canvasUserId = await this.getCanvasUserId();
+      const headers = {};
+      if (canvasUserId) {
+        headers['X-Canvas-User-Id'] = canvasUserId;
+      }
+      const response = await fetch(`${this.backendUrl}/chats/${courseId}/${sessionId}`, { headers });
       const result = await response.json();
       return result;
     } catch (error) {
@@ -512,8 +587,14 @@ class BackendClient {
    */
   async deleteChatSession(courseId, sessionId) {
     try {
+      const canvasUserId = await this.getCanvasUserId();
+      const headers = {};
+      if (canvasUserId) {
+        headers['X-Canvas-User-Id'] = canvasUserId;
+      }
       const response = await fetch(`${this.backendUrl}/chats/${courseId}/${sessionId}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers
       });
       const result = await response.json();
       return result;
@@ -528,11 +609,16 @@ class BackendClient {
    */
   async updateChatTitle(courseId, sessionId, title) {
     try {
+      const canvasUserId = await this.getCanvasUserId();
+      const headers = {
+        'Content-Type': 'application/json'
+      };
+      if (canvasUserId) {
+        headers['X-Canvas-User-Id'] = canvasUserId;
+      }
       const response = await fetch(`${this.backendUrl}/chats/${courseId}/${sessionId}/title`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers,
         body: JSON.stringify({ title })
       });
       const result = await response.json();

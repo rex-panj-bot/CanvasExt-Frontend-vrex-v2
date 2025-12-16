@@ -15,19 +15,12 @@ async function updateIconForTheme(scheme) {
   // LIGHT browser needs lightmodelogo (dark lines for visibility)
   const logoFile = isDark ? 'darkmodelogo.png' : 'lightmodelogo.png';
 
-  console.log(`🎨 [UPDATE ICON] ===============================================`);
-  console.log(`🎨 [UPDATE ICON] Scheme: "${scheme}"`);
-  console.log(`🎨 [UPDATE ICON] Is dark mode: ${isDark}`);
-  console.log(`🎨 [UPDATE ICON] Logo file: "${logoFile}"`);
-  console.log(`🎨 [UPDATE ICON] Logic: ${isDark ? 'DARK browser → darkmodelogo (light lines)' : 'LIGHT browser → lightmodelogo (dark lines)'}`);
-  console.log(`🎨 [UPDATE ICON] ===============================================`);
+  console.log(`🎨 [UPDATE ICON] Scheme: "${scheme}", Logo: "${logoFile}"`);
 
   try {
     // Method 1: Try loading as ImageData (most reliable for service workers)
     const imagePath = `icons/${logoFile}`;
     const imageUrl = chrome.runtime.getURL(imagePath);
-
-    console.log(`🎨 [UPDATE ICON] Fetching image from: ${imageUrl}`);
 
     const response = await fetch(imageUrl);
     if (!response.ok) {
@@ -37,30 +30,24 @@ async function updateIconForTheme(scheme) {
     const blob = await response.blob();
     const bitmap = await createImageBitmap(blob);
 
-    console.log(`🎨 [UPDATE ICON] Original image size: ${bitmap.width}x${bitmap.height}`);
-
     // Chrome requires SQUARE icons - resize to 128x128
     const size = 128;
     const canvas = new OffscreenCanvas(size, size);
     const ctx = canvas.getContext('2d');
 
     // Stretch the image to fill the entire 128x128 square
-    // This ensures the icon fills the toolbar space properly
     ctx.drawImage(bitmap, 0, 0, size, size);
 
     const imageData = ctx.getImageData(0, 0, size, size);
 
-    console.log(`🎨 [UPDATE ICON] Stretched to square: ${size}x${size}`);
-
     // Set the icon using ImageData
     await chrome.action.setIcon({ imageData: imageData });
-    console.log(`✅ [UPDATE ICON SUCCESS] Toolbar icon updated to ${logoFile} using ImageData`);
+    console.log(`✅ [UPDATE ICON] Toolbar icon updated to ${logoFile}`);
 
   } catch (error) {
     console.error('❌ [UPDATE ICON ERROR] Failed with ImageData method:', error);
 
     // Method 2: Fallback to path-based method
-    console.log('🔄 [UPDATE ICON RETRY] Trying path-based method...');
     try {
       await chrome.action.setIcon({
         path: {
@@ -69,9 +56,9 @@ async function updateIconForTheme(scheme) {
           '128': `icons/${logoFile}`
         }
       });
-      console.log(`✅ [UPDATE ICON RETRY SUCCESS] Icon updated using path`);
+      console.log(`✅ [UPDATE ICON] Icon updated using path fallback`);
     } catch (pathError) {
-      console.error('❌ [UPDATE ICON RETRY FAILED]:', pathError);
+      console.error('❌ [UPDATE ICON] Path fallback also failed:', pathError);
     }
   }
 }
@@ -86,13 +73,11 @@ async function initializeIcon() {
   const result = await chrome.storage.local.get(['theme-preference']);
   const storedTheme = result['theme-preference'];
 
-  console.log(`🎨 [INIT] Stored theme preference: ${storedTheme || 'none'}`);
-
   if (storedTheme) {
     console.log(`🎨 [INIT] Using stored theme: ${storedTheme}`);
     updateIconForTheme(storedTheme);
   } else {
-    // Default to dark mode if no preference stored (assuming dark browser UI is more common)
+    // Default to dark mode if no preference stored
     console.log('🎨 [INIT] No theme preference found, defaulting to dark mode');
     updateIconForTheme('dark');
   }
@@ -100,6 +85,16 @@ async function initializeIcon() {
 
 // Initialize icon immediately when service worker loads
 initializeIcon();
+
+// Listen for storage changes - but only for SYSTEM theme changes (not manual toggles)
+// The 'system-theme' key is set only when the actual system theme changes
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === 'local' && changes['system-theme']) {
+    const newTheme = changes['system-theme'].newValue;
+    console.log(`🎨 System theme changed: ${newTheme}`);
+    updateIconForTheme(newTheme);
+  }
+});
 
 // Also initialize on install/startup events
 chrome.runtime.onInstalled.addListener(() => {
@@ -533,7 +528,15 @@ async function fetchAndMergeBackendMaterials(courseId) {
     console.log('🔄 Fetching materials catalog from backend...');
 
     const backendUrl = 'https://web-production-9aaba7.up.railway.app';
-    const response = await fetch(`${backendUrl}/collections/${courseId}/materials`);
+
+    // Get Canvas user ID for the header
+    const storageData = await chrome.storage.local.get(['canvasUserId']);
+    const headers = {};
+    if (storageData.canvasUserId) {
+      headers['X-Canvas-User-Id'] = storageData.canvasUserId;
+    }
+
+    const response = await fetch(`${backendUrl}/collections/${courseId}/materials`, { headers });
     const data = await response.json();
 
     if (!data.success || !data.materials) {

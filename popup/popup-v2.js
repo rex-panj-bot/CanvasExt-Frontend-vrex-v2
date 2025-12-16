@@ -105,11 +105,9 @@ async function init() {
         // Session is valid, go to main screen
         await loadMainScreen();
       } else {
-        // Session invalid, show session setup screen with continue button
+        // Session invalid, show session setup screen
         showScreen('sessionSetup');
         document.getElementById('session-canvas-url').value = url.replace('https://', '').replace('http://', '');
-        document.getElementById('session-login-btn').classList.add('hidden');
-        document.getElementById('session-continue-btn').classList.remove('hidden');
       }
     } catch (error) {
       console.error('Session check failed:', error);
@@ -121,12 +119,27 @@ async function init() {
   }
 
   setupEventListeners();
+
+  // Setup cleanup on popup close
+  window.addEventListener('beforeunload', handlePopupClose);
+  window.addEventListener('unload', handlePopupClose);
+}
+
+/**
+ * Handle popup close - cleanup any pending operations
+ */
+function handlePopupClose() {
+  // Clear login polling if active
+  if (loginPollingInterval) {
+    clearInterval(loginPollingInterval);
+    loginPollingInterval = null;
+    console.log('🧹 Cleared login polling interval on popup close');
+  }
 }
 
 function setupEventListeners() {
   // Session auth
   document.getElementById('session-login-btn').addEventListener('click', handleSessionLogin);
-  document.getElementById('session-continue-btn').addEventListener('click', handleSessionContinue);
 
   // Main screen
   document.getElementById('course-select').addEventListener('change', handleCourseChange);
@@ -285,96 +298,133 @@ function hideError(element) {
 
 // ========== SESSION AUTH ==========
 
+/**
+ * Extract Canvas domain from user input
+ * Handles various formats:
+ * - utexas.instructure.com
+ * - https://utexas.instructure.com
+ * - https://utexas.instructure.com/
+ * - https://utexas.instructure.com/courses/12345
+ * - http://utexas.instructure.com/login
+ * Returns just the domain: utexas.instructure.com
+ */
+function extractCanvasDomain(input) {
+  let url = input.trim();
+
+  // If no protocol, add one for URL parsing
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    url = 'https://' + url;
+  }
+
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname; // Returns just the domain
+  } catch (e) {
+    // If URL parsing fails, try manual extraction
+    return input.replace(/^https?:\/\//, '').split('/')[0].trim();
+  }
+}
+
 async function handleSessionLogin() {
-  const url = document.getElementById('session-canvas-url').value.trim();
+  const rawInput = document.getElementById('session-canvas-url').value.trim();
   const errorEl = document.getElementById('session-error');
 
   hideError(errorEl);
 
-  if (!url) {
+  if (!rawInput) {
     showError(errorEl, 'Please enter your Canvas URL');
     return;
   }
 
-  try {
-    const btn = document.getElementById('session-login-btn');
-    btn.disabled = true;
-    btn.textContent = 'Saving...';
+  // Extract just the domain from whatever the user pasted
+  const canvasDomain = extractCanvasDomain(rawInput);
 
-    // Save Canvas URL and set auth method
-    await StorageManager.saveCanvasUrl(url);
+  // Update the input field to show the cleaned domain
+  document.getElementById('session-canvas-url').value = canvasDomain;
+
+  const btn = document.getElementById('session-login-btn');
+
+  try {
+    btn.disabled = true;
+    btn.textContent = 'Checking...';
+
+    // Save Canvas URL (domain only) and set auth method
+    await StorageManager.saveCanvasUrl(canvasDomain);
     await StorageManager.saveAuthMethod('session');
 
     const savedUrl = await StorageManager.getCanvasUrl();
+    const sessionAuth = new SessionAuth(savedUrl);
 
-    // Open Canvas login page
-    const loginUrl = `${savedUrl}/login`;
-    chrome.tabs.create({ url: loginUrl });
+    // First check if already logged in
+    const isAlreadyLoggedIn = await sessionAuth.testSession();
 
-    // Show continue button
-    btn.classList.add('hidden');
-    document.getElementById('session-continue-btn').classList.remove('hidden');
-  } catch (error) {
-    showError(errorEl, error.message);
-    document.getElementById('session-login-btn').disabled = false;
-    document.getElementById('session-login-btn').textContent = 'Log in to Canvas';
-  }
-}
+    if (isAlreadyLoggedIn) {
+      // Already logged in - go straight to main screen
+      console.log('Already logged in! Loading main screen...');
+      currentAuthMethod = 'session';
+      canvasAPI = new CanvasAPI(savedUrl, null, 'session');
+      await loadMainScreen();
+    } else {
+      // Not logged in - open Canvas login page and poll silently
+      const loginUrl = `${savedUrl}/login`;
+      chrome.tabs.create({ url: loginUrl });
 
-async function handleSessionContinue() {
-  const errorEl = document.getElementById('session-error');
-  const btn = document.getElementById('session-continue-btn');
-
-  try {
-    btn.disabled = true;
-    btn.textContent = 'Checking login status...';
-
-    // First check if URL has been entered
-    const urlInput = document.getElementById('session-canvas-url');
-    let url = await StorageManager.getCanvasUrl();
-
-    // If no URL saved yet, try to save from input field
-    if (!url && urlInput && urlInput.value.trim()) {
-      await StorageManager.saveCanvasUrl(urlInput.value.trim());
-      await StorageManager.saveAuthMethod('session');
-      url = await StorageManager.getCanvasUrl();
-    }
-
-    if (!url) {
-      showError(errorEl, 'Please enter your Canvas URL first');
+      // Reset button and start polling in background
       btn.disabled = false;
-      btn.textContent = 'I\'m Logged In - Continue';
-      return;
+      btn.textContent = 'Log in to Canvas';
+
+      // Start polling for login status
+      startLoginPolling(savedUrl);
     }
-
-    const sessionAuth = new SessionAuth(url);
-
-    // Test if logged in
-    console.log('Testing Canvas session...');
-    const isValid = await sessionAuth.testSession();
-
-    if (!isValid) {
-      showError(errorEl, 'Not logged in to Canvas. Please log in and try again.');
-      btn.disabled = false;
-      btn.textContent = 'I\'m Logged In - Continue';
-      return;
-    }
-
-    console.log('Session valid! Loading main screen...');
-
-    // Initialize API with session auth
-    currentAuthMethod = 'session';
-    canvasAPI = new CanvasAPI(url, null, 'session');
-
-    await loadMainScreen();
   } catch (error) {
-    console.error('Session continue error:', error);
     showError(errorEl, error.message);
     btn.disabled = false;
-    btn.textContent = 'I\'m Logged In - Continue';
+    btn.textContent = 'Log in to Canvas';
   }
 }
 
+// Poll for login status after user opens Canvas login page
+let loginPollingInterval = null;
+
+function startLoginPolling(url) {
+  // Clear any existing polling
+  if (loginPollingInterval) {
+    clearInterval(loginPollingInterval);
+  }
+
+  const sessionAuth = new SessionAuth(url);
+  let attempts = 0;
+  const maxAttempts = 60; // 2 minutes max (every 2 seconds)
+
+  loginPollingInterval = setInterval(async () => {
+    attempts++;
+
+    try {
+      const isValid = await sessionAuth.testSession();
+
+      if (isValid) {
+        // Login successful - stop polling and proceed
+        clearInterval(loginPollingInterval);
+        loginPollingInterval = null;
+
+        console.log('Login detected! Loading main screen...');
+
+        // Initialize API with session auth
+        currentAuthMethod = 'session';
+        canvasAPI = new CanvasAPI(url, null, 'session');
+
+        await loadMainScreen();
+      } else if (attempts >= maxAttempts) {
+        // Timeout - stop polling silently (user can click button again)
+        clearInterval(loginPollingInterval);
+        loginPollingInterval = null;
+        console.log('Login polling timed out');
+      }
+    } catch (error) {
+      console.log('Login check failed, will retry...', error.message);
+    }
+  }, 2000); // Check every 2 seconds
+}
 
 // ========== MAIN SCREEN ==========
 
@@ -1263,7 +1313,60 @@ async function continueLoadingInBackground(courseId, courseName, filesToDownload
       });
     }
 
-    // Update IndexedDB with complete materials
+    // FILTER OUT VIDEO/AUDIO FILES FROM MATERIALS BEFORE SAVING TO INDEXEDDB
+    // This ensures they don't show up in the chat materials panel
+    const videoExtensions = ['.mov', '.mp4', '.avi', '.webm', '.wmv', '.mpeg', '.mpg', '.flv', '.3gp'];
+    const audioExtensions = ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac'];
+    const filteredFromMaterials = [];
+
+    const filterMediaFromArray = (items) => {
+      if (!Array.isArray(items)) return items;
+      return items.filter(item => {
+        const fileName = (item.display_name || item.filename || item.name || item.title || '').toLowerCase();
+        const fileExt = fileName.substring(fileName.lastIndexOf('.'));
+        const mimeType = item['content-type'] || item.mimeType || '';
+
+        if (videoExtensions.includes(fileExt) || mimeType.startsWith('video/')) {
+          filteredFromMaterials.push(item.display_name || item.name || fileName);
+          return false;
+        }
+        if (audioExtensions.includes(fileExt) || mimeType.startsWith('audio/')) {
+          filteredFromMaterials.push(item.display_name || item.name || fileName);
+          return false;
+        }
+        return true;
+      });
+    };
+
+    // Filter each category
+    for (const key of Object.keys(materialsToProcess)) {
+      if (Array.isArray(materialsToProcess[key])) {
+        materialsToProcess[key] = filterMediaFromArray(materialsToProcess[key]);
+      }
+    }
+
+    // Filter module items
+    if (materialsToProcess.modules && Array.isArray(materialsToProcess.modules)) {
+      materialsToProcess.modules.forEach(module => {
+        if (module.items && Array.isArray(module.items)) {
+          module.items = filterMediaFromArray(module.items);
+        }
+      });
+    }
+
+    if (filteredFromMaterials.length > 0) {
+      console.log(`🎬🎵 [INDEXEDDB] Filtered ${filteredFromMaterials.length} media files from materials:`, filteredFromMaterials);
+      // Store filtered files info for chat to show notification
+      await chrome.storage.local.set({
+        filteredMediaFiles: {
+          courseId: courseId,
+          files: filteredFromMaterials,
+          timestamp: Date.now()
+        }
+      });
+    }
+
+    // Update IndexedDB with complete materials (now filtered)
     const materialsDB = new MaterialsDB();
     await materialsDB.saveMaterials(courseId, courseName, materialsToProcess);
     await materialsDB.close();
@@ -1362,7 +1465,12 @@ async function createStudyBot() {
     }
 
     // Get list of files already uploaded
-    const statusResponse = await fetch(`https://web-production-9aaba7.up.railway.app/collections/${currentCourse.id}/status`);
+    const canvasUserId = await StorageManager.getCanvasUserId();
+    const statusHeaders = {};
+    if (canvasUserId) {
+      statusHeaders['X-Canvas-User-Id'] = canvasUserId;
+    }
+    const statusResponse = await fetch(`https://web-production-9aaba7.up.railway.app/collections/${currentCourse.id}/status`, { headers: statusHeaders });
     const status = await statusResponse.json();
     const uploadedFileIds = new Set(status.files || []);
 
@@ -1629,10 +1737,15 @@ async function createStudyBot() {
     if (skippedFiles.length > 0) {
       console.warn(`⚠️ ${skippedFiles.length} files skipped (no Canvas download URL):`, skippedFiles);
 
-      // Notify user about unpublished/inaccessible files
-      const skippedNames = skippedFiles.slice(0, 10).join('\n• ');
-      const moreCount = skippedFiles.length > 10 ? `\n...and ${skippedFiles.length - 10} more` : '';
-      alert(`⚠️ ${skippedFiles.length} file(s) are not yet published or accessible and will be skipped:\n\n• ${skippedNames}${moreCount}\n\nThese files won't be available to the AI until they are published in Canvas.`);
+      // Store skipped files info for chat view to display notification
+      await chrome.storage.local.set({
+        skippedUnavailableFiles: {
+          courseId: currentCourse.id,
+          files: skippedFiles,
+          reason: 'Files not yet published or accessible in Canvas',
+          timestamp: Date.now()
+        }
+      });
 
       // Remove skipped files from materialsToProcess so they don't show in UI
       const skippedSet = new Set(skippedFiles);
@@ -1926,6 +2039,43 @@ async function createStudyBot() {
     // NEW APPROACH: Send files to background worker for batched upload
     // This allows chat to open immediately while files upload in background
     if (filesToUpload.length > 0) {
+      // FILTER OUT VIDEO AND AUDIO FILES - They cause upload failures
+      const videoExtensions = ['.mov', '.mp4', '.avi', '.webm', '.wmv', '.mpeg', '.mpg', '.flv', '.3gp'];
+      const audioExtensions = ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac'];
+      const allowedFiles = [];
+      const filteredMediaFiles = [];
+
+      filesToUpload.forEach(file => {
+        const fileName = file.name || '';
+        const fileExt = fileName.toLowerCase().substring(fileName.lastIndexOf('.'));
+        const mimeType = file['content-type'] || file.mimeType || '';
+
+        if (videoExtensions.includes(fileExt) || mimeType.startsWith('video/')) {
+          console.log(`🎬 [POPUP FILTERED VIDEO] ${fileName} (${fileExt || mimeType})`);
+          filteredMediaFiles.push({name: fileName, type: 'video'});
+        } else if (audioExtensions.includes(fileExt) || mimeType.startsWith('audio/')) {
+          console.log(`🎵 [POPUP FILTERED AUDIO] ${fileName} (${fileExt || mimeType})`);
+          filteredMediaFiles.push({name: fileName, type: 'audio'});
+        } else {
+          allowedFiles.push(file);
+        }
+      });
+
+      if (filteredMediaFiles.length > 0) {
+        const videoCount = filteredMediaFiles.filter(f => f.type === 'video').length;
+        const audioCount = filteredMediaFiles.filter(f => f.type === 'audio').length;
+        const fileNames = filteredMediaFiles.map(f => f.name);
+
+        console.log(`⚠️ [POPUP] FILTERED OUT ${filteredMediaFiles.length} MEDIA FILES (${videoCount} video, ${audioCount} audio):`, fileNames);
+        chrome.runtime.sendMessage({
+          type: 'LOG_FROM_POPUP',
+          message: `⚠️ [POPUP MEDIA FILTER] Removed ${videoCount} video + ${audioCount} audio files: ${fileNames.slice(0, 3).join(', ')}${fileNames.length > 3 ? ` and ${fileNames.length - 3} more` : ''}`
+        });
+      }
+
+      filesToUpload = allowedFiles;
+      console.log(`✅ [POPUP] Proceeding with ${filesToUpload.length} supported files (filtered ${filteredMediaFiles.length} media files)`);
+
       // DEDUPLICATE: Remove duplicate files before uploading
       // Same file can appear in both files list AND modules - deduplicate by URL or hash
       const seenKeys = new Set();
@@ -1995,14 +2145,24 @@ async function createStudyBot() {
         // Extract session cookies (Canvas uses various cookie names depending on institution)
         const cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ');
 
-        // Log what we're about to send
+        // LOG UPLOAD SUMMARY: Show complete file flow
         const hashCountBeforeSend = filesToUpload.filter(f => f.hash).length;
-        console.log(`📤 [POPUP] About to send ${filesToUpload.length} files to service worker: ${hashCountBeforeSend} with hash`);
+        const initialTotal = filesToProcess.length;
+        const afterFiltering = filesToUpload.length + filteredMediaFiles.length;
+        const duplicatesRemoved = afterFiltering - filesToUpload.length;
+
+        console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+        console.log(`📊 UPLOAD SUMMARY:`);
+        console.log(`   Files detected: ${initialTotal}`);
+        console.log(`   Filtered: ${filteredMediaFiles.length} (${filteredMediaFiles.filter(f => f.type === 'video').length} video, ${filteredMediaFiles.filter(f => f.type === 'audio').length} audio)`);
+        console.log(`   Duplicates removed: ${duplicatesRemoved}`);
+        console.log(`   ✅ UPLOADING: ${filesToUpload.length} files (${hashCountBeforeSend} with hash)`);
+        console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
 
         // Also log to service worker console for persistence
         chrome.runtime.sendMessage({
           type: 'LOG_FROM_POPUP',
-          message: `📤 [POPUP] Sending ${filesToUpload.length} files: ${hashCountBeforeSend} with hash`
+          message: `📤 [UPLOAD] ${initialTotal} detected → ${filesToUpload.length} uploading (filtered: ${filteredMediaFiles.length} media, duplicates: ${duplicatesRemoved})`
         });
 
         if (hashCountBeforeSend === 0 && filesToUpload.length > 0) {
@@ -2048,6 +2208,48 @@ async function createStudyBot() {
         id: a.id,
         has_doc_id: !!a.doc_id
       })));
+    }
+
+    // FILTER OUT VIDEO/AUDIO FILES FROM MATERIALS BEFORE SAVING
+    const videoExts = ['.mov', '.mp4', '.avi', '.webm', '.wmv', '.mpeg', '.mpg', '.flv', '.3gp'];
+    const audioExts = ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac'];
+    const filteredMedia = [];
+
+    const filterMedia = (items) => {
+      if (!Array.isArray(items)) return items;
+      return items.filter(item => {
+        const name = (item.display_name || item.filename || item.name || item.title || '').toLowerCase();
+        const ext = name.substring(name.lastIndexOf('.'));
+        const mime = item['content-type'] || item.mimeType || '';
+        if (videoExts.includes(ext) || mime.startsWith('video/') || audioExts.includes(ext) || mime.startsWith('audio/')) {
+          filteredMedia.push(item.display_name || item.name || name);
+          return false;
+        }
+        return true;
+      });
+    };
+
+    for (const key of Object.keys(materialsToProcess)) {
+      if (Array.isArray(materialsToProcess[key])) {
+        materialsToProcess[key] = filterMedia(materialsToProcess[key]);
+      }
+    }
+    if (materialsToProcess.modules) {
+      materialsToProcess.modules.forEach(m => {
+        if (m.items) m.items = filterMedia(m.items);
+      });
+    }
+
+    if (filteredMedia.length > 0) {
+      console.log(`🎬🎵 Filtered ${filteredMedia.length} media files from materials`);
+      // Store filtered files info for chat to show notification
+      await chrome.storage.local.set({
+        filteredMediaFiles: {
+          courseId: currentCourse.id,
+          files: filteredMedia,
+          timestamp: Date.now()
+        }
+      });
     }
 
     const materialsDB = new MaterialsDB();

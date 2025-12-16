@@ -19,8 +19,8 @@ class ThemeManager {
     // Apply theme immediately
     this.applyTheme(this.currentScheme);
 
-    // Send initial scheme to background for icon update
-    this.notifyBackground(this.currentScheme);
+    // Save SYSTEM theme for toolbar icon (separate from page preference)
+    this.saveSystemTheme(this.currentScheme);
 
     // Listen for system theme changes
     this.mediaQuery.addEventListener('change', (event) => {
@@ -28,10 +28,21 @@ class ThemeManager {
       console.log(`🎨 [THEME-MANAGER] ⚠️ SYSTEM THEME CHANGED: ${this.currentScheme} → ${newScheme}`);
       this.currentScheme = newScheme;
       this.applyTheme(newScheme);
-      this.notifyBackground(newScheme);
+      // Save system theme for toolbar icon
+      this.saveSystemTheme(newScheme);
     });
 
     console.log(`🎨 [THEME-MANAGER] Initialized in ${this.currentScheme} mode`);
+  }
+
+  /**
+   * Save system theme (for toolbar icon - only changes with actual system theme)
+   */
+  saveSystemTheme(scheme) {
+    if (typeof chrome !== 'undefined' && chrome.storage) {
+      chrome.storage.local.set({ 'system-theme': scheme });
+      console.log(`🎨 System theme saved: ${scheme}`);
+    }
   }
 
   /**
