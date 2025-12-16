@@ -2359,7 +2359,21 @@ function setupEventListeners() {
     // Clear mode response cache for fresh start
     modeResponseCache = {};
     currentModeTopic = null;
-    console.log('🗑️ Cleared mode response cache for new chat');
+
+    // Reset study mode (Learn/Reinforce/Test) to OFF
+    currentMode = null;
+    document.querySelectorAll('.mode-btn-compact').forEach(btn => btn.classList.remove('active'));
+
+    // Reset smart file selection toggle to OFF
+    const smartFileToggle = document.getElementById('smart-file-icon-toggle');
+    if (smartFileToggle) {
+      smartFileToggle.classList.remove('active');
+    }
+
+    // Update placeholder to default state
+    updatePlaceholder();
+
+    console.log('Cleared mode and cache for new chat');
     // Update URL to reflect new chat (no chatId parameter)
     updateURL(null);
     // Refresh recent chats
