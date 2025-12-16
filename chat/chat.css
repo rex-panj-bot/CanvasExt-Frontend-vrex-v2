@@ -323,7 +323,7 @@ body {
 }
 
 .sidebar-content.drag-over::before {
-  content: '📁 Drop files here to upload';
+  content: 'Drop files here to upload';
   position: absolute;
   top: 50%;
   left: 50%;

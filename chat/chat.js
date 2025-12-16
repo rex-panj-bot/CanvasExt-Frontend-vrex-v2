@@ -3309,19 +3309,33 @@ async function sendMessage() {
           }
         }
 
-        // Check if this is a file selection event from smart select
+        // Check if chunk contains file selection event from smart select
         // Format: __FILE_SELECTION__:doc_id1,doc_id2,doc_id3
-        if (chunk.startsWith('__FILE_SELECTION__:')) {
-          const docIds = chunk.replace('__FILE_SELECTION__:', '').trim().split(',');
-          console.log('📂 Smart Select files:', docIds.length, 'files');
-          // Select these files in the sidebar
-          selectFilesInSidebar(docIds);
-          return; // Don't add to assistant message
+        if (chunk.includes('__FILE_SELECTION__:')) {
+          const match = chunk.match(/__FILE_SELECTION__:([^\n]+)/);
+          if (match) {
+            const docIds = match[1].trim().split(',');
+            console.log('Smart Select files:', docIds.length, 'files');
+            // Select these files in the sidebar
+            selectFilesInSidebar(docIds);
+          }
+          // Remove the file selection part and continue processing rest of chunk
+          chunk = chunk.replace(/__FILE_SELECTION__:[^\n]+\n?/, '');
+          if (!chunk.trim()) return;
         }
 
-        // Filter out status/loading messages (emoji prefix patterns)
+        // Filter out internal status messages (prefixed with __STATUS__:)
+        if (chunk.includes('__STATUS__:')) {
+          // Remove status messages from chunk
+          chunk = chunk.replace(/__STATUS__:[^\n]+\n?/g, '');
+          if (!chunk.trim()) return;
+        }
+
+        // Filter out any remaining status messages
         const trimmed = chunk.trim();
-        if (trimmed.startsWith('📋') || trimmed.startsWith('✅ Selected') || trimmed.startsWith('📤')) {
+        if (trimmed.startsWith('No file summaries') ||
+            trimmed.startsWith('Could not determine') ||
+            trimmed.startsWith('Using all materials')) {
           return;
         }
 
@@ -3813,7 +3827,7 @@ function addMessage(role, content) {
     return;
   }
 
-  const avatar = role === 'assistant' ? '🤖' : '👤';
+  const avatar = role === 'assistant' ? 'AI' : 'You';
   const roleName = role === 'assistant' ? 'AI Assistant' : 'You';
 
   // For assistant messages: render math, parse citations, then render markdown
@@ -3972,7 +3986,7 @@ function addTypingIndicator(isSmartSelect = false) {
   } else {
     // Standard typing indicator
     messageDiv.innerHTML = `
-      <div class="message-avatar">🤖</div>
+      <div class="message-avatar">AI</div>
       <div class="message-content">
         <div class="message-header">
           <span class="message-role">AI Assistant</span>
@@ -4165,7 +4179,7 @@ function createWelcomeMessage() {
   const welcomeDiv = document.createElement('div');
   welcomeDiv.className = 'message assistant-message welcome-message';
   welcomeDiv.innerHTML = `
-    <div class="message-avatar">🤖</div>
+    <div class="message-avatar">AI</div>
     <div class="message-content">
       <div class="message-header">
         <span class="message-role">AI Assistant</span>
