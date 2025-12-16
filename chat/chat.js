@@ -3338,6 +3338,29 @@ async function sendMessage() {
           if (!chunk.trim()) return;
         }
 
+        // Check if chunk contains file reasoning from smart select
+        // Format: __FILE_REASONING__:JSON array of {file_id, filename, score, reason}
+        if (chunk.includes('__FILE_REASONING__:')) {
+          const match = chunk.match(/__FILE_REASONING__:(.+?)(?:\n|$)/);
+          if (match) {
+            try {
+              const reasoning = JSON.parse(match[1].trim());
+              console.log('Smart Select reasoning:', reasoning.length, 'files with reasons');
+              // Store reasoning for display (e.g., in tooltips or a panel)
+              window.lastFileReasoning = reasoning;
+              // Log reasons for debugging
+              reasoning.forEach(r => {
+                console.log(`  - ${r.filename}: ${r.score.toFixed(2)} - ${r.reason}`);
+              });
+            } catch (e) {
+              console.warn('Failed to parse file reasoning:', e);
+            }
+          }
+          // Remove the file reasoning part and continue processing rest of chunk
+          chunk = chunk.replace(/__FILE_REASONING__:.+?(?:\n|$)/, '');
+          if (!chunk.trim()) return;
+        }
+
         // Filter out internal status messages (prefixed with __STATUS__:)
         if (chunk.includes('__STATUS__:')) {
           // Remove status messages from chunk
