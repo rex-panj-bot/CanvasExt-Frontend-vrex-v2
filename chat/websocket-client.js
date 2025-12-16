@@ -442,6 +442,7 @@ class BackendClient {
     // Add files to form data, validating that blob exists
     let validFileCount = 0;
     const fileTypes = {};
+    const fileMetadata = []; // Store Canvas timestamps for each file
 
     for (const file of files) {
       // Validate that blob is actually a Blob object
@@ -453,6 +454,14 @@ class BackendClient {
         const ext = file.name.split('.').pop().toLowerCase();
         fileTypes[ext] = (fileTypes[ext] || 0) + 1;
 
+        // Collect Canvas timestamps for this file (for temporal disambiguation)
+        fileMetadata.push({
+          name: file.name,
+          canvas_created_at: file.canvas_created_at || null,
+          canvas_updated_at: file.canvas_updated_at || null,
+          canvas_modified_at: file.canvas_modified_at || null
+        });
+
         console.log(`  ✓ Adding ${file.name} (${ext}, ${file.blob.size} bytes, type: ${file.blob.type})`);
       } else {
         console.warn(`  ⚠️ Skipping ${file.name} - not a valid Blob (type: ${typeof file.blob})`);
@@ -462,6 +471,9 @@ class BackendClient {
     if (validFileCount === 0) {
       throw new Error('No valid files to upload. All files were skipped due to missing or invalid blobs.');
     }
+
+    // Add file metadata as JSON (Canvas timestamps for temporal disambiguation)
+    formData.append('file_metadata', JSON.stringify(fileMetadata));
 
     console.log(`📤 Uploading ${validFileCount} files to backend:`, fileTypes);
     console.log(`📤 File names being uploaded:`);

@@ -130,7 +130,11 @@ class FileProcessor {
           url: file.url,
           size: file.size || 0,
           type: 'file',
-          mimeType: file['content-type'] || 'application/octet-stream'
+          mimeType: file['content-type'] || 'application/octet-stream',
+          // Canvas upload timestamps (for smart file select temporal disambiguation)
+          canvas_created_at: file.created_at || null,
+          canvas_updated_at: file.updated_at || null,
+          canvas_modified_at: file.modified_at || null
         };
 
         this.materials.files.push(processedFile);
