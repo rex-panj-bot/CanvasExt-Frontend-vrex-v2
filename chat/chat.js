@@ -4465,7 +4465,7 @@ async function hardDeleteFile(fileId) {
     // Send hard delete to backend via HTTP (to delete from GCS)
     try {
       const response = await fetch(
-        `https://web-production-9aaba7.up.railway.app/courses/${courseId}/materials/${fileId}/hard-delete`,
+        `https://web-production-9aaba7.up.railway.app/courses/${courseId}/materials/${fileId}?permanent=true`,
         { method: 'DELETE' }
       );
 
