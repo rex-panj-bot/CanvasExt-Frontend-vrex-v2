@@ -1602,6 +1602,158 @@ body {
   }
 }
 
+/* ============================================
+   Smart File Selection Status Indicator
+   ============================================ */
+.smart-select-status {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 18px;
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.08) 0%, rgba(59, 130, 246, 0.08) 100%);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  border-radius: 16px;
+  min-width: 280px;
+  max-width: 360px;
+}
+
+.smart-select-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.smart-select-icon {
+  font-size: 16px;
+}
+
+.smart-select-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.smart-select-stage {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: all 0.3s ease;
+}
+
+.smart-select-stage.stage-updating {
+  animation: stageFlash 0.3s ease;
+}
+
+@keyframes stageFlash {
+  0% { opacity: 0.5; transform: translateX(-4px); }
+  50% { opacity: 1; }
+  100% { opacity: 1; transform: translateX(0); }
+}
+
+/* Spinner for stage indicator */
+.stage-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(139, 92, 246, 0.2);
+  border-top-color: #8b5cf6;
+  border-radius: 50%;
+  animation: spinnerRotate 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spinnerRotate {
+  to { transform: rotate(360deg); }
+}
+
+.stage-text {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+/* Progress bar */
+.smart-select-progress {
+  margin-top: 4px;
+}
+
+.progress-track {
+  height: 4px;
+  background: rgba(139, 92, 246, 0.15);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #8b5cf6 0%, #3b82f6 100%);
+  border-radius: 4px;
+  transition: width 0.4s ease;
+  position: relative;
+}
+
+.progress-fill::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.3) 50%,
+    transparent 100%
+  );
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.progress-fill.complete {
+  background: linear-gradient(90deg, #10b981 0%, #34d399 100%);
+}
+
+.progress-fill.complete::after {
+  animation: none;
+}
+
+.progress-fill.error {
+  background: linear-gradient(90deg, #ef4444 0%, #f87171 100%);
+}
+
+.progress-fill.error::after {
+  animation: none;
+}
+
+/* Generating response state */
+.typing-status.generating {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(59, 130, 246, 0.1) 100%);
+  border-color: rgba(16, 185, 129, 0.2);
+}
+
+.typing-status.generating .typing-text {
+  color: #10b981;
+}
+
+.typing-status.generating .typing-dot {
+  background: #10b981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
+}
+
+/* Light theme adjustments */
+:root[data-theme="light"] .smart-select-status {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.06) 0%, rgba(59, 130, 246, 0.06) 100%);
+}
+
+:root[data-theme="light"] .progress-track {
+  background: rgba(139, 92, 246, 0.1);
+}
+
 /* Suggested Prompts Container */
 .suggested-prompts-container {
   padding: 16px 28px 8px 28px;

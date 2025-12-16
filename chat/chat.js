@@ -3074,45 +3074,6 @@ function stopGeneration() {
 }
 
 /**
- * Convert backend status messages to conversational format
- */
-function makeStatusConversational(message) {
-  // Remove any remaining emojis
-  message = message.replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/gu, '').trim();
-
-  // Map common status patterns to conversational messages
-  const lowerMessage = message.toLowerCase();
-
-  if (lowerMessage.includes('selecting') && lowerMessage.includes('file')) {
-    // Extract number if present
-    const numMatch = message.match(/(\d+)\s*file/i);
-    if (numMatch) {
-      return `Selected ${numMatch[1]} relevant files`;
-    }
-    return 'Selecting relevant files...';
-  }
-
-  if (lowerMessage.includes('uploading') || lowerMessage.includes('loading file')) {
-    return 'Reading files...';
-  }
-
-  if (lowerMessage.includes('processing') || lowerMessage.includes('generating')) {
-    return 'Generating response...';
-  }
-
-  if (lowerMessage.includes('reading')) {
-    return 'Reading files...';
-  }
-
-  if (lowerMessage.includes('analyzing')) {
-    return 'Analyzing content...';
-  }
-
-  // Return cleaned message if no specific pattern matched
-  return message;
-}
-
-/**
  * Send a message to the AI assistant via Python backend
  */
 async function sendMessage() {
@@ -3225,38 +3186,35 @@ async function sendMessage() {
   // Add user message (show the original user input, not the full prompt)
   addMessage('user', displayMessage);
 
-  // Add typing indicator
-  const typingId = addTypingIndicator();
+  // Get selected documents from checkboxes
+  const selectedDocIds = getSelectedDocIds();
+  const syllabusId = getSyllabusId();
+
+  // Load user settings
+  const settings = await chrome.storage.local.get(['gemini_api_key', 'enable_web_search']);
+  const apiKey = settings.gemini_api_key || null;
+  const enableWebSearch = settings.enable_web_search || false;
+
+  // Check if smart file selection is enabled
+  const smartFileIconToggle = document.getElementById('smart-file-icon-toggle');
+  const useSmartSelection = smartFileIconToggle ? smartFileIconToggle.classList.contains('active') : false;
+
+  // Reset stage queue for new query
+  stageQueue = [];
+  isProcessingStages = false;
+
+  // Add typing indicator (smart select version if smart selection is enabled)
+  const typingId = addTypingIndicator(useSmartSelection);
+
+  console.log(`🚀 Sending query to backend:`);
+  console.log(`   Selected docs: ${selectedDocIds.length}`, selectedDocIds);
+  console.log(`   Syllabus ID: ${syllabusId || 'none'}`);
+  console.log(`   Web search: ${enableWebSearch ? 'enabled' : 'disabled'}`);
+  console.log(`   Smart Selection: ${useSmartSelection ? 'enabled' : 'disabled'}`);
+  console.log(`   API key: ${apiKey ? 'user-provided' : 'default'}`);
 
   try {
     let assistantMessage = '';
-    let hasReceivedChunks = false;
-
-    // Get selected documents from checkboxes
-    const selectedDocIds = getSelectedDocIds();
-    const syllabusId = getSyllabusId();
-
-    console.log(`🚀 Sending query to backend:`);
-    console.log(`   Selected docs: ${selectedDocIds.length}`, selectedDocIds);
-    console.log(`   Syllabus ID: ${syllabusId || 'none'}`);
-
-    // Load user settings
-    const settings = await chrome.storage.local.get(['gemini_api_key', 'enable_web_search']);
-    const apiKey = settings.gemini_api_key || null;
-    const enableWebSearch = settings.enable_web_search || false;
-
-    // Check if smart file selection is enabled
-    const smartFileIconToggle = document.getElementById('smart-file-icon-toggle');
-    const useSmartSelection = smartFileIconToggle ? smartFileIconToggle.classList.contains('active') : false;
-
-    console.log(`   Web search: ${enableWebSearch ? 'enabled' : 'disabled'}`);
-    console.log(`   Smart Selection: ${useSmartSelection ? 'enabled' : 'disabled'}`);
-    console.log(`   API key: ${apiKey ? 'user-provided' : 'default'}`);
-
-    // Show initial status message for smart selection
-    if (useSmartSelection) {
-      showLoadingBanner('Looking for relevant files...');
-    }
 
     await wsClient.sendQuery(
       message,
@@ -3269,26 +3227,32 @@ async function sendMessage() {
       useSmartSelection,  // Smart file selection toggle
       // onChunk callback for streaming text
       (chunk) => {
-        // Check if this is a status/loading message (starts with emoji or status indicator)
-        if (chunk.startsWith('📤') || chunk.startsWith('[STATUS]')) {
-          // Convert backend status messages to conversational format
-          let cleanedMessage = chunk
-            .replace(/📤\s*/, '')  // Remove emoji
-            .replace(/\[STATUS\]\s*/, '')  // Remove status prefix
-            .replace(/\*\*/g, '')   // Remove bold markdown
-            .replace(/\s*\(~[\d.]+MB\)/g, '')  // Remove file size
-            .trim();
-
-          // Make messages more conversational
-          cleanedMessage = makeStatusConversational(cleanedMessage);
-          showLoadingBanner(cleanedMessage);
-          return; // Don't add to assistant message
+        // Check for [STATUS] messages (new format)
+        if (chunk.includes('[STATUS]')) {
+          const statusMatch = chunk.match(/\[STATUS\]([^[]*)/);
+          if (statusMatch) {
+            const parts = statusMatch[1].trim().split('|');
+            const stage = parts[0];
+            const statusMessage = parts[1] || '';
+            const count = parts[2] ? parseInt(parts[2]) : null;
+            if (useSmartSelection) {
+              updateSmartSelectStage(typingId, stage, statusMessage, count);
+            }
+            return;
+          }
         }
 
-        // First actual content chunk received
-        if (!hasReceivedChunks) {
-          hasReceivedChunks = true;
-          hideLoadingBanner();
+        // Filter out status/loading messages (emoji prefix patterns)
+        const trimmed = chunk.trim();
+        if (trimmed.startsWith('📋') || trimmed.startsWith('✅ Selected') || trimmed.startsWith('📤')) {
+          return;
+        }
+
+        // Stop the auto-cycle when real content arrives
+        if (useSmartSelection && autoCycleInterval) {
+          // Show "complete" stage briefly before showing content
+          applyStageUpdate(typingId, 'complete', 'Files selected', null);
+          stopSmartSelectCycle();
         }
 
         assistantMessage += chunk;
@@ -3296,8 +3260,6 @@ async function sendMessage() {
       },
       // onComplete callback (called when streaming finishes and backend saves chat)
       () => {
-        hideLoadingBanner();
-
         // Update URL with session ID after streaming completes
         // This ensures the chat can be restored after refresh
         // The backend auto-saves the chat at this point
@@ -3306,12 +3268,12 @@ async function sendMessage() {
       // onError callback
       (error) => {
         console.error('Backend error:', error);
-        hideLoadingBanner();
         throw error;
       }
     );
 
     // Remove typing indicator and add final message
+    stopSmartSelectCycle(); // Clean up any running cycle
     removeTypingIndicator(typingId);
     hideLoadingBanner();
     addMessage('assistant', assistantMessage);
@@ -3706,6 +3668,32 @@ async function openCitedDocument(docName, pageNum) {
       }
     }
 
+    // Check assignments (for citations to assignment text files)
+    // Note: Assignments are uploaded as "[Assignment] Name.txt" so we need to handle that prefix
+    if (!fileItem && processedMaterials.assignments) {
+      // Remove [Assignment] prefix if present in the citation
+      const docNameWithoutPrefix = normalizedDocName
+        .replace(/^\[?assignment\]?\s*/i, '')
+        .replace(/\.txt$/i, '')
+        .trim();
+
+      for (const assignment of processedMaterials.assignments) {
+        const assignmentName = assignment.name || '';
+        const normalizedAssignmentName = normalizeFilename(assignmentName);
+
+        // Try matching with and without the [Assignment] prefix
+        if (normalizedAssignmentName === normalizedDocName ||
+            normalizedAssignmentName === docNameWithoutPrefix ||
+            normalizedAssignmentName.includes(docNameWithoutPrefix) ||
+            docNameWithoutPrefix.includes(normalizedAssignmentName) ||
+            normalizedDocName.includes(normalizedAssignmentName)) {
+          fileItem = assignment;
+          fileName = assignmentName;
+          break;
+        }
+      }
+    }
+
     if (!fileItem || !fileName) {
       showError(`File not found: ${docName}`);
       return;
@@ -3801,34 +3789,267 @@ function addMessage(role, content) {
   }
 }
 
-function addTypingIndicator() {
+// Stage labels for smart file selection progress (no emojis per user request)
+const SMART_SELECT_STAGES = {
+  'analyzing_query': { label: 'Analyzing your question' },
+  'scanning_summaries': { label: 'Scanning file summaries' },
+  'identifying_anchors': { label: 'Identifying priority files' },
+  'extracting_context': { label: 'Analyzing priority files' },
+  'scoring_files': { label: 'Scoring relevance' },
+  'complete': { label: 'Files selected' },
+  'error': { label: 'Selection failed' }
+};
+
+// Auto-cycle stages for smooth UX
+const STAGE_ORDER = [
+  'analyzing_query',
+  'scanning_summaries',
+  'identifying_anchors',
+  'extracting_context',
+  'scoring_files'
+];
+let autoCycleInterval = null;
+let currentStageIndex = 0;
+let smartSelectTypingId = null;
+
+// Queue for stage updates with minimum display time
+let stageQueue = [];
+let isProcessingStages = false;
+const MIN_STAGE_DISPLAY_MS = 400; // Minimum time each stage is visible
+
+/**
+ * Start auto-cycling through smart select stages
+ */
+function startSmartSelectCycle(typingId) {
+  stopSmartSelectCycle(); // Clear any existing cycle
+  currentStageIndex = 0;
+  smartSelectTypingId = typingId;
+
+  // Cycle through stages every 1500ms (slower for better UX)
+  autoCycleInterval = setInterval(() => {
+    currentStageIndex++;
+    if (currentStageIndex < STAGE_ORDER.length) {
+      const stage = STAGE_ORDER[currentStageIndex];
+      const stageInfo = SMART_SELECT_STAGES[stage];
+      applyStageUpdate(smartSelectTypingId, stage, stageInfo.label + '...', null);
+    } else {
+      // Reached last stage - stop cycling and wait for content
+      clearInterval(autoCycleInterval);
+      autoCycleInterval = null;
+    }
+  }, 1500);
+
+  // Apply first stage immediately
+  const firstStage = STAGE_ORDER[0];
+  applyStageUpdate(typingId, firstStage, SMART_SELECT_STAGES[firstStage].label + '...', null);
+}
+
+/**
+ * Stop the auto-cycling
+ */
+function stopSmartSelectCycle() {
+  if (autoCycleInterval) {
+    clearInterval(autoCycleInterval);
+    autoCycleInterval = null;
+  }
+  smartSelectTypingId = null;
+}
+
+function addTypingIndicator(isSmartSelect = false) {
   const id = `typing-${Date.now()}`;
   const messageDiv = document.createElement('div');
   messageDiv.id = id;
   messageDiv.className = 'message assistant-message';
-  messageDiv.innerHTML = `
-    <div class="message-avatar">🤖</div>
-    <div class="message-content">
-      <div class="message-header">
-        <span class="message-role">AI Assistant</span>
+
+  if (isSmartSelect) {
+    // Smart selection stage indicator with progress steps (no emojis)
+    messageDiv.innerHTML = `
+      <div class="message-avatar">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M12 16v-4M12 8h.01"/>
+        </svg>
       </div>
-      <div class="message-text">
-        <div class="typing-status">
-          <span class="typing-text">Thinking</span>
-          <div class="typing-indicator">
-            <div class="typing-dot"></div>
-            <div class="typing-dot"></div>
-            <div class="typing-dot"></div>
+      <div class="message-content">
+        <div class="message-header">
+          <span class="message-role">AI Assistant</span>
+        </div>
+        <div class="message-text">
+          <div class="smart-select-status">
+            <div class="smart-select-header">
+              <span class="smart-select-title">Smart File Selection</span>
+            </div>
+            <div class="smart-select-stage">
+              <div class="stage-spinner"></div>
+              <span class="stage-text">Analyzing your question...</span>
+            </div>
+            <div class="smart-select-progress">
+              <div class="progress-track">
+                <div class="progress-fill" style="width: 10%"></div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
-    </div>
-  `;
+    `;
+  } else {
+    // Standard typing indicator
+    messageDiv.innerHTML = `
+      <div class="message-avatar">🤖</div>
+      <div class="message-content">
+        <div class="message-header">
+          <span class="message-role">AI Assistant</span>
+        </div>
+        <div class="message-text">
+          <div class="typing-status">
+            <span class="typing-text">Thinking</span>
+            <div class="typing-indicator">
+              <div class="typing-dot"></div>
+              <div class="typing-dot"></div>
+              <div class="typing-dot"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
 
   elements.messagesContainer.appendChild(messageDiv);
   elements.messagesContainer.scrollTop = elements.messagesContainer.scrollHeight;
 
+  // Start auto-cycling if smart select
+  if (isSmartSelect) {
+    startSmartSelectCycle(id);
+  }
+
   return id;
+}
+
+/**
+ * Queue a stage update and process with minimum display time
+ */
+function updateSmartSelectStage(id, stage, message, count = null) {
+  // Add to queue
+  stageQueue.push({ id, stage, message, count });
+  console.log(`📊 Queued stage: ${stage} (queue length: ${stageQueue.length})`);
+
+  // Start processing if not already
+  if (!isProcessingStages) {
+    processStageQueue();
+  }
+}
+
+/**
+ * Process the stage queue with minimum display time between updates
+ */
+async function processStageQueue() {
+  if (isProcessingStages) return;
+  isProcessingStages = true;
+
+  while (stageQueue.length > 0) {
+    const { id, stage, message, count } = stageQueue.shift();
+    console.log(`📊 Processing stage: ${stage}`);
+
+    // Actually update the DOM
+    applyStageUpdate(id, stage, message, count);
+
+    // Wait minimum display time before next update (unless it's complete)
+    if (stage !== 'complete' && stage !== 'error' && stageQueue.length > 0) {
+      await new Promise(resolve => setTimeout(resolve, MIN_STAGE_DISPLAY_MS));
+    }
+  }
+
+  isProcessingStages = false;
+}
+
+/**
+ * Apply a stage update to the DOM
+ */
+function applyStageUpdate(id, stage, message, count = null) {
+  const messageDiv = document.getElementById(id);
+  if (!messageDiv) {
+    console.log(`❌ Message div not found: ${id}`);
+    return;
+  }
+
+  const stageInfo = SMART_SELECT_STAGES[stage] || { label: message };
+  const stageElement = messageDiv.querySelector('.smart-select-stage');
+  const progressFill = messageDiv.querySelector('.progress-fill');
+  const spinner = messageDiv.querySelector('.stage-spinner');
+
+  if (stageElement) {
+    const textSpan = stageElement.querySelector('.stage-text');
+
+    if (textSpan) {
+      let displayText = message || stageInfo.label;
+      if (count !== null && stage !== 'complete') {
+        displayText += `...`;
+      }
+      textSpan.textContent = displayText;
+      console.log(`✅ Updated stage text to: ${displayText}`);
+    }
+
+    // Hide spinner on complete
+    if (spinner) {
+      spinner.style.display = (stage === 'complete' || stage === 'error') ? 'none' : 'block';
+    }
+
+    // Add animation class for stage change
+    stageElement.classList.add('stage-updating');
+    setTimeout(() => stageElement.classList.remove('stage-updating'), 300);
+  } else {
+    console.log(`❌ Stage element not found in message div`);
+  }
+
+  // Update progress bar based on stage
+  if (progressFill) {
+    const stageProgress = {
+      'analyzing_query': 15,
+      'scanning_summaries': 30,
+      'identifying_anchors': 50,
+      'extracting_context': 70,
+      'scoring_files': 85,
+      'complete': 100,
+      'error': 100
+    };
+    const progress = stageProgress[stage] || 10;
+    progressFill.style.width = `${progress}%`;
+    console.log(`✅ Updated progress to: ${progress}%`);
+
+    // Add completion styling
+    if (stage === 'complete') {
+      progressFill.classList.add('complete');
+    } else if (stage === 'error') {
+      progressFill.classList.add('error');
+    }
+  }
+
+  elements.messagesContainer.scrollTop = elements.messagesContainer.scrollHeight;
+}
+
+/**
+ * Transition smart select indicator to standard typing indicator
+ * @param {string} id - Typing indicator ID
+ */
+function transitionToGenerating(id) {
+  const messageDiv = document.getElementById(id);
+  if (!messageDiv) return;
+
+  const textDiv = messageDiv.querySelector('.message-text');
+  if (textDiv) {
+    textDiv.innerHTML = `
+      <div class="typing-status generating">
+        <span class="typing-text">Generating response</span>
+        <div class="typing-indicator">
+          <div class="typing-dot"></div>
+          <div class="typing-dot"></div>
+          <div class="typing-dot"></div>
+        </div>
+      </div>
+    `;
+  }
+
+  elements.messagesContainer.scrollTop = elements.messagesContainer.scrollHeight;
 }
 
 function updateTypingIndicator(id, content) {
