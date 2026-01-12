@@ -585,6 +585,7 @@ async function loadMaterials() {
       files: [],
       pages: [],
       assignments: [],
+      quizzes: [],
       errors: []
     };
 
@@ -923,6 +924,44 @@ function displayMaterials() {
 
     assignmentsSection.appendChild(assignmentsDiv);
     materialsList.appendChild(assignmentsSection);
+  }
+
+  // 5. Display Quizzes (descriptions and details)
+  if (processedMaterials.quizzes && processedMaterials.quizzes.length > 0) {
+
+    const quizzesSection = document.createElement('div');
+    quizzesSection.className = 'materials-section';
+    quizzesSection.innerHTML = `
+      <div class="section-header">
+        <span class="section-title">Quizzes</span>
+        <span class="section-count">${processedMaterials.quizzes.length}</span>
+      </div>
+    `;
+
+    const quizzesDiv = document.createElement('div');
+    quizzesDiv.className = 'section-items';
+    quizzesDiv.innerHTML = processedMaterials.quizzes.map((quiz, quizIdx) => `
+      <div class="material-item" data-category="quizzes" data-index="${quizIdx}" data-doc-id="${quiz.doc_id || ''}" data-selected="false">
+        <label class="material-label" title="${quiz.title}">
+          ${quiz.title}
+        </label>
+        <button class="open-material-btn" title="Open quiz" data-category="quizzes" data-index="${quizIdx}">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+            <polyline points="15 3 21 3 21 9"/>
+            <line x1="10" y1="14" x2="21" y2="3"/>
+          </svg>
+        </button>
+        <button class="delete-material-btn" title="Remove from AI memory" data-category="quizzes" data-index="${quizIdx}">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 6L6 18M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+    `).join('');
+
+    quizzesSection.appendChild(quizzesDiv);
+    materialsList.appendChild(quizzesSection);
   }
 
 

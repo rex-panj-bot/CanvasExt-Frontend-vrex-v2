@@ -1667,6 +1667,70 @@ async function createStudyBot() {
       });
     }
 
+    // Process quizzes: convert quiz info to text files for AI to read
+    if (materialsToProcess.quizzes && Array.isArray(materialsToProcess.quizzes)) {
+      console.log(`📝 Processing ${materialsToProcess.quizzes.length} quiz descriptions for backend upload`);
+      chrome.runtime.sendMessage({
+        type: 'LOG_FROM_POPUP',
+        message: `📝 [QUIZ] Processing ${materialsToProcess.quizzes.length} quiz descriptions`
+      });
+
+      materialsToProcess.quizzes.forEach((quiz) => {
+        // Only process quizzes with descriptions
+        if (!quiz.description || quiz.description.trim() === '') {
+          console.log(`⏭️ Skipping quiz "${quiz.title}" - no description`);
+          return;
+        }
+
+        // Strip HTML tags from description to get plain text
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = quiz.description;
+        const plainText = tempDiv.textContent || tempDiv.innerText || '';
+
+        if (plainText.trim() === '') {
+          console.log(`⏭️ Skipping quiz "${quiz.title}" - empty after HTML strip`);
+          return;
+        }
+
+        // Create text content with quiz metadata
+        const quizText = `Quiz: ${quiz.title}\n` +
+                        `Time Limit: ${quiz.time_limit ? quiz.time_limit + ' minutes' : 'No time limit'}\n` +
+                        `Question Count: ${quiz.question_count || 'Unknown'}\n` +
+                        `Points Possible: ${quiz.points_possible || 'Unknown'}\n` +
+                        `Canvas URL: ${quiz.html_url}\n\n` +
+                        `Description:\n${plainText.trim()}`;
+
+        // Create text blob
+        const textBlob = new Blob([quizText], { type: 'text/plain' });
+
+        // Create filename: prefix with [Quiz] for clarity
+        const safeName = quiz.title.replace(/[^a-zA-Z0-9_\-\s]/g, '_');
+        const filename = `[Quiz] ${safeName}.txt`;
+
+        // Add blob and stored_name to quiz object
+        quiz.blob = textBlob;
+        quiz.stored_name = filename;
+
+        console.log(`📝 [QUIZ] Created blob for "${quiz.title}": size=${textBlob.size}, id=${quiz.id}`);
+
+        // Check if already uploaded
+        const fileId = `${currentCourse.id}_[Quiz] ${safeName}`;
+
+        if (!uploadedFileIds.has(fileId)) {
+          // Add to backend upload queue
+          filesToUploadToBackend.push({
+            blob: textBlob,
+            name: filename,
+            type: 'txt'
+          });
+
+          console.log(`✅ [QUIZ] Queued "${quiz.title}" for backend upload as ${filename}`);
+        } else {
+          console.log(`⏭️ [QUIZ] "${quiz.title}" already uploaded to backend`);
+        }
+      });
+    }
+
     // Process pages: convert body content to text files for AI to read
     if (materialsToProcess.pages && Array.isArray(materialsToProcess.pages)) {
       console.log(`📄 Processing ${materialsToProcess.pages.length} page body content for backend upload`);

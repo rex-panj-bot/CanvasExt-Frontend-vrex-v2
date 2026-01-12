@@ -8,7 +8,10 @@ class FileProcessor {
     // Store materials by type (matches Canvas structure)
     this.materials = {
       modules: [],
-      files: []
+      files: [],
+      pages: [],
+      assignments: [],
+      quizzes: []
     };
 
     // File extensions we want to include
@@ -189,6 +192,30 @@ class FileProcessor {
       console.log(`  ✓ Processed ${this.materials.assignments.length} assignments`);
     }
 
+    // Process quizzes (descriptions can provide context)
+    if (materials.quizzes && materials.quizzes.length > 0) {
+      console.log(`📝 Processing ${materials.quizzes.length} quizzes from Canvas`);
+
+      materials.quizzes.forEach(quiz => {
+        if (!quiz.title || this.shouldExclude(quiz.title)) {
+          return;
+        }
+
+        this.materials.quizzes.push({
+          id: quiz.id,
+          title: quiz.title,
+          description: quiz.description || '',
+          html_url: quiz.html_url,
+          time_limit: quiz.time_limit,
+          question_count: quiz.question_count,
+          points_possible: quiz.points_possible,
+          type: 'quiz'
+        });
+      });
+
+      console.log(`  ✓ Processed ${this.materials.quizzes.length} quizzes`);
+    }
+
     console.log('Processed materials:', this.materials);
     return this.materials;
   }
@@ -203,7 +230,8 @@ class FileProcessor {
       moduleFiles: 0,
       standaloneFiles: 0,
       pages: 0,
-      assignments: 0
+      assignments: 0,
+      quizzes: 0
     };
 
     // Count modules and files in modules
@@ -231,7 +259,12 @@ class FileProcessor {
       summary.assignments = this.materials.assignments.length;
     }
 
-    summary.total = summary.moduleFiles + summary.standaloneFiles + summary.pages + summary.assignments;
+    // Count quizzes
+    if (this.materials.quizzes) {
+      summary.quizzes = this.materials.quizzes.length;
+    }
+
+    summary.total = summary.moduleFiles + summary.standaloneFiles + summary.pages + summary.assignments + summary.quizzes;
 
     return summary;
   }

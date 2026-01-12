@@ -287,7 +287,20 @@ class CanvasAPI {
   }
 
   /**
-   * Get all materials for a course (modules, files, pages, assignments)
+   * Get quizzes for a specific course
+   */
+  async getQuizzes(courseId) {
+    try {
+      const quizzes = await this.makeRequest(`/api/v1/courses/${courseId}/quizzes?per_page=100`);
+      return quizzes;
+    } catch (error) {
+      console.error(`Error fetching quizzes for course ${courseId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all materials for a course (modules, files, pages, assignments, quizzes)
    */
   async getAllCourseMaterials(courseId, progressCallback) {
     const materials = {
@@ -295,6 +308,7 @@ class CanvasAPI {
       files: [],
       pages: [],
       assignments: [],
+      quizzes: [],
       errors: [] // Track errors for each resource type
     };
 
@@ -332,6 +346,15 @@ class CanvasAPI {
     } catch (error) {
       console.warn('Error fetching assignments:', error);
       materials.errors.push({ type: 'assignments', error: error.message });
+    }
+
+    // Fetch quizzes with error handling
+    try {
+      if (progressCallback) progressCallback('Fetching quizzes...');
+      materials.quizzes = await this.getQuizzes(courseId);
+    } catch (error) {
+      console.warn('Error fetching quizzes:', error);
+      materials.errors.push({ type: 'quizzes', error: error.message });
     }
 
     // Show warning if some resources failed
