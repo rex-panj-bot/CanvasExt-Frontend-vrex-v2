@@ -192,6 +192,33 @@ function updateURL(sessionId) {
 // Initialize
 document.addEventListener('DOMContentLoaded', init);
 
+// ========== URL STATE MANAGEMENT ==========
+
+/**
+ * Update the browser URL with the current chat session ID
+ * This allows the page to be refreshed without losing the conversation
+ */
+function updateURLWithChatId(chatId) {
+  if (!chatId) return;
+
+  const urlParams = new URLSearchParams(window.location.search);
+  urlParams.set('chatId', chatId);
+
+  // Update URL without reloading the page
+  const newURL = `${window.location.pathname}?${urlParams.toString()}`;
+  window.history.replaceState({ chatId }, '', newURL);
+
+  console.log('🔗 Updated URL with chatId:', chatId);
+}
+
+/**
+ * Get the chat session ID from the URL
+ */
+function getChatIdFromURL() {
+  const urlParams = new URLSearchParams(window.location.search);
+  return urlParams.get('chatId');
+}
+
 /**
  * Setup polling for background loading progress from chrome.storage.local
  */
@@ -203,63 +230,6 @@ function setupBackgroundLoadingListener() {
 
   // Track if we ever found a task
   let taskFound = false;
-
-  // Smooth progress tracking
-  let lastKnownFiles = 0;
-  let targetFiles = 0;
-  let displayedFiles = 0;
-  let smoothProgressInterval = null;
-  let lastStatusMessage = '';
-
-  // Status messages for variety
-  const uploadMessages = [
-    'Processing your course materials...',
-    'Uploading files to cloud storage...',
-    'Preparing materials for AI analysis...',
-    'Converting documents for study bot...',
-    'Syncing with backend server...',
-    'Optimizing files for quick access...'
-  ];
-
-  // Get varied status message based on progress
-  const getStatusMessage = (uploaded, total, percent) => {
-    if (percent < 20) return 'Starting upload...';
-    if (percent < 40) return 'Processing course materials...';
-    if (percent < 60) return 'Uploading to cloud storage...';
-    if (percent < 80) return 'Preparing for AI analysis...';
-    if (percent < 95) return 'Almost there...';
-    return 'Finalizing upload...';
-  };
-
-  // Smooth progress animation function
-  const startSmoothProgress = (current, target, total) => {
-    if (smoothProgressInterval) {
-      clearInterval(smoothProgressInterval);
-    }
-
-    displayedFiles = current;
-    targetFiles = target;
-
-    // Animate progress smoothly between batch updates
-    smoothProgressInterval = setInterval(() => {
-      if (displayedFiles < targetFiles) {
-        // Increment by small amounts for smooth animation
-        displayedFiles = Math.min(displayedFiles + 0.1, targetFiles);
-        const smoothPercent = total > 0 ? (displayedFiles / total) * 100 : 0;
-
-        const progressFill = document.getElementById('loading-progress-fill');
-        if (progressFill) {
-          progressFill.style.width = smoothPercent + '%';
-        }
-
-        // Update message with rounded file count
-        const displayCount = Math.floor(displayedFiles);
-        const displayPercent = Math.round(smoothPercent);
-        const statusMsg = getStatusMessage(displayCount, total, displayPercent);
-        showLoadingBanner(`${statusMsg} (${total} files)`);
-      }
-    }, 50); // Update every 50ms for smooth animation
-  };
 
   // Poll chrome.storage.local for upload/download task updates
   const pollInterval = setInterval(() => {
@@ -278,7 +248,6 @@ function setupBackgroundLoadingListener() {
               console.log('⏱️ [CHAT] No task found, hiding banner');
               hideLoadingBanner();
               clearInterval(pollInterval);
-              if (smoothProgressInterval) clearInterval(smoothProgressInterval);
             }
           }, 2000);
         }
@@ -296,16 +265,16 @@ function setupBackgroundLoadingListener() {
       console.log(`📥 [CHAT] ${taskType} task status:`, task.status);
 
       if (task.status === 'uploading') {
-        // Check if actual progress changed (new batch completed)
-        if (task.uploadedFiles > lastKnownFiles) {
-          console.log(`📊 [CHAT] Batch completed: ${lastKnownFiles} -> ${task.uploadedFiles} / ${task.totalFiles}`);
-          lastKnownFiles = task.uploadedFiles;
-          // Start smooth animation to new target
-          startSmoothProgress(displayedFiles, task.uploadedFiles, task.totalFiles);
-        } else if (lastKnownFiles === 0 && task.totalFiles > 0) {
-          // Initial state - start smooth progress from 0
-          startSmoothProgress(0, 0, task.totalFiles);
-          showLoadingBanner(`Starting upload... (0/${task.totalFiles} files - 0%)`);
+        // Show upload progress with total file count only
+        const percent = task.totalFiles > 0
+          ? Math.round((task.uploadedFiles / task.totalFiles) * 100)
+          : 0;
+        showLoadingBanner(`Uploading ${task.totalFiles} files`);
+
+        // Update progress bar
+        const progressFill = document.getElementById('loading-progress-fill');
+        if (progressFill) {
+          progressFill.style.width = percent + '%';
         }
 
       } else if (task.status === 'downloading') {
@@ -315,7 +284,7 @@ function setupBackgroundLoadingListener() {
           const percent = progress.filesTotal > 0
             ? Math.round((progress.filesCompleted / progress.filesTotal) * 100)
             : 0;
-          showLoadingBanner(progress.message);
+          showLoadingBanner(`${progress.message} (${percent}%)`);
 
           // Update progress bar
           const progressFill = document.getElementById('loading-progress-fill');
@@ -327,7 +296,6 @@ function setupBackgroundLoadingListener() {
       } else if (task.status === 'complete') {
         console.log(`✅ [CHAT] ${taskType} complete!`);
         clearInterval(pollInterval); // Stop polling
-        if (smoothProgressInterval) clearInterval(smoothProgressInterval); // Stop smooth animation
         showLoadingBanner('All files uploaded! Ready to chat.', 'success');
 
         // Set progress bar to 100%
@@ -354,7 +322,6 @@ function setupBackgroundLoadingListener() {
       } else if (task.status === 'error') {
         console.error(`❌ [CHAT] ${taskType} error:`, task.error);
         clearInterval(pollInterval); // Stop polling
-        if (smoothProgressInterval) clearInterval(smoothProgressInterval); // Stop smooth animation
         showLoadingBanner(`Error: ${task.error || 'Unknown error'}`, 'error');
         setTimeout(() => hideLoadingBanner(), 5000);
       }
@@ -427,18 +394,12 @@ async function init() {
     return;
   }
 
-  // Check if we have a chatId in URL (for restoring session after refresh)
-  const chatIdFromURL = urlParams.get('chatId');
+  // Check if there's a chat ID in the URL (for restoring after refresh)
+  const urlChatId = getChatIdFromURL();
 
-  // Generate session ID for this chat
-  // If chatId exists in URL, use it to restore the session; otherwise create new
-  if (chatIdFromURL) {
-    currentSessionId = chatIdFromURL;
-    console.log('🔄 Restoring chat session from URL:', currentSessionId);
-  } else {
-    currentSessionId = `session_${courseId}_${Date.now()}`;
-    console.log('✨ Creating new chat session:', currentSessionId);
-  }
+  // Generate session ID for this chat (will be replaced if loading from URL)
+  currentSessionId = urlChatId || `session_${courseId}_${Date.now()}`;
+  console.log(urlChatId ? '🔄 Restoring chat session from URL:' : '✨ Creating new chat session:', currentSessionId);
 
   // Check if we're in loading mode (background loading in progress)
   const isLoading = urlParams.get('loading') === 'true';
@@ -468,6 +429,20 @@ async function init() {
 
   // Load recent chats for this course
   await loadRecentChats();
+
+  // If there's a chat ID in the URL, try to restore that conversation
+  if (urlChatId) {
+    console.log('🔄 Restoring chat from URL:', urlChatId);
+    try {
+      await loadChatSession(urlChatId);
+      console.log('✅ Successfully restored chat session');
+    } catch (error) {
+      console.warn('⚠️ Failed to restore chat from URL, starting fresh:', error);
+      // If restoration fails, keep the new session (already set above)
+      // Clear invalid chatId from URL
+      updateURLWithChatId(currentSessionId);
+    }
+  }
 
   // Setup event listeners
   setupEventListeners();
@@ -612,23 +587,6 @@ async function loadMaterials() {
       assignments: [],
       errors: []
     };
-
-    // Log assignment data loaded from IndexedDB
-    if (processedMaterials.assignments && processedMaterials.assignments.length > 0) {
-      console.log(`📚 [ASSIGNMENT] Loaded ${processedMaterials.assignments.length} assignments from IndexedDB:`,
-        processedMaterials.assignments.map(a => ({
-          name: a.name,
-          stored_name: a.stored_name,
-          hash: a.hash?.substring(0, 16),
-          has_id: !!a.id,
-          id: a.id,
-          has_doc_id: !!a.doc_id,
-          doc_id: a.doc_id
-        }))
-      );
-    } else {
-      console.log(`📚 [ASSIGNMENT] No assignments found in loaded materials`);
-    }
 
     // Update UI
     elements.courseName.textContent = courseName;
@@ -819,9 +777,10 @@ function displayMaterials() {
                 ${file.title || file.name}
               </label>
               <button class="open-material-btn" title="Open file" data-module-idx="${moduleIdx}" data-item-idx="${originalItemIdx}">
-                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-                  <path d="M2 2V14H14V8M2 2H8" stroke-linecap="round" stroke-linejoin="round"/>
-                  <path d="M10 6L15 1M15 1H11M15 1V5" stroke-linecap="round" stroke-linejoin="round"/>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                  <polyline points="15 3 21 3 21 9"/>
+                  <line x1="10" y1="14" x2="21" y2="3"/>
                 </svg>
               </button>
               <button class="delete-material-btn" title="Remove from AI memory" data-module-idx="${moduleIdx}" data-item-idx="${originalItemIdx}">
@@ -871,9 +830,10 @@ function displayMaterials() {
             ${file.display_name || file.name}
           </label>
           <button class="open-material-btn" title="Open file" data-category="files" data-index="${originalIndex}">
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M2 2V14H14V8M2 2H8" stroke-linecap="round" stroke-linejoin="round"/>
-              <path d="M10 6L15 1M15 1H11M15 1V5" stroke-linecap="round" stroke-linejoin="round"/>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+              <polyline points="15 3 21 3 21 9"/>
+              <line x1="10" y1="14" x2="21" y2="3"/>
             </svg>
           </button>
           <button class="delete-material-btn" title="Remove from AI memory" data-category="files" data-index="${originalIndex}">
@@ -909,9 +869,10 @@ function displayMaterials() {
           ${page.title}
         </label>
         <button class="open-material-btn" title="Open page" data-category="pages" data-index="${pageIdx}">
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M2 2V14H14V8M2 2H8" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M10 6L15 1M15 1H11M15 1V5" stroke-linecap="round" stroke-linejoin="round"/>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+            <polyline points="15 3 21 3 21 9"/>
+            <line x1="10" y1="14" x2="21" y2="3"/>
           </svg>
         </button>
         <button class="delete-material-btn" title="Remove from AI memory" data-category="pages" data-index="${pageIdx}">
@@ -946,9 +907,10 @@ function displayMaterials() {
           ${assignment.name}
         </label>
         <button class="open-material-btn" title="Open assignment" data-category="assignments" data-index="${assignmentIdx}">
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M2 2V14H14V8M2 2H8" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M10 6L15 1M15 1H11M15 1V5" stroke-linecap="round" stroke-linejoin="round"/>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+            <polyline points="15 3 21 3 21 9"/>
+            <line x1="10" y1="14" x2="21" y2="3"/>
           </svg>
         </button>
         <button class="delete-material-btn" title="Remove from AI memory" data-category="assignments" data-index="${assignmentIdx}">
@@ -1456,11 +1418,10 @@ async function handleFileUpload(event) {
       name: file.name
     }));
 
-    // Upload to backend and get hash data
-    const uploadResult = await backendClient.uploadPDFs(courseId, filesToUpload);
+    // Upload to backend
+    await backendClient.uploadPDFs(courseId, filesToUpload);
 
     console.log('✅ Files uploaded successfully');
-    console.log('📋 Upload result:', uploadResult);
     showLoadingBanner('Files uploaded! Adding to materials...', 'success');
 
     // Wait a bit for backend processing
@@ -1476,41 +1437,21 @@ async function handleFileUpload(event) {
         materialsData.materials.files = [];
       }
 
-      // Use hash data from backend response
-      if (uploadResult && uploadResult.files) {
-        uploadResult.files.forEach((fileData, index) => {
-          materialsData.materials.files.push({
-            name: fileData.filename,
-            display_name: fileData.filename,
-            stored_name: fileData.hash ? `${fileData.hash}.pdf` : fileData.filename,
-            type: 'file',
-            blob: files[index], // Store the original file blob
-            hash: fileData.hash,  // ✅ Store hash from backend
-            doc_id: fileData.doc_id,  // ✅ Store doc_id from backend
-            id: fileData.doc_id,  // ✅ For compatibility
-            uploaded_by_user: true, // Mark as user-uploaded
-            uploaded_at: new Date().toISOString()
-          });
+      files.forEach(file => {
+        materialsData.materials.files.push({
+          name: file.name,
+          display_name: file.name,
+          stored_name: file.name,
+          type: 'file',
+          blob: file, // Store the file blob
+          uploaded_by_user: true, // Mark as user-uploaded
+          uploaded_at: new Date().toISOString()
         });
-      } else {
-        // Fallback if no hash data (shouldn't happen with new backend)
-        console.warn('⚠️ No hash data in upload response, files may not be openable');
-        files.forEach(file => {
-          materialsData.materials.files.push({
-            name: file.name,
-            display_name: file.name,
-            stored_name: file.name,
-            type: 'file',
-            blob: file,
-            uploaded_by_user: true,
-            uploaded_at: new Date().toISOString()
-          });
-        });
-      }
+      });
 
       // Save updated materials back to IndexedDB
       await materialsDB.saveMaterials(courseId, courseName, materialsData.materials);
-      console.log('✅ [CHAT] Added uploaded files to IndexedDB with hash metadata');
+      console.log('✅ [CHAT] Added uploaded files to IndexedDB');
     }
 
     await materialsDB.close();
@@ -1937,22 +1878,7 @@ function getSelectedDocIds() {
       docId = materialObj.doc_id || materialObj.id;
       console.log(`📄 Selected: "${materialName}" → ID: "${docId}"`);
     } else {
-      if (category === 'assignments') {
-        console.error(`❌ [ASSIGNMENT] Material missing hash-based ID: "${materialName}"`, {
-          category,
-          index,
-          has_doc_id: !!materialObj?.doc_id,
-          doc_id: materialObj?.doc_id,
-          has_id: !!materialObj?.id,
-          id: materialObj?.id,
-          has_hash: !!materialObj?.hash,
-          hash: materialObj?.hash?.substring(0, 16),
-          stored_name: materialObj?.stored_name,
-          materialObj
-        });
-      } else {
-        console.error(`❌ Material missing hash-based ID: "${materialName}"`, materialObj);
-      }
+      console.error(`❌ Material missing hash-based ID: "${materialName}"`, materialObj);
       console.error(`   This file may not have been uploaded with the hash-based system`);
       console.error(`   Please re-upload course files after purging GCS`);
       // Skip this file - don't add to docIds
@@ -2421,6 +2347,10 @@ function setupEventListeners() {
   elements.newChatBtn.addEventListener('click', () => {
     // Generate new session ID
     currentSessionId = `session_${courseId}_${Date.now()}`;
+
+    // Update URL with new session ID
+    updateURLWithChatId(currentSessionId);
+
     conversationHistory = [];
     elements.messagesContainer.innerHTML = '';
     elements.messagesContainer.appendChild(createWelcomeMessage());
@@ -2429,7 +2359,21 @@ function setupEventListeners() {
     // Clear mode response cache for fresh start
     modeResponseCache = {};
     currentModeTopic = null;
-    console.log('🗑️ Cleared mode response cache for new chat');
+
+    // Reset study mode (Learn/Reinforce/Test) to OFF
+    currentMode = null;
+    document.querySelectorAll('.mode-btn-compact').forEach(btn => btn.classList.remove('active'));
+
+    // Reset smart file selection toggle to OFF
+    const smartFileToggle = document.getElementById('smart-file-icon-toggle');
+    if (smartFileToggle) {
+      smartFileToggle.classList.remove('active');
+    }
+
+    // Update placeholder to default state
+    updatePlaceholder();
+
+    console.log('Cleared mode and cache for new chat');
     // Update URL to reflect new chat (no chatId parameter)
     updateURL(null);
     // Refresh recent chats
@@ -2448,8 +2392,8 @@ function setupEventListeners() {
     );
     if (confirmed) {
       await StorageManager.clearAll();
-      // Close the chat window instead of redirecting to popup (which causes full window issue)
-      window.close();
+      // Redirect to popup to set up Canvas authentication
+      window.location.href = '../popup/popup-v2.html';
     }
   });
 
@@ -2457,77 +2401,12 @@ function setupEventListeners() {
   document.getElementById('clear-all-data-btn')?.addEventListener('click', async () => {
     const confirmed = await showConfirmDialog(
       'Clear All Data',
-      'This will PERMANENTLY delete all your uploaded files from our servers, all chat history, and all course materials. This action cannot be undone. Continue?'
+      'This will delete all stored data including your Canvas session, course materials, and chat history. This action cannot be undone. Continue?'
     );
     if (confirmed) {
-      const clearBtn = document.getElementById('clear-all-data-btn');
-      const originalText = clearBtn?.textContent;
-
-      try {
-        // Show loading state
-        if (clearBtn) {
-          clearBtn.disabled = true;
-          clearBtn.textContent = 'Deleting files from server...';
-        }
-
-        // Get Canvas user ID for backend deletion
-        const canvasUserId = await StorageManager.getCanvasUserId();
-
-        if (canvasUserId) {
-          // Delete all user data from backend (GCS, database)
-          const backendUrl = 'https://web-production-9aaba7.up.railway.app';
-          console.log(`🗑️  Deleting all backend data for user ${canvasUserId}...`);
-
-          const response = await fetch(`${backendUrl}/users/${canvasUserId}/data`, {
-            method: 'DELETE'
-          });
-
-          if (response.ok) {
-            const result = await response.json();
-            console.log('✅ Backend data deleted:', result);
-          } else {
-            console.error('❌ Failed to delete backend data:', response.status);
-            // Continue with local cleanup even if backend fails
-          }
-        } else {
-          console.warn('⚠️  No Canvas user ID found, skipping backend deletion');
-        }
-
-        // Update loading state
-        if (clearBtn) {
-          clearBtn.textContent = 'Clearing local data...';
-        }
-
-        // Clear local storage (IndexedDB, chrome.storage.local)
-        const materialsDB = new MaterialsDB();
-        const courseIds = await materialsDB.listCourses();
-        for (const courseId of courseIds) {
-          await materialsDB.deleteMaterials(courseId);
-        }
-        await materialsDB.close();
-
-        await StorageManager.clearAll();
-        console.log('✅ All local data cleared');
-
-        // Show success and close window
-        if (clearBtn) {
-          clearBtn.textContent = 'All data cleared! Closing...';
-        }
-
-        // Close the chat window instead of redirecting to popup (which causes full window issue)
-        setTimeout(() => {
-          window.close();
-        }, 1000);
-      } catch (error) {
-        console.error('❌ Error clearing all data:', error);
-        alert('An error occurred while clearing data. Please try again.');
-
-        // Reset button state on error
-        if (clearBtn) {
-          clearBtn.disabled = false;
-          clearBtn.textContent = originalText || 'Clear All Data';
-        }
-      }
+      await StorageManager.clearAll();
+      // Redirect to popup to set up Canvas authentication
+      window.location.href = '../popup/popup-v2.html';
     }
   });
 
@@ -2827,6 +2706,10 @@ function setupEventListeners() {
   // Refresh materials button handler
   if (refreshBtn) {
     refreshBtn.addEventListener('click', refreshMaterialsFromCanvas);
+  }
+
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', handleRefreshMaterials);
   }
 
   // Drag and drop file upload on sidebar
@@ -3384,33 +3267,35 @@ async function sendMessage() {
   // Add user message (show the original user input, not the full prompt)
   addMessage('user', displayMessage);
 
-  // Add typing indicator
-  const typingId = addTypingIndicator();
+  // Get selected documents from checkboxes
+  const selectedDocIds = getSelectedDocIds();
+  const syllabusId = getSyllabusId();
+
+  // Load user settings
+  const settings = await chrome.storage.local.get(['gemini_api_key', 'enable_web_search']);
+  const apiKey = settings.gemini_api_key || null;
+  const enableWebSearch = settings.enable_web_search || false;
+
+  // Check if smart file selection is enabled
+  const smartFileIconToggle = document.getElementById('smart-file-icon-toggle');
+  const useSmartSelection = smartFileIconToggle ? smartFileIconToggle.classList.contains('active') : false;
+
+  // Reset stage queue for new query
+  stageQueue = [];
+  isProcessingStages = false;
+
+  // Add typing indicator (smart select version if smart selection is enabled)
+  const typingId = addTypingIndicator(useSmartSelection);
+
+  console.log(`🚀 Sending query to backend:`);
+  console.log(`   Selected docs: ${selectedDocIds.length}`, selectedDocIds);
+  console.log(`   Syllabus ID: ${syllabusId || 'none'}`);
+  console.log(`   Web search: ${enableWebSearch ? 'enabled' : 'disabled'}`);
+  console.log(`   Smart Selection: ${useSmartSelection ? 'enabled' : 'disabled'}`);
+  console.log(`   API key: ${apiKey ? 'user-provided' : 'default'}`);
 
   try {
     let assistantMessage = '';
-    let hasReceivedChunks = false;
-
-    // Get selected documents from checkboxes
-    const selectedDocIds = getSelectedDocIds();
-    const syllabusId = getSyllabusId();
-
-    console.log(`🚀 Sending query to backend:`);
-    console.log(`   Selected docs: ${selectedDocIds.length}`, selectedDocIds);
-    console.log(`   Syllabus ID: ${syllabusId || 'none'}`);
-
-    // Load user settings
-    const settings = await chrome.storage.local.get(['gemini_api_key', 'enable_web_search']);
-    const apiKey = settings.gemini_api_key || null;
-    const enableWebSearch = settings.enable_web_search || false;
-
-    // Check if smart file selection is enabled
-    const smartFileIconToggle = document.getElementById('smart-file-icon-toggle');
-    const useSmartSelection = smartFileIconToggle ? smartFileIconToggle.classList.contains('active') : false;
-
-    console.log(`   Web search: ${enableWebSearch ? 'enabled' : 'disabled'}`);
-    console.log(`   Smart Selection: ${useSmartSelection ? 'enabled' : 'disabled'}`);
-    console.log(`   API key: ${apiKey ? 'user-provided' : 'default'}`);
 
     await wsClient.sendQuery(
       message,
@@ -3423,31 +3308,79 @@ async function sendMessage() {
       useSmartSelection,  // Smart file selection toggle
       // onChunk callback for streaming text
       (chunk) => {
-        // Check if this is a loading message (starts with 📤)
-        if (chunk.startsWith('📤')) {
-          // Remove emoji and file size information from loading message
-          const cleanedMessage = chunk
-            .replace(/📤\s*/, '')  // Remove emoji
-            .replace(/\*\*/g, '')   // Remove bold markdown
-            .replace(/\s*\(~[\d.]+MB\)/g, '');  // Remove file size
-          showLoadingBanner(cleanedMessage);
-          return; // Don't add to assistant message
+        // Check for [STATUS] messages (new format)
+        if (chunk.includes('[STATUS]')) {
+          const statusMatch = chunk.match(/\[STATUS\]([^[]*)/);
+          if (statusMatch) {
+            const parts = statusMatch[1].trim().split('|');
+            const stage = parts[0];
+            const statusMessage = parts[1] || '';
+            const count = parts[2] ? parseInt(parts[2]) : null;
+            if (useSmartSelection) {
+              updateSmartSelectStage(typingId, stage, statusMessage, count);
+            }
+            return;
+          }
         }
 
-        // Check if this is a file selection event from smart select
+        // Check if chunk contains file selection event from smart select
         // Format: __FILE_SELECTION__:doc_id1,doc_id2,doc_id3
-        if (chunk.startsWith('__FILE_SELECTION__:')) {
-          const docIds = chunk.replace('__FILE_SELECTION__:', '').trim().split(',');
-          console.log('📂 Smart Select files:', docIds.length, 'files');
-          // Select these files in the sidebar
-          selectFilesInSidebar(docIds);
-          return; // Don't add to assistant message
+        if (chunk.includes('__FILE_SELECTION__:')) {
+          const match = chunk.match(/__FILE_SELECTION__:([^\n]+)/);
+          if (match) {
+            const docIds = match[1].trim().split(',');
+            console.log('Smart Select files:', docIds.length, 'files');
+            // Select these files in the sidebar
+            selectFilesInSidebar(docIds);
+          }
+          // Remove the file selection part and continue processing rest of chunk
+          chunk = chunk.replace(/__FILE_SELECTION__:[^\n]+\n?/, '');
+          if (!chunk.trim()) return;
         }
 
-        // First actual content chunk received
-        if (!hasReceivedChunks) {
-          hasReceivedChunks = true;
-          hideLoadingBanner();
+        // Check if chunk contains file reasoning from smart select
+        // Format: __FILE_REASONING__:JSON array of {file_id, filename, score, reason}
+        if (chunk.includes('__FILE_REASONING__:')) {
+          const match = chunk.match(/__FILE_REASONING__:(.+?)(?:\n|$)/);
+          if (match) {
+            try {
+              const reasoning = JSON.parse(match[1].trim());
+              console.log('Smart Select reasoning:', reasoning.length, 'files with reasons');
+              // Store reasoning for display (e.g., in tooltips or a panel)
+              window.lastFileReasoning = reasoning;
+              // Log reasons for debugging
+              reasoning.forEach(r => {
+                console.log(`  - ${r.filename}: ${r.score.toFixed(2)} - ${r.reason}`);
+              });
+            } catch (e) {
+              console.warn('Failed to parse file reasoning:', e);
+            }
+          }
+          // Remove the file reasoning part and continue processing rest of chunk
+          chunk = chunk.replace(/__FILE_REASONING__:.+?(?:\n|$)/, '');
+          if (!chunk.trim()) return;
+        }
+
+        // Filter out internal status messages (prefixed with __STATUS__:)
+        if (chunk.includes('__STATUS__:')) {
+          // Remove status messages from chunk
+          chunk = chunk.replace(/__STATUS__:[^\n]+\n?/g, '');
+          if (!chunk.trim()) return;
+        }
+
+        // Filter out any remaining status messages
+        const trimmed = chunk.trim();
+        if (trimmed.startsWith('No file summaries') ||
+            trimmed.startsWith('Could not determine') ||
+            trimmed.startsWith('Using all materials')) {
+          return;
+        }
+
+        // Stop the auto-cycle when real content arrives
+        if (useSmartSelection && autoCycleInterval) {
+          // Show "complete" stage briefly before showing content
+          applyStageUpdate(typingId, 'complete', 'Files selected', null);
+          stopSmartSelectCycle();
         }
 
         assistantMessage += chunk;
@@ -3455,8 +3388,6 @@ async function sendMessage() {
       },
       // onComplete callback (called when streaming finishes and backend saves chat)
       () => {
-        hideLoadingBanner();
-
         // Update URL with session ID after streaming completes
         // This ensures the chat can be restored after refresh
         // The backend auto-saves the chat at this point
@@ -3465,12 +3396,12 @@ async function sendMessage() {
       // onError callback
       (error) => {
         console.error('Backend error:', error);
-        hideLoadingBanner();
         throw error;
       }
     );
 
     // Remove typing indicator and add final message
+    stopSmartSelectCycle(); // Clean up any running cycle
     removeTypingIndicator(typingId);
     hideLoadingBanner();
     addMessage('assistant', assistantMessage);
@@ -3513,6 +3444,9 @@ async function sendMessage() {
     if (conversationHistory.length === 2) {
       generateChatTitle(message);
     }
+
+    // Update URL to persist the current session (ensures refresh works)
+    updateURLWithChatId(currentSessionId);
 
     // Show usage info
     if (elements.tokenInfo) {
@@ -3578,8 +3512,13 @@ async function sendMessage() {
  * Format: [Source: DocumentName, Page X]
  */
 function parseCitations(content) {
-  // Regex to match: [Source: DocumentName, Page X] or [Source: DocumentName, Pages X-Y] or [Source: DocumentName, Page X, Y, Z]
-  const citationRegex = /\[Source:\s*([^,]+),\s*Pages?\s*([0-9,\s\-]+)\]/gi;
+  // Regex to match various citation formats:
+  // - [Source: DocumentName, Page X]
+  // - [Source: DocumentName, Pages X-Y]
+  // - [Source: DocumentName, p. X]
+  // - [Source: DocumentName - Page X]
+  // - (Source: DocumentName, Page X)
+  const citationRegex = /[\[\(]Source:\s*([^,\]\)]+)[,\-\s]+(?:Pages?|p\.?)\s*([0-9,\s\-]+)[\]\)]/gi;
 
   return content.replace(citationRegex, (match, docName, pageInfo) => {
     // Clean up document name (trim whitespace)
@@ -3729,7 +3668,17 @@ function renderMath(content) {
     });
 
     // Render inline math ($...$)
+    // Skip currency amounts like $100 - only render if content looks like actual math
     protectedContent = protectedContent.replace(/\$([^\$\n]+?)\$/g, (match, math) => {
+      // Skip if it looks like currency (just a number, possibly with commas/decimals)
+      if (/^\d[\d,\.]*$/.test(math.trim())) {
+        return match; // Keep as-is, it's currency
+      }
+      // Skip if it contains multiple English words (likely not math)
+      // Real math rarely has 3+ consecutive lowercase words
+      if (/[a-z]+\s+[a-z]+\s+[a-z]+/i.test(math)) {
+        return match; // Keep as-is, it's probably not math
+      }
       try {
         return katex.renderToString(math.trim(), {
           displayMode: false,
@@ -3863,14 +3812,23 @@ async function openCitedDocument(docName, pageNum) {
     }
 
     // Check assignments (for citations to assignment text files)
+    // Note: Assignments are uploaded as "[Assignment] Name.txt" so we need to handle that prefix
     if (!fileItem && processedMaterials.assignments) {
+      // Remove [Assignment] prefix if present in the citation
+      const docNameWithoutPrefix = normalizedDocName
+        .replace(/^\[?assignment\]?\s*/i, '')
+        .replace(/\.txt$/i, '')
+        .trim();
+
       for (const assignment of processedMaterials.assignments) {
         const assignmentName = assignment.name || '';
         const normalizedAssignmentName = normalizeFilename(assignmentName);
 
-        // Try exact match first, then partial match
+        // Try matching with and without the [Assignment] prefix
         if (normalizedAssignmentName === normalizedDocName ||
-            normalizedAssignmentName.includes(normalizedDocName) ||
+            normalizedAssignmentName === docNameWithoutPrefix ||
+            normalizedAssignmentName.includes(docNameWithoutPrefix) ||
+            docNameWithoutPrefix.includes(normalizedAssignmentName) ||
             normalizedDocName.includes(normalizedAssignmentName)) {
           fileItem = assignment;
           fileName = assignmentName;
@@ -3882,19 +3840,6 @@ async function openCitedDocument(docName, pageNum) {
     if (!fileItem || !fileName) {
       showError(`File not found: ${docName}`);
       return;
-    }
-
-    // Special handling for assignments/pages - open Canvas URL instead of PDF viewer
-    if (fileItem.type === 'assignment' || fileItem.type === 'page') {
-      if (fileItem.html_url) {
-        console.log(`📋 Opening ${fileItem.type} in Canvas: ${fileItem.html_url}`);
-        chrome.tabs.create({ url: fileItem.html_url });
-        return; // Skip PDF viewer
-      } else {
-        console.warn(`${fileItem.type} missing html_url, cannot open`);
-        showError(`Cannot open ${fileItem.type}: missing Canvas URL`);
-        return;
-      }
     }
 
     // HASH-BASED: Open file from backend/GCS with page parameter using content hash
@@ -3934,7 +3879,7 @@ function addMessage(role, content) {
     return;
   }
 
-  const avatar = role === 'assistant' ? '🤖' : '👤';
+  const avatar = role === 'assistant' ? 'AI' : 'You';
   const roleName = role === 'assistant' ? 'AI Assistant' : 'You';
 
   // For assistant messages: render math, parse citations, then render markdown
@@ -3987,34 +3932,267 @@ function addMessage(role, content) {
   }
 }
 
-function addTypingIndicator() {
+// Stage labels for smart file selection progress (no emojis per user request)
+const SMART_SELECT_STAGES = {
+  'analyzing_query': { label: 'Analyzing your question' },
+  'scanning_summaries': { label: 'Scanning file summaries' },
+  'identifying_anchors': { label: 'Identifying priority files' },
+  'extracting_context': { label: 'Analyzing priority files' },
+  'scoring_files': { label: 'Scoring relevance' },
+  'complete': { label: 'Files selected' },
+  'error': { label: 'Selection failed' }
+};
+
+// Auto-cycle stages for smooth UX
+const STAGE_ORDER = [
+  'analyzing_query',
+  'scanning_summaries',
+  'identifying_anchors',
+  'extracting_context',
+  'scoring_files'
+];
+let autoCycleInterval = null;
+let currentStageIndex = 0;
+let smartSelectTypingId = null;
+
+// Queue for stage updates with minimum display time
+let stageQueue = [];
+let isProcessingStages = false;
+const MIN_STAGE_DISPLAY_MS = 400; // Minimum time each stage is visible
+
+/**
+ * Start auto-cycling through smart select stages
+ */
+function startSmartSelectCycle(typingId) {
+  stopSmartSelectCycle(); // Clear any existing cycle
+  currentStageIndex = 0;
+  smartSelectTypingId = typingId;
+
+  // Cycle through stages every 1500ms (slower for better UX)
+  autoCycleInterval = setInterval(() => {
+    currentStageIndex++;
+    if (currentStageIndex < STAGE_ORDER.length) {
+      const stage = STAGE_ORDER[currentStageIndex];
+      const stageInfo = SMART_SELECT_STAGES[stage];
+      applyStageUpdate(smartSelectTypingId, stage, stageInfo.label + '...', null);
+    } else {
+      // Reached last stage - stop cycling and wait for content
+      clearInterval(autoCycleInterval);
+      autoCycleInterval = null;
+    }
+  }, 1500);
+
+  // Apply first stage immediately
+  const firstStage = STAGE_ORDER[0];
+  applyStageUpdate(typingId, firstStage, SMART_SELECT_STAGES[firstStage].label + '...', null);
+}
+
+/**
+ * Stop the auto-cycling
+ */
+function stopSmartSelectCycle() {
+  if (autoCycleInterval) {
+    clearInterval(autoCycleInterval);
+    autoCycleInterval = null;
+  }
+  smartSelectTypingId = null;
+}
+
+function addTypingIndicator(isSmartSelect = false) {
   const id = `typing-${Date.now()}`;
   const messageDiv = document.createElement('div');
   messageDiv.id = id;
   messageDiv.className = 'message assistant-message';
-  messageDiv.innerHTML = `
-    <div class="message-avatar">🤖</div>
-    <div class="message-content">
-      <div class="message-header">
-        <span class="message-role">AI Assistant</span>
+
+  if (isSmartSelect) {
+    // Smart selection stage indicator with progress steps (no emojis)
+    messageDiv.innerHTML = `
+      <div class="message-avatar">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M12 16v-4M12 8h.01"/>
+        </svg>
       </div>
-      <div class="message-text">
-        <div class="typing-status">
-          <span class="typing-text">Thinking</span>
-          <div class="typing-indicator">
-            <div class="typing-dot"></div>
-            <div class="typing-dot"></div>
-            <div class="typing-dot"></div>
+      <div class="message-content">
+        <div class="message-header">
+          <span class="message-role">AI Assistant</span>
+        </div>
+        <div class="message-text">
+          <div class="smart-select-status">
+            <div class="smart-select-header">
+              <span class="smart-select-title">Smart File Selection</span>
+            </div>
+            <div class="smart-select-stage">
+              <div class="stage-spinner"></div>
+              <span class="stage-text">Analyzing your question...</span>
+            </div>
+            <div class="smart-select-progress">
+              <div class="progress-track">
+                <div class="progress-fill" style="width: 10%"></div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
-    </div>
-  `;
+    `;
+  } else {
+    // Standard typing indicator
+    messageDiv.innerHTML = `
+      <div class="message-avatar">AI</div>
+      <div class="message-content">
+        <div class="message-header">
+          <span class="message-role">AI Assistant</span>
+        </div>
+        <div class="message-text">
+          <div class="typing-status">
+            <span class="typing-text">Thinking</span>
+            <div class="typing-indicator">
+              <div class="typing-dot"></div>
+              <div class="typing-dot"></div>
+              <div class="typing-dot"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
 
   elements.messagesContainer.appendChild(messageDiv);
   elements.messagesContainer.scrollTop = elements.messagesContainer.scrollHeight;
 
+  // Start auto-cycling if smart select
+  if (isSmartSelect) {
+    startSmartSelectCycle(id);
+  }
+
   return id;
+}
+
+/**
+ * Queue a stage update and process with minimum display time
+ */
+function updateSmartSelectStage(id, stage, message, count = null) {
+  // Add to queue
+  stageQueue.push({ id, stage, message, count });
+  console.log(`📊 Queued stage: ${stage} (queue length: ${stageQueue.length})`);
+
+  // Start processing if not already
+  if (!isProcessingStages) {
+    processStageQueue();
+  }
+}
+
+/**
+ * Process the stage queue with minimum display time between updates
+ */
+async function processStageQueue() {
+  if (isProcessingStages) return;
+  isProcessingStages = true;
+
+  while (stageQueue.length > 0) {
+    const { id, stage, message, count } = stageQueue.shift();
+    console.log(`📊 Processing stage: ${stage}`);
+
+    // Actually update the DOM
+    applyStageUpdate(id, stage, message, count);
+
+    // Wait minimum display time before next update (unless it's complete)
+    if (stage !== 'complete' && stage !== 'error' && stageQueue.length > 0) {
+      await new Promise(resolve => setTimeout(resolve, MIN_STAGE_DISPLAY_MS));
+    }
+  }
+
+  isProcessingStages = false;
+}
+
+/**
+ * Apply a stage update to the DOM
+ */
+function applyStageUpdate(id, stage, message, count = null) {
+  const messageDiv = document.getElementById(id);
+  if (!messageDiv) {
+    console.log(`❌ Message div not found: ${id}`);
+    return;
+  }
+
+  const stageInfo = SMART_SELECT_STAGES[stage] || { label: message };
+  const stageElement = messageDiv.querySelector('.smart-select-stage');
+  const progressFill = messageDiv.querySelector('.progress-fill');
+  const spinner = messageDiv.querySelector('.stage-spinner');
+
+  if (stageElement) {
+    const textSpan = stageElement.querySelector('.stage-text');
+
+    if (textSpan) {
+      let displayText = message || stageInfo.label;
+      if (count !== null && stage !== 'complete') {
+        displayText += `...`;
+      }
+      textSpan.textContent = displayText;
+      console.log(`✅ Updated stage text to: ${displayText}`);
+    }
+
+    // Hide spinner on complete
+    if (spinner) {
+      spinner.style.display = (stage === 'complete' || stage === 'error') ? 'none' : 'block';
+    }
+
+    // Add animation class for stage change
+    stageElement.classList.add('stage-updating');
+    setTimeout(() => stageElement.classList.remove('stage-updating'), 300);
+  } else {
+    console.log(`❌ Stage element not found in message div`);
+  }
+
+  // Update progress bar based on stage
+  if (progressFill) {
+    const stageProgress = {
+      'analyzing_query': 15,
+      'scanning_summaries': 30,
+      'identifying_anchors': 50,
+      'extracting_context': 70,
+      'scoring_files': 85,
+      'complete': 100,
+      'error': 100
+    };
+    const progress = stageProgress[stage] || 10;
+    progressFill.style.width = `${progress}%`;
+    console.log(`✅ Updated progress to: ${progress}%`);
+
+    // Add completion styling
+    if (stage === 'complete') {
+      progressFill.classList.add('complete');
+    } else if (stage === 'error') {
+      progressFill.classList.add('error');
+    }
+  }
+
+  elements.messagesContainer.scrollTop = elements.messagesContainer.scrollHeight;
+}
+
+/**
+ * Transition smart select indicator to standard typing indicator
+ * @param {string} id - Typing indicator ID
+ */
+function transitionToGenerating(id) {
+  const messageDiv = document.getElementById(id);
+  if (!messageDiv) return;
+
+  const textDiv = messageDiv.querySelector('.message-text');
+  if (textDiv) {
+    textDiv.innerHTML = `
+      <div class="typing-status generating">
+        <span class="typing-text">Generating response</span>
+        <div class="typing-indicator">
+          <div class="typing-dot"></div>
+          <div class="typing-dot"></div>
+          <div class="typing-dot"></div>
+        </div>
+      </div>
+    `;
+  }
+
+  elements.messagesContainer.scrollTop = elements.messagesContainer.scrollHeight;
 }
 
 function updateTypingIndicator(id, content) {
@@ -4053,7 +4231,7 @@ function createWelcomeMessage() {
   const welcomeDiv = document.createElement('div');
   welcomeDiv.className = 'message assistant-message welcome-message';
   welcomeDiv.innerHTML = `
-    <div class="message-avatar">🤖</div>
+    <div class="message-avatar">AI</div>
     <div class="message-content">
       <div class="message-header">
         <span class="message-role">AI Assistant</span>
@@ -4209,7 +4387,7 @@ async function loadChatSession(sessionId) {
     currentSessionId = sessionId;
 
     // Update URL to reflect the loaded chat
-    updateURL(sessionId);
+    updateURLWithChatId(sessionId);
 
     // Clear current chat and load history
     elements.messagesContainer.innerHTML = '';
@@ -4651,7 +4829,7 @@ async function hardDeleteFile(fileId) {
     // Send hard delete to backend via HTTP (to delete from GCS)
     try {
       const response = await fetch(
-        `https://web-production-9aaba7.up.railway.app/courses/${courseId}/materials/${fileId}/hard-delete`,
+        `https://web-production-9aaba7.up.railway.app/courses/${courseId}/materials/${fileId}?permanent=true`,
         { method: 'DELETE' }
       );
 
@@ -5132,6 +5310,7 @@ function showApiKeyModal() {
   const modal = document.getElementById('apiKeyModal');
   const input = document.getElementById('apiKeyModalInput');
   const saveBtn = document.getElementById('saveApiKeyModalBtn');
+  const settingsBtn = document.getElementById('openSettingsModalBtn');
   const status = document.getElementById('apiKeyModalStatus');
 
   if (!modal) {
@@ -5170,7 +5349,7 @@ function showApiKeyModal() {
       if (response.status === 200) {
         // Save the API key
         await chrome.storage.local.set({ gemini_api_key: apiKey });
-        showModalStatus('✅ API key saved successfully!', 'success');
+        showModalStatus('API key saved successfully!', 'success');
 
         // Close modal and reload page after short delay
         setTimeout(() => {
@@ -5200,6 +5379,11 @@ function showApiKeyModal() {
         window.location.reload();
       }, 1500);
     }
+  };
+
+  // Settings button - open full settings page
+  settingsBtn.onclick = () => {
+    window.open(chrome.runtime.getURL('popup/settings.html'), '_blank');
   };
 
   // Enter key to save

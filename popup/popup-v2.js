@@ -2602,6 +2602,28 @@ function populateDetailedView() {
           selectedFiles.delete(fileId);
         }
       });
+
+      // Update the category-level checkbox state (e.g., "Course Modules")
+      const categorySection = e.target.closest('.file-category-section');
+      if (categorySection) {
+        const categoryCheckbox = categorySection.querySelector('.module-checkbox');
+        const allModuleCheckboxes = categorySection.querySelectorAll('.module-file-checkbox');
+        const allChecked = Array.from(allModuleCheckboxes).every(cb => cb.checked);
+        const someChecked = Array.from(allModuleCheckboxes).some(cb => cb.checked);
+
+        if (categoryCheckbox) {
+          if (allChecked && allModuleCheckboxes.length > 0) {
+            categoryCheckbox.checked = true;
+            categoryCheckbox.indeterminate = false;
+          } else if (someChecked) {
+            categoryCheckbox.checked = false;
+            categoryCheckbox.indeterminate = true;
+          } else {
+            categoryCheckbox.checked = false;
+            categoryCheckbox.indeterminate = false;
+          }
+        }
+      }
     });
   });
 
