@@ -150,6 +150,21 @@ class MaterialsDB {
       this.db = null;
     }
   }
+
+  /**
+   * Clear all data by deleting the entire database
+   */
+  async clearAll() {
+    if (this.db) {
+      this.db.close();
+      this.db = null;
+    }
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.deleteDatabase(this.dbName);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
 }
 
 // Export for use in other scripts

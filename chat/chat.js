@@ -418,8 +418,8 @@ async function init() {
   // HASH-BASED: Sync materials with backend to ensure hash-based IDs are present
   await syncMaterialsWithBackend();
 
-  // Check summary status and update smart selection availability
-  await updateSmartSelectionAvailability();
+  // DISABLED: Summary features disabled for this release
+  // await updateSmartSelectionAvailability();
 
   // Load API key and initialize Claude
   await loadAPIKey();
@@ -2151,7 +2151,9 @@ function updatePlaceholder() {
 }
 
 // ========== Smart Selection Availability Management ==========
+// DISABLED: Summary features disabled for this release
 
+/*
 let summaryStatusPollInterval = null;
 let notifiedRemovedFiles = new Set(); // Track which removed files we've already notified about
 
@@ -2165,138 +2167,12 @@ async function checkSummaryStatus(courseId) {
     return { success: false, is_ready: false };
   }
 }
+*/
 
+// DISABLED: updateSmartSelectionAvailability - Summary features disabled for this release
 async function updateSmartSelectionAvailability() {
-  const smartFileToggle = document.getElementById('smart-file-icon-toggle');
-  if (!smartFileToggle) return;
-
-  // Check if background upload is still in progress
-  const uploadTask = await chrome.storage.local.get('uploadTask');
-  const isUploading = uploadTask.uploadTask &&
-                      uploadTask.uploadTask.courseId === courseId &&
-                      uploadTask.uploadTask.status === 'uploading';
-
-  const status = await checkSummaryStatus(courseId);
-  console.log('📊 Summary status:', status, isUploading ? '(upload in progress)' : '');
-
-  // Handle removed files (validation failures)
-  if (status.removed_files && status.removed_files.length > 0) {
-    for (const removedFile of status.removed_files) {
-      const fileKey = `${removedFile.filename}:${removedFile.reason}`;
-      if (!notifiedRemovedFiles.has(fileKey)) {
-        // Show notification for this removed file
-        showToast(`Removed invalid file: ${removedFile.filename} - ${removedFile.reason}`, 'error');
-        notifiedRemovedFiles.add(fileKey);
-
-        // Also remove from IndexedDB and UI (if materials are loaded)
-        if (typeof processedMaterials !== 'undefined' && processedMaterials) {
-          try {
-            // Find and remove from processedMaterials
-            const fileId = removedFile.file_id;
-            let found = false;
-
-            for (const category of ['lectures', 'assignments', 'supplementary', 'files']) {
-              if (processedMaterials[category]) {
-                const idx = processedMaterials[category].findIndex(item => item.id === fileId);
-                if (idx !== -1) {
-                  processedMaterials[category].splice(idx, 1);
-                  found = true;
-                  console.log(`Removed invalid file ${removedFile.filename} from ${category}`);
-                  break;
-                }
-              }
-            }
-
-            if (found) {
-              // Update IndexedDB
-              const materialsDB = new MaterialsDB();
-              await materialsDB.saveMaterials(courseId, courseName, processedMaterials);
-              await materialsDB.close();
-
-              // Re-render materials list
-              if (typeof displayMaterials === 'function') {
-                displayMaterials();
-              }
-            }
-          } catch (err) {
-            console.error('Error removing file from IndexedDB:', err);
-          }
-        }
-      }
-    }
-  }
-
-  // Calculate completion percentage and check 50% threshold
-  const completionPercent = status.completion_percent || 0;
-  const hasMinimumSummaries = completionPercent >= 50;  // Enable at 50% instead of 100%
-
-  // Disable Smart File Select if summaries < 50% OR upload is in progress
-  if (!status.success || !hasMinimumSummaries || isUploading) {
-    // Summaries below 50% OR files still uploading - disable the button
-    smartFileToggle.disabled = true;
-    smartFileToggle.classList.add('disabled');
-    smartFileToggle.classList.remove('active'); // Force inactive
-    smartFileToggle.style.opacity = '0.3'; // Force visual opacity
-    // Removed pointerEvents = 'none' to allow hover for tooltip
-
-    const tooltip = smartFileToggle.querySelector('.toggle-icon-tooltip');
-    if (tooltip) {
-      let statusText;
-      if (isUploading) {
-        statusText = 'Uploading files...';
-      } else {
-        const ready = status.summaries_ready || 0;
-        const total = status.total_files || 0;
-        const percent = status.completion_percent || 0;
-        statusText = `Generating summaries: ${ready}/${total} (${percent.toFixed(0)}%)`;
-      }
-      tooltip.textContent = statusText;
-    }
-
-    // Start polling if not already polling (poll while uploading OR summaries pending)
-    if (!summaryStatusPollInterval && (isUploading || status.summaries_pending > 0)) {
-      if (isUploading) {
-        console.log(`📊 Starting summary status polling (upload in progress)`);
-      } else {
-        console.log(`📊 Starting summary status polling (${status.summaries_pending} pending)`);
-      }
-      summaryStatusPollInterval = setInterval(async () => {
-        await updateSmartSelectionAvailability();
-      }, 5000); // Poll every 5 seconds
-    }
-  } else {
-    // Summaries ready AND upload complete - enable the button
-    smartFileToggle.disabled = false;
-    smartFileToggle.classList.remove('disabled');
-    smartFileToggle.style.opacity = ''; // Clear forced opacity
-    smartFileToggle.style.pointerEvents = ''; // Clear forced pointer-events
-
-    const tooltip = smartFileToggle.querySelector('.toggle-icon-tooltip');
-    if (tooltip) {
-      // Restore original helpful tooltip text when ready
-      tooltip.textContent = 'Automatically uses only the most relevant files for your query.';
-    }
-
-    // Stop polling if it was running
-    if (summaryStatusPollInterval) {
-      const ready = status.summaries_ready || 0;
-      const total = status.total_files || 0;
-      const successRate = total > 0 ? ((ready / total) * 100).toFixed(1) : 0;
-
-      console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-      console.log(`📝 SUMMARIZATION COMPLETE:`);
-      console.log(`   Summaries generated: ${ready}/${total}`);
-      console.log(`   Success rate: ${successRate}%`);
-      console.log(`   ✅ Smart File Select: AVAILABLE`);
-      console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-
-      clearInterval(summaryStatusPollInterval);
-      summaryStatusPollInterval = null;
-
-      // Show toast notification
-      showToast('Smart selection is now available!', 'success');
-    }
-  }
+  // No-op - feature disabled
+  return;
 }
 
 function setupEventListeners() {
@@ -2443,9 +2319,15 @@ function setupEventListeners() {
       'This will delete all stored data including your Canvas session, course materials, and chat history. This action cannot be undone. Continue?'
     );
     if (confirmed) {
+      // Clear IndexedDB (course materials)
+      const materialsDB = new MaterialsDB();
+      await materialsDB.clearAll();
+
+      // Clear chrome.storage.local
       await StorageManager.clearAll();
-      // Redirect to popup to set up Canvas authentication
-      window.location.href = '../popup/popup-v2.html';
+
+      // Close the chat window
+      window.close();
     }
   });
 

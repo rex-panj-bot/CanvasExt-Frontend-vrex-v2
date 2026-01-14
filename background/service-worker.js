@@ -3,7 +3,14 @@
  * Handles message passing and background operations
  */
 
-console.log('Canvas Material Extractor: Service worker loaded');
+// Production mode - disable console logging
+const PRODUCTION_MODE = true;
+if (PRODUCTION_MODE) {
+  console.log = () => {};
+  console.warn = () => {};
+  console.debug = () => {};
+  console.info = () => {};
+}
 
 /**
  * Update extension icon based on theme

@@ -1,4 +1,4 @@
-imap/**
+/**
  * Content Script
  * Detects Canvas course pages and extracts course information
  */
@@ -6,7 +6,14 @@ imap/**
 (function() {
   'use strict';
 
-  console.log('Canvas Material Extractor: Content script loaded');
+  // Production mode - disable console logging
+  const PRODUCTION_MODE = true;
+  if (PRODUCTION_MODE) {
+    console.log = () => {};
+    console.warn = () => {};
+    console.debug = () => {};
+    console.info = () => {};
+  }
 
   /**
    * Extract course ID from URL

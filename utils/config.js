@@ -3,9 +3,46 @@
  * Handles backend URL configuration
  */
 
+// Production mode - set to true to disable all console logging
+const PRODUCTION_MODE = true;
+
+// Store original console methods
+const originalConsole = {
+  log: console.log,
+  warn: console.warn,
+  error: console.error,
+  debug: console.debug,
+  info: console.info
+};
+
+// Override console methods in production
+if (PRODUCTION_MODE) {
+  console.log = () => {};
+  console.warn = () => {};
+  console.debug = () => {};
+  console.info = () => {};
+  // Keep console.error for critical errors only in production
+  // but filter out sensitive data
+  console.error = (...args) => {
+    // Filter out any args that might contain sensitive data
+    const safeArgs = args.map(arg => {
+      if (typeof arg === 'string') {
+        // Remove potential API keys, tokens, or sensitive URLs
+        return arg
+          .replace(/api[_-]?key[=:]\s*['"]?[a-zA-Z0-9_-]+['"]?/gi, 'api_key=[REDACTED]')
+          .replace(/token[=:]\s*['"]?[a-zA-Z0-9_.-]+['"]?/gi, 'token=[REDACTED]')
+          .replace(/Bearer\s+[a-zA-Z0-9_.-]+/gi, 'Bearer [REDACTED]');
+      }
+      return arg;
+    });
+    originalConsole.error('[Error]', ...safeArgs);
+  };
+}
+
 class Config {
   static DEFAULT_BACKEND_URL = 'https://web-production-9aaba7.up.railway.app';
   static STORAGE_KEY = 'backend_url';
+  static PRODUCTION_MODE = PRODUCTION_MODE;
 
   /**
    * Get the configured backend URL
