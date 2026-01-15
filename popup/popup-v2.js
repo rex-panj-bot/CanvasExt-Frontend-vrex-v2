@@ -3,6 +3,11 @@
  * Supports: Session Login
  */
 
+// Set PDF.js worker (moved from inline script to comply with CSP)
+if (typeof pdfjsLib !== 'undefined') {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('lib/pdf.worker.min.js');
+}
+
 // Constants
 const PROGRESS_PERCENT = {
   PREPARING: 10,
