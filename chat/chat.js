@@ -466,20 +466,14 @@ async function init() {
     }
   });
 
-  // Restore chat session if chatId is in URL (after all initialization is complete)
-  if (chatIdFromURL) {
-    console.log('🔄 Loading chat session from URL after initialization...');
-    await loadChatSession(chatIdFromURL);
-  } else {
-    // New chat - update URL to reflect blank state
-    updateURL(null);
-  }
-
   // Check for filtered media files notification from popup
   checkFilteredMediaNotification();
 
   // Check for unavailable/unpublished files notification from popup
   checkUnavailableFilesNotification();
+
+  // Check for large files notification (files >100MB skipped during upload)
+  checkLargeFilesNotification();
 
   // Setup cleanup on tab close - clear pending queries and disconnect
   window.addEventListener('beforeunload', handleTabClose);
@@ -548,6 +542,33 @@ async function checkUnavailableFilesNotification() {
     }
   } catch (error) {
     console.error('Error checking unavailable files notification:', error);
+  }
+}
+
+/**
+ * Check if there are large files (>100MB) to notify about
+ */
+async function checkLargeFilesNotification() {
+  try {
+    const result = await chrome.storage.local.get('skippedLargeFiles');
+    const skipped = result.skippedLargeFiles;
+
+    if (skipped && skipped.courseId === courseId && skipped.files?.length > 0) {
+      // Only show if notification is recent (within last 60 seconds)
+      const age = Date.now() - skipped.timestamp;
+      if (age < 60000) {
+        showDropdownNotification(
+          `${skipped.files.length} file${skipped.files.length > 1 ? 's' : ''} too large`,
+          skipped.files.map(f => f.filename || f),
+          'Files over 100MB cannot be processed by AI',
+          8000
+        );
+      }
+      // Clear the notification after showing (or if too old)
+      await chrome.storage.local.remove('skippedLargeFiles');
+    }
+  } catch (error) {
+    console.error('Error checking large files notification:', error);
   }
 }
 
@@ -765,7 +786,7 @@ function displayMaterials() {
       moduleDiv.innerHTML = `
         <div class="module-header" data-module-idx="${moduleIdx}">
           <input type="checkbox" class="module-checkbox" id="module-${moduleIdx}">
-          <svg class="module-chevron rotated" width="12" height="12" viewBox="0 0 16 16" fill="none">
+          <svg class="module-chevron" width="12" height="12" viewBox="0 0 16 16" fill="none">
             <path d="M6 4L10 8L6 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
           <span class="module-name">${module.name || `Module ${moduleIdx + 1}`}</span>
@@ -2627,10 +2648,6 @@ function setupEventListeners() {
   // Refresh materials button handler
   if (refreshBtn) {
     refreshBtn.addEventListener('click', refreshMaterialsFromCanvas);
-  }
-
-  if (refreshBtn) {
-    refreshBtn.addEventListener('click', handleRefreshMaterials);
   }
 
   // Drag and drop file upload on sidebar

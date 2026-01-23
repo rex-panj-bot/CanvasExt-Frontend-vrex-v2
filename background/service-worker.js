@@ -116,6 +116,13 @@ chrome.runtime.onStartup.addListener(() => {
   checkAndResumeUploads();
 });
 
+// Service worker wakeup recovery - runs every time the worker initializes
+// This handles cases where the worker was terminated between upload batches
+(async function checkForInterruptedUploads() {
+  console.log('🔄 Service worker initialized, checking for interrupted uploads...');
+  await checkAndResumeUploads();
+})();
+
 // Listen for theme preference changes (when theme-manager.js updates storage)
 chrome.storage.onChanged.addListener((changes, areaName) => {
   console.log(`📦 [STORAGE LISTENER] Storage changed in ${areaName}:`, Object.keys(changes));
@@ -1291,6 +1298,28 @@ async function handleBackgroundUpload() {
       if (result.uploaded_files && result.uploaded_files.length > 0) {
         console.log(`📝 Updating ${result.uploaded_files.length} materials with stored names...`);
         await updateMaterialsWithStoredNames(courseId, result.uploaded_files);
+      }
+
+      // Track large files that were skipped (>100MB)
+      if (result.uploaded_files && result.uploaded_files.length > 0) {
+        const largeFiles = result.uploaded_files.filter(f =>
+          f.status === 'skipped' && f.reason && f.reason.toLowerCase().includes('too large')
+        );
+        if (largeFiles.length > 0) {
+          console.log(`⚠️ ${largeFiles.length} files skipped due to size limit:`, largeFiles.map(f => f.filename));
+          // Get existing large files and append (for multi-batch uploads)
+          const existing = await chrome.storage.local.get('skippedLargeFiles');
+          const existingFiles = existing.skippedLargeFiles?.courseId === courseId ?
+            existing.skippedLargeFiles.files : [];
+          await chrome.storage.local.set({
+            skippedLargeFiles: {
+              courseId: courseId,
+              files: [...existingFiles, ...largeFiles.map(f => ({ filename: f.filename, reason: f.reason }))],
+              timestamp: Date.now(),
+              reason: 'Files exceed 100MB size limit for AI processing'
+            }
+          });
+        }
       }
 
       // Wait for progress simulation to complete before final update

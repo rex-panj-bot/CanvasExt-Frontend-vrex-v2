@@ -18,7 +18,8 @@ class FileProcessor {
     this.allowedExtensions = [
       'pdf', 'doc', 'docx', 'ppt', 'pptx', 'txt', 'md',
       'xls', 'xlsx', 'odt', 'odp', 'ods', 'rtf',
-      'png', 'jpg', 'jpeg', 'gif', 'webp', 'csv', 'rtf'
+      'png', 'jpg', 'jpeg', 'gif', 'webp', 'csv', 'rtf',
+      'key'  // Apple Keynote (converted to PDF on backend)
     ];
 
     // Keywords to exclude
