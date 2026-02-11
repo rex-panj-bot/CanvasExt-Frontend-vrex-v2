@@ -1786,10 +1786,10 @@ body {
 }
 
 .btn-send {
-  width: 38px;
-  height: 38px;
-  min-width: 38px;
-  min-height: 38px;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
   padding: 0;
   background: var(--gradient-primary);
   color: white;
