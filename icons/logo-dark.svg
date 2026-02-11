@@ -1,40 +1,43 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 150 100" fill="none" stroke="rgba(255,255,255,0.9)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <!-- Top Book (angled right) -->
-  <g transform="translate(25, 0)">
-    <!-- Book outline -->
-    <path d="M20 10 C20 10, 95 5, 100 8 L102 12 L102 24 C102 24, 95 28, 20 25 L15 22 L15 14 Z"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 125 83" fill="none" stroke="rgba(255,255,255,0.92)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Top Book - offset right -->
+  <g>
+    <!-- Main book body -->
+    <path d="M30 5 L105 5 Q108 5, 110 8 L110 20 Q108 23, 105 23 L30 28 Q25 28, 22 25 L22 12 Q25 8, 30 5 Z"/>
     <!-- Spine curve -->
-    <path d="M15 14 Q12 18, 15 22"/>
-    <path d="M20 10 Q17 14, 20 25"/>
-    <!-- Page lines -->
-    <path d="M30 12 L90 9" stroke-width="1"/>
-    <path d="M28 16 L92 13" stroke-width="1"/>
-    <path d="M30 20 L90 18" stroke-width="1"/>
+    <path d="M22 12 Q18 16, 22 25"/>
+    <path d="M30 5 Q26 10, 30 28"/>
+    <!-- Page lines on top -->
+    <path d="M38 8 L100 6" stroke-width="1.2"/>
+    <path d="M36 13 L102 10" stroke-width="1.2"/>
+    <path d="M38 18 L100 16" stroke-width="1.2"/>
+    <path d="M36 23 L98 21" stroke-width="1.2"/>
   </g>
   
-  <!-- Middle Book (angled left) -->
-  <g transform="translate(15, 28)">
-    <!-- Book outline -->
-    <path d="M10 8 C10 8, 85 5, 90 8 L92 12 L92 24 C92 24, 85 28, 10 25 L5 22 L5 14 Z"/>
+  <!-- Middle Book - offset left -->
+  <g>
+    <!-- Main book body -->
+    <path d="M18 30 L95 30 Q98 30, 100 33 L100 46 Q98 49, 95 49 L18 54 Q13 54, 10 51 L10 37 Q13 33, 18 30 Z"/>
     <!-- Spine curve -->
-    <path d="M5 14 Q2 18, 5 22"/>
-    <path d="M10 8 Q7 14, 10 25"/>
+    <path d="M10 37 Q6 42, 10 51"/>
+    <path d="M18 30 Q14 36, 18 54"/>
     <!-- Page lines -->
-    <path d="M20 10 L80 8" stroke-width="1"/>
-    <path d="M18 14 L82 12" stroke-width="1"/>
-    <path d="M20 18 L80 17" stroke-width="1"/>
+    <path d="M26 33 L90 32" stroke-width="1.2"/>
+    <path d="M24 38 L92 36" stroke-width="1.2"/>
+    <path d="M26 43 L90 42" stroke-width="1.2"/>
+    <path d="M24 48 L88 47" stroke-width="1.2"/>
   </g>
   
-  <!-- Bottom Book (angled right, wider) -->
-  <g transform="translate(30, 56)">
-    <!-- Book outline -->
-    <path d="M15 8 C15 8, 100 4, 105 8 L108 12 L108 24 C108 24, 100 29, 15 26 L10 22 L10 14 Z"/>
+  <!-- Bottom Book - offset right, widest -->
+  <g>
+    <!-- Main book body -->
+    <path d="M25 56 L110 54 Q114 54, 116 57 L116 71 Q114 74, 110 74 L25 79 Q20 79, 17 76 L17 62 Q20 58, 25 56 Z"/>
     <!-- Spine curve -->
-    <path d="M10 14 Q7 18, 10 22"/>
-    <path d="M15 8 Q12 14, 15 26"/>
+    <path d="M17 62 Q13 67, 17 76"/>
+    <path d="M25 56 Q21 62, 25 79"/>
     <!-- Page lines -->
-    <path d="M25 10 L95 7" stroke-width="1"/>
-    <path d="M23 14 L98 11" stroke-width="1"/>
-    <path d="M25 19 L95 16" stroke-width="1"/>
+    <path d="M33 58 L105 56" stroke-width="1.2"/>
+    <path d="M31 63 L108 60" stroke-width="1.2"/>
+    <path d="M33 68 L105 66" stroke-width="1.2"/>
+    <path d="M31 73 L103 71" stroke-width="1.2"/>
   </g>
 </svg>
