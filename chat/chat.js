@@ -323,15 +323,50 @@ function setupBackgroundLoadingListener() {
         console.error(`❌ [CHAT] ${taskType} error:`, task.error);
         clearInterval(pollInterval); // Stop polling
         showLoadingBanner(`Error: ${task.error || 'Unknown error'}`, 'error');
+        
+        // Clean up the task
+        const taskKey = taskType === 'upload' ? 'uploadTask' : 'downloadTask';
+        chrome.storage.local.remove([taskKey], () => {
+          console.log(`🧹 [CHAT] Cleared errored ${taskType} task from storage`);
+        });
+        
         setTimeout(() => hideLoadingBanner(), 5000);
+      }
+      
+      // Check for stuck uploads (no progress for 2 minutes)
+      if (task.status === 'uploading' && task.lastProgressTime) {
+        const timeSinceProgress = Date.now() - task.lastProgressTime;
+        if (timeSinceProgress > 2 * 60 * 1000) { // 2 minutes
+          console.log('⏰ [CHAT] Upload appears stuck (no progress for 2 min), checking...');
+          // Don't immediately fail - just log for now
+          // The 30-minute timeout on init will catch truly stuck ones
+        }
       }
     });
   }, 1000); // Poll every 1 second
 
-  // Stop polling after 10 minutes (safety timeout)
+  // Stop polling after 10 minutes (safety timeout) and mark as timed out
   setTimeout(() => {
     clearInterval(pollInterval);
-    console.log('⏱️ [CHAT] Background loading poll timeout');
+    console.log('⏱️ [CHAT] Background loading poll timeout (10 min)');
+    
+    // Check if task is still uploading and mark as timed out
+    chrome.storage.local.get(['uploadTask'], (result) => {
+      const task = result.uploadTask;
+      if (task && task.status === 'uploading' && task.courseId === courseId) {
+        console.log('⏰ [CHAT] Marking upload as timed out');
+        chrome.storage.local.set({
+          uploadTask: {
+            ...task,
+            status: 'error',
+            error: 'Upload timed out - please try again',
+            endTime: Date.now()
+          }
+        });
+        showLoadingBanner('Upload timed out - please try again', 'error');
+        setTimeout(() => hideLoadingBanner(), 5000);
+      }
+    });
   }, 10 * 60 * 1000);
 }
 
@@ -404,7 +439,47 @@ async function init() {
   // Check if we're in loading mode (background loading in progress)
   const isLoading = urlParams.get('loading') === 'true';
 
-  // Setup background loading listener (only if we're in loading mode)
+  // ALWAYS check for active upload tasks, not just when loading=true
+  // This fixes the "hanging upload" bug where status shows uploading even when complete
+  chrome.storage.local.get(['uploadTask'], (result) => {
+    const task = result.uploadTask;
+    if (task && task.courseId === courseId) {
+      if (task.status === 'uploading') {
+        console.log('📡 [CHAT] Found active upload task, setting up listener');
+        setupBackgroundLoadingListener();
+      } else if (task.status === 'complete') {
+        // Task completed but wasn't cleaned up - clean it now
+        console.log('🧹 [CHAT] Found completed upload task, cleaning up');
+        chrome.storage.local.remove(['uploadTask']);
+      } else if (task.status === 'error') {
+        // Show error briefly then clean up
+        console.log('⚠️ [CHAT] Found errored upload task:', task.error);
+        showLoadingBanner(`Upload error: ${task.error || 'Unknown error'}`, 'error');
+        setTimeout(() => {
+          hideLoadingBanner();
+          chrome.storage.local.remove(['uploadTask']);
+        }, 3000);
+      }
+      
+      // Check for stuck uploads (> 30 minutes old with no progress)
+      if (task.status === 'uploading' && task.startTime) {
+        const ageMinutes = (Date.now() - task.startTime) / (1000 * 60);
+        if (ageMinutes > 30) {
+          console.log('⏰ [CHAT] Upload task stuck for > 30 minutes, marking as timeout');
+          chrome.storage.local.set({
+            uploadTask: {
+              ...task,
+              status: 'error',
+              error: 'Upload timed out after 30 minutes',
+              endTime: Date.now()
+            }
+          });
+        }
+      }
+    }
+  });
+
+  // Setup background loading listener if URL param says loading
   if (isLoading) {
     setupBackgroundLoadingListener();
   } else {

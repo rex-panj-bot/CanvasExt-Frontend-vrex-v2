@@ -1335,7 +1335,8 @@ async function handleBackgroundUpload() {
             ...task,
             uploadedFiles: newUploadedFiles,
             currentBatch: currentBatch + 1,
-            lastResult: result
+            lastResult: result,
+            lastProgressTime: Date.now()  // Track progress time for stuck detection
           }
         }, () => {
           if (chrome.runtime.lastError) {
@@ -1408,6 +1409,28 @@ async function handleBackgroundUpload() {
 
   } catch (error) {
     console.error('❌ Background upload error:', error);
+    
+    // CRITICAL FIX: Mark task as error so UI doesn't hang
+    try {
+      const result = await chrome.storage.local.get(['uploadTask']);
+      const task = result.uploadTask;
+      if (task && task.status === 'uploading') {
+        await chrome.storage.local.set({
+          uploadTask: {
+            ...task,
+            status: 'error',
+            error: error.message || 'Unknown error during upload',
+            endTime: Date.now()
+          }
+        });
+        console.log('❌ Task marked as error due to outer catch');
+      }
+    } catch (storageError) {
+      console.error('❌ Failed to update task status:', storageError);
+    }
+    
+    // Clear files from memory
+    uploadFilesQueue = null;
   }
 }
 
