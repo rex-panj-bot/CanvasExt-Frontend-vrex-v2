@@ -3522,61 +3522,95 @@ async function sendMessage() {
 
 /**
  * Parse citations in AI response and convert to clickable links
- * Format: [Source: DocumentName, Page X]
+ * Handles multiple formats including:
+ * - [Source: DocumentName, Page X]
+ * - [Source: DocumentName, Pages X-Y]
+ * - [Source: Doc1, Page X; Doc2, Page Y] (multiple docs)
+ * - [Source: DocumentName.txt] (no page number)
  */
 function parseCitations(content) {
-  // Regex to match various citation formats:
-  // - [Source: DocumentName, Page X]
-  // - [Source: DocumentName, Pages X-Y]
-  // - [Source: DocumentName, p. X]
-  // - [Source: DocumentName - Page X]
-  // - (Source: DocumentName, Page X)
-  const citationRegex = /[\[\(]Source:\s*([^,\]\)]+)[,\-\s]+(?:Pages?|p\.?)\s*([0-9,\s\-]+)[\]\)]/gi;
+  // Match the entire [Source: ...] or (Source: ...) block first
+  const fullCitationRegex = /[\[\(]Source:\s*(.+?)[\]\)]/gi;
 
-  return content.replace(citationRegex, (match, docName, pageInfo) => {
-    // Clean up document name (trim whitespace)
-    const cleanDocName = docName.trim();
+  return content.replace(fullCitationRegex, (match, innerContent) => {
+    // Split by semicolon to handle multiple documents in one citation
+    const sources = innerContent.split(/\s*;\s*/);
+    const allCitations = [];
 
-    // Parse page info - handle ranges (5-7), lists (5, 6, 7), or single pages (5)
-    const pages = [];
+    for (const source of sources) {
+      const trimmedSource = source.trim();
+      if (!trimmedSource) continue;
 
-    // Split by comma first
-    const parts = pageInfo.split(',');
-    for (const part of parts) {
-      const trimmedPart = part.trim();
+      // Try to parse document name and page numbers
+      // Pattern: DocumentName, Page X or DocumentName, Pages X-Y or DocumentName, p. X
+      // Also handles: DocumentName (no pages)
+      const pageMatch = trimmedSource.match(/^(.+?)[,\-]\s*(?:Pages?|p\.?)\s*([0-9,\s\-]+)$/i);
 
-      // Check if it's a range (e.g., "5-7")
-      if (trimmedPart.includes('-')) {
-        const [start, end] = trimmedPart.split('-').map(p => parseInt(p.trim()));
-        if (!isNaN(start) && !isNaN(end)) {
-          // Add all pages in range
-          for (let i = start; i <= end; i++) {
-            pages.push(i);
+      if (pageMatch) {
+        // Has page numbers
+        const docName = pageMatch[1].trim();
+        const pageInfo = pageMatch[2];
+        const pages = parsePageNumbers(pageInfo);
+
+        if (pages.length > 0) {
+          // Create citation links for each page
+          for (const page of pages) {
+            allCitations.push(createCitationLink(docName, page));
           }
+        } else {
+          // Fallback: create link without page
+          allCitations.push(createCitationLink(docName, 1));
         }
       } else {
-        // Single page
-        const page = parseInt(trimmedPart);
-        if (!isNaN(page)) {
-          pages.push(page);
-        }
+        // No page numbers - might be a filename like "[Assignment] Exercise.txt"
+        const docName = trimmedSource.replace(/\.txt$/i, '').trim();
+        allCitations.push(createCitationLink(docName, 1));
       }
     }
 
-    // Create a citation block for each page
-    if (pages.length === 0) {
-      // Fallback if no pages parsed
-      return match;
-    } else if (pages.length === 1) {
-      // Single page - one citation block
-      return `<a href="#" class="citation-link" data-doc-name="${cleanDocName}" data-page="${pages[0]}" title="Open ${cleanDocName} at page ${pages[0]}">${cleanDocName}, p.${pages[0]}</a>`;
-    } else {
-      // Multiple pages - create multiple citation blocks next to each other
-      return pages.map(page =>
-        `<a href="#" class="citation-link" data-doc-name="${cleanDocName}" data-page="${page}" title="Open ${cleanDocName} at page ${page}">${cleanDocName}, p.${page}</a>`
-      ).join(' ');
-    }
+    return allCitations.length > 0 ? allCitations.join(' ') : match;
   });
+}
+
+/**
+ * Parse page numbers from a string like "2, 3, 18-19, 22-23"
+ */
+function parsePageNumbers(pageInfo) {
+  const pages = [];
+  const parts = pageInfo.split(',');
+
+  for (const part of parts) {
+    const trimmedPart = part.trim();
+    if (!trimmedPart) continue;
+
+    // Check if it's a range (e.g., "5-7")
+    if (trimmedPart.includes('-')) {
+      const [start, end] = trimmedPart.split('-').map(p => parseInt(p.trim()));
+      if (!isNaN(start) && !isNaN(end) && end >= start) {
+        // Limit range to prevent huge arrays
+        const rangeSize = Math.min(end - start + 1, 10);
+        for (let i = 0; i < rangeSize; i++) {
+          pages.push(start + i);
+        }
+      }
+    } else {
+      // Single page
+      const page = parseInt(trimmedPart);
+      if (!isNaN(page) && page > 0) {
+        pages.push(page);
+      }
+    }
+  }
+
+  return pages;
+}
+
+/**
+ * Create a citation link HTML element
+ */
+function createCitationLink(docName, page) {
+  const cleanDocName = docName.replace(/"/g, '&quot;');
+  return `<a href="#" class="citation-link" data-doc-name="${cleanDocName}" data-page="${page}" title="Open ${cleanDocName} at page ${page}">${docName}, p.${page}</a>`;
 }
 
 /**
@@ -3771,8 +3805,124 @@ function normalizeFilename(name) {
     .replace(/^[A-Z]{3}_?\d+_/i, '')  // Remove date prefixes like "AUG_28_", "SEP_2_"
     .replace(/\.(pdf|docx?|pptx?|xlsx?|txt|md|csv)$/i, '') // Remove extension
     .replace(/[_-]/g, ' ')  // Replace underscores and dashes with spaces
+    .replace(/\s+/g, ' ')   // Normalize multiple spaces
     .toLowerCase()
     .trim();
+}
+
+/**
+ * Calculate similarity score between two strings (0-1)
+ * Uses word overlap for fuzzy matching
+ */
+function calculateSimilarity(str1, str2) {
+  if (!str1 || !str2) return 0;
+  
+  const words1 = str1.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+  const words2 = str2.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+  
+  if (words1.length === 0 || words2.length === 0) return 0;
+  
+  let matches = 0;
+  for (const word of words1) {
+    if (words2.some(w => w.includes(word) || word.includes(w))) {
+      matches++;
+    }
+  }
+  
+  return matches / Math.max(words1.length, words2.length);
+}
+
+/**
+ * Find best matching file from all materials
+ */
+function findBestMatchingFile(docName) {
+  const normalizedDocName = normalizeFilename(docName);
+  console.log(`🔍 Looking for file: "${docName}" (normalized: "${normalizedDocName}")`);
+  
+  let bestMatch = null;
+  let bestScore = 0;
+  let bestFileName = null;
+
+  // Collect all files from all sources
+  const allFiles = [];
+
+  // From modules
+  if (processedMaterials?.modules) {
+    for (const module of processedMaterials.modules) {
+      if (module.items) {
+        for (const item of module.items) {
+          if (item.type === 'File' && item.title) {
+            allFiles.push({ item, name: item.title || item.display_name || item.name, source: 'module' });
+          }
+        }
+      }
+    }
+  }
+
+  // From standalone files
+  if (processedMaterials?.files) {
+    for (const file of processedMaterials.files) {
+      const name = file.name || file.display_name || '';
+      if (name) {
+        allFiles.push({ item: file, name, source: 'files' });
+      }
+    }
+  }
+
+  // From assignments
+  if (processedMaterials?.assignments) {
+    for (const assignment of processedMaterials.assignments) {
+      const name = assignment.name || '';
+      if (name) {
+        allFiles.push({ item: assignment, name, source: 'assignments' });
+      }
+    }
+  }
+
+  console.log(`📂 Total files to search: ${allFiles.length}`);
+
+  // Remove [Assignment] prefix if present in the citation for matching
+  const docNameWithoutPrefix = normalizedDocName
+    .replace(/^\[?assignment\]?\s*/i, '')
+    .replace(/\.txt$/i, '')
+    .trim();
+
+  for (const { item, name, source } of allFiles) {
+    const normalizedName = normalizeFilename(name);
+    let score = 0;
+
+    // Exact match
+    if (normalizedName === normalizedDocName || normalizedName === docNameWithoutPrefix) {
+      score = 1.0;
+    }
+    // One contains the other
+    else if (normalizedName.includes(normalizedDocName) || normalizedDocName.includes(normalizedName)) {
+      score = 0.9;
+    }
+    else if (normalizedName.includes(docNameWithoutPrefix) || docNameWithoutPrefix.includes(normalizedName)) {
+      score = 0.85;
+    }
+    // Fuzzy word-based match
+    else {
+      score = calculateSimilarity(normalizedDocName, normalizedName);
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestMatch = item;
+      bestFileName = name;
+      console.log(`  📄 Candidate: "${name}" (score: ${score.toFixed(2)}, source: ${source})`);
+    }
+  }
+
+  // Require minimum 50% similarity
+  if (bestScore >= 0.5) {
+    console.log(`✅ Best match: "${bestFileName}" (score: ${bestScore.toFixed(2)})`);
+    return { item: bestMatch, name: bestFileName };
+  }
+
+  console.log(`❌ No match found above threshold (best: ${bestScore.toFixed(2)})`);
+  return null;
 }
 
 /**
@@ -3780,80 +3930,17 @@ function normalizeFilename(name) {
  */
 async function openCitedDocument(docName, pageNum) {
   try {
-    const normalizedDocName = normalizeFilename(docName);
-
-    // Find the file in processedMaterials
-    let fileItem = null;
-    let fileName = null;
-
-    // Check modules
-    if (processedMaterials.modules) {
-      for (const module of processedMaterials.modules) {
-        if (module.items) {
-          for (const item of module.items) {
-            if (item.type === 'File' && item.title) {
-              const normalizedTitle = normalizeFilename(item.title);
-
-              // Try exact match first, then partial match
-              if (normalizedTitle === normalizedDocName || normalizedTitle.includes(normalizedDocName) || normalizedDocName.includes(normalizedTitle)) {
-                fileItem = item;
-                fileName = item.title || item.display_name || item.name;
-                break;
-              }
-            }
-          }
-        }
-        if (fileItem) break;
-      }
-    }
-
-    // Check standalone files
-    if (!fileItem && processedMaterials.files) {
-      for (const file of processedMaterials.files) {
-        const fileNameCheck = file.name || file.display_name || '';
-        if (fileNameCheck) {
-          const normalizedFileName = normalizeFilename(fileNameCheck);
-
-          // Try exact match first, then partial match
-          if (normalizedFileName === normalizedDocName || normalizedFileName.includes(normalizedDocName) || normalizedDocName.includes(normalizedFileName)) {
-            fileItem = file;
-            fileName = fileNameCheck;
-            break;
-          }
-        }
-      }
-    }
-
-    // Check assignments (for citations to assignment text files)
-    // Note: Assignments are uploaded as "[Assignment] Name.txt" so we need to handle that prefix
-    if (!fileItem && processedMaterials.assignments) {
-      // Remove [Assignment] prefix if present in the citation
-      const docNameWithoutPrefix = normalizedDocName
-        .replace(/^\[?assignment\]?\s*/i, '')
-        .replace(/\.txt$/i, '')
-        .trim();
-
-      for (const assignment of processedMaterials.assignments) {
-        const assignmentName = assignment.name || '';
-        const normalizedAssignmentName = normalizeFilename(assignmentName);
-
-        // Try matching with and without the [Assignment] prefix
-        if (normalizedAssignmentName === normalizedDocName ||
-            normalizedAssignmentName === docNameWithoutPrefix ||
-            normalizedAssignmentName.includes(docNameWithoutPrefix) ||
-            docNameWithoutPrefix.includes(normalizedAssignmentName) ||
-            normalizedDocName.includes(normalizedAssignmentName)) {
-          fileItem = assignment;
-          fileName = assignmentName;
-          break;
-        }
-      }
-    }
-
-    if (!fileItem || !fileName) {
+    // Use new fuzzy matching function
+    const match = findBestMatchingFile(docName);
+    
+    if (!match) {
       showError(`File not found: ${docName}`);
+      console.log('Available files:', processedMaterials?.modules?.flatMap(m => m.items?.filter(i => i.type === 'File').map(i => i.title) || []));
       return;
     }
+
+    const fileItem = match.item;
+    const fileName = match.name;
 
     // HASH-BASED: Open file from backend/GCS with page parameter using content hash
     // Backend will append #page=X to the GCS signed URL
