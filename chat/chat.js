@@ -2415,15 +2415,44 @@ function setupEventListeners() {
       'This will delete all stored data including your Canvas session, course materials, and chat history. This action cannot be undone. Continue?'
     );
     if (confirmed) {
-      // Clear IndexedDB (course materials)
-      const materialsDB = new MaterialsDB();
-      await materialsDB.clearAll();
+      try {
+        // Step 1: Get Canvas User ID for backend deletion
+        const canvasUserId = await StorageManager.getCanvasUserId();
+        
+        // Step 2: Delete data from backend server if we have a user ID
+        if (canvasUserId) {
+          console.log(`🗑️ Deleting backend data for user: ${canvasUserId}`);
+          const response = await fetch(
+            `https://web-production-9aaba7.up.railway.app/users/${canvasUserId}/data`,
+            { method: 'DELETE' }
+          );
+          if (response.ok) {
+            const result = await response.json();
+            console.log('✅ Backend data deleted:', result);
+          } else {
+            console.warn('⚠️ Backend deletion returned non-OK status:', response.status);
+          }
+        } else {
+          console.log('ℹ️ No Canvas User ID found, skipping backend deletion');
+        }
 
-      // Clear chrome.storage.local
-      await StorageManager.clearAll();
+        // Step 3: Clear IndexedDB (course materials)
+        const materialsDB = new MaterialsDB();
+        await materialsDB.clearAll();
 
-      // Close the chat window
-      window.close();
+        // Step 4: Clear chrome.storage.local
+        await StorageManager.clearAll();
+
+        // Step 5: Close the chat window
+        window.close();
+      } catch (error) {
+        console.error('❌ Error during data deletion:', error);
+        // Still attempt to clear local data even if backend fails
+        const materialsDB = new MaterialsDB();
+        await materialsDB.clearAll();
+        await StorageManager.clearAll();
+        window.close();
+      }
     }
   });
 
