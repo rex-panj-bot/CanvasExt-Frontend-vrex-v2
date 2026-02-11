@@ -2615,6 +2615,13 @@ function setupEventListeners() {
       const isActive = webSearchIconToggle.classList.contains('active');
       await chrome.storage.local.set({ enable_web_search: isActive });
 
+      // Show toast notification
+      if (isActive) {
+        showToast('Web Search ON — Answers will include live web results.', 3000);
+      } else {
+        showToast('Web Search OFF — Using only your course materials.', 3000);
+      }
+
       // Sync with settings modal toggle
       const settingsToggle = document.getElementById('web-search-toggle');
       if (settingsToggle) {
@@ -2642,6 +2649,14 @@ function setupEventListeners() {
         return;
       }
       smartFileIconToggle.classList.toggle('active');
+
+      // Show toast notification
+      const isActive = smartFileIconToggle.classList.contains('active');
+      if (isActive) {
+        showToast('Smart Select ON — AI picks the most relevant files for your question.', 3000);
+      } else {
+        showToast('Smart Select OFF — Using your manual file selection.', 3000);
+      }
     });
 
     // Position tooltip dynamically
